@@ -291,6 +291,22 @@ def _resolve_organization_from_form(
     )
 
 
+def _hydrate_group_realm_slugs(db: Session, groups: list[RBACGroup]) -> None:
+    """Fill display slug from RealmConfig when the legacy column is empty."""
+    missing = [g for g in groups if not (g.realm_slug or "").strip() and g.realm_id]
+    if not missing:
+        return
+    realm_ids = {g.realm_id for g in missing}
+    realms_by_id = {
+        r.id: r
+        for r in db.query(RealmConfig).filter(RealmConfig.id.in_(realm_ids)).all()
+    }
+    for group in missing:
+        realm = realms_by_id.get(group.realm_id)
+        if realm is not None and realm.slug:
+            group.realm_slug = realm.slug
+
+
 def _form_context(db: Session) -> dict:
     realms = _provisioning_realms(db)
     groups = (
@@ -299,6 +315,7 @@ def _form_context(db: Session) -> dict:
         .order_by(RBACGroup.name)
         .all()
     )
+    _hydrate_group_realm_slugs(db, groups)
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
     shared_ids = {
         row[0]
@@ -546,10 +563,7 @@ async def admin_rbac_user_view(
         row["rbac_group_id"] for row in membership_rows if row.get("rbac_group_id")
     }
     assignable_groups = [g for g in assignable_groups if g.id not in member_rbac_ids]
-    realms_by_id = {r.id: r for r in db.query(RealmConfig).all()}
-    for g in assignable_groups:
-        if not g.realm_slug and g.realm_id in realms_by_id:
-            g.realm_slug = realms_by_id[g.realm_id].slug
+    _hydrate_group_realm_slugs(db, assignable_groups)
 
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
     provisionings = []

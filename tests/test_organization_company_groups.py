@@ -272,3 +272,27 @@ def test_new_user_form_lists_untagged_top_level_group_beside_societe(client, db_
     assert "ADEMD" in pick
     assert "28RT" in pick
     assert "nested" not in pick
+
+
+def test_new_user_form_shows_realm_slug_not_question_mark(client, db_session):
+    """Keycloak-synced groups have realm_id but often no realm_slug column."""
+    realm = _realm(db_session)
+    db_session.add(
+        RBACGroup(
+            realm_id=realm.id,
+            keycloak_group_id="kc-ghost",
+            name="MINARM-GHOST",
+            path="/MINARM-GHOST",
+            realm_slug=None,
+        )
+    )
+    db_session.commit()
+
+    resp = client.get("/admin/rbac/users/new", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    groups_html = resp.text.split("data-groups-list", 1)[1]
+    rows = groups_html.split("data-group-row")
+    ghost = next(chunk for chunk in rows if "MINARM-GHOST" in chunk)
+    badge = ghost.split("MINARM-GHOST", 1)[0]
+    assert f">{realm.slug}</span>" in badge
+    assert ">?</span>" not in badge

@@ -1230,6 +1230,7 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
                 keycloak_group_id=kc_id,
                 name=name,
                 path=path,
+                realm_slug=realm.slug,
                 synced_at=now,
             )
             db.add(existing)
@@ -1241,6 +1242,9 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
                 changed = True
             if existing.path != path:
                 existing.path = path
+                changed = True
+            if (existing.realm_slug or "") != (realm.slug or ""):
+                existing.realm_slug = realm.slug
                 changed = True
             existing.synced_at = now
             if changed:

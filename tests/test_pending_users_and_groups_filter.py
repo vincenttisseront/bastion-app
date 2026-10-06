@@ -394,3 +394,8 @@ async def test_sync_refreshes_members_without_include_allowlist(db_session):
         for g in db_session.query(RBACGroup).filter_by(realm_id=realm.id).all()
     }
     assert counts == {"TeamA": 2, "TeamB": 1}
+    slugs = {
+        g.name: g.realm_slug
+        for g in db_session.query(RBACGroup).filter_by(realm_id=realm.id).all()
+    }
+    assert slugs == {"TeamA": realm.slug, "TeamB": realm.slug}
