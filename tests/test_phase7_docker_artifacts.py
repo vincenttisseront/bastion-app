@@ -15,6 +15,24 @@ def test_dockerfile_no_alembic_in_runtime_cmd():
     assert "uvicorn" in runtime
 
 
+def test_nginx_dockerfile_last_user_is_not_root():
+    """docker:S6471 — last USER must not be root; compose overrides to 0:0 for the entrypoint."""
+    lines = [
+        ln.strip()
+        for ln in (ROOT / "docker" / "nginx" / "Dockerfile").read_text(encoding="utf-8").splitlines()
+        if ln.strip().upper().startswith("USER ")
+    ]
+    assert lines, "nginx Dockerfile has no USER instruction"
+    last = lines[-1].split(None, 1)[1]
+    assert last.split(":")[0] not in {"root", "0"}
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    nginx_block = compose.split("\n  nginx:\n", 1)[1].split("\n  acme-companion:", 1)[0]
+    assert 'user: "0:0"' in nginx_block
+    deploy = (ROOT / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
+    deploy_nginx = deploy.split("\n  nginx:\n", 1)[1].split("\n  acme-companion:", 1)[0]
+    assert 'user: "0:0"' in deploy_nginx
+
+
 def test_compose_split_topology_binds():
     text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     assert "127.0.0.1:8000:8000" in text

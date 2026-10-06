@@ -16,6 +16,13 @@ JSON_HEADERS = {**ADMIN_HEADERS, "Accept": "application/json"}
 KC_BASE = "https://kc.example.com"
 KC_ADMIN = f"{KC_BASE}/admin/realms/AR-SYSTEMS"
 TOKEN_URL = f"{KC_BASE}/realms/AR-SYSTEMS/protocol/openid-connect/token"
+_KC_GROUPS_LIST_RE = rf"{KC_ADMIN.replace('.', r'\.')}/groups(?:\?.*)?$"
+_KC_GROUPS_CHILDREN_RE = rf"{KC_ADMIN.replace('.', r'\.')}/groups/[^/?]+/children.*"
+
+
+def _mock_kc_groups_list(payload: list | None = None) -> None:
+    respx.get(url__regex=_KC_GROUPS_LIST_RE).respond(200, json=payload or [])
+    respx.get(url__regex=_KC_GROUPS_CHILDREN_RE).respond(200, json=[])
 
 
 def _settings() -> Settings:
@@ -266,7 +273,7 @@ def test_bastion_account_creates_company_group_when_missing(client, db_session):
 
     respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
     _mock_no_duplicate()
-    respx.get(f"{KC_ADMIN}/groups").respond(200, json=[])
+    _mock_kc_groups_list([])
     group_create = respx.post(f"{KC_ADMIN}/groups").respond(
         201, headers={"Location": f"{KC_ADMIN}/groups/g-sdis"}
     )

@@ -12,6 +12,16 @@ ADMIN_HEADERS = {
     "X-Groups": "portal-admins",
 }
 
+_GROUPS_LIST_RE = r"https://kc\.example\.com/admin/realms/demo/groups(?:\?.*)?$"
+_GROUPS_CHILDREN_RE = r"https://kc\.example\.com/admin/realms/demo/groups/[^/?]+/children.*"
+
+
+def _mock_kc_group_tree(roots: list, *, children: list | None = None) -> None:
+    respx.get(url__regex=_GROUPS_LIST_RE).respond(200, json=roots)
+    respx.get(url__regex=_GROUPS_CHILDREN_RE).respond(
+        200, json=children if children is not None else []
+    )
+
 
 def _test_settings() -> Settings:
     return Settings(
@@ -56,21 +66,19 @@ def test_sync_imports_and_updates_and_orphans(client, db_session):
     realm = _make_realm(db_session, settings)
 
     token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
-    groups_url = "https://kc.example.com/admin/realms/demo/groups?briefRepresentation=false"
 
     respx.post(token_url).respond(
         200, json={"access_token": "t"}, headers={"content-type": "application/json"}
     )
-    respx.get(groups_url).respond(
-        200,
-        json=[
+    _mock_kc_group_tree(
+        [
             {
                 "id": "g1",
                 "name": "portal-admins",
                 "path": "/portal-admins",
                 "subGroups": [{"id": "g2", "name": "sub", "path": "/portal-admins/sub"}],
             }
-        ],
+        ]
     )
 
     resp = client.post(
@@ -90,11 +98,8 @@ def test_sync_imports_and_updates_and_orphans(client, db_session):
     respx.post(token_url).respond(
         200, json={"access_token": "t"}, headers={"content-type": "application/json"}
     )
-    respx.get(groups_url).respond(
-        200,
-        json=[
-            {"id": "g1", "name": "portal-admins-renamed", "path": "/portal-admins"}
-        ],
+    _mock_kc_group_tree(
+        [{"id": "g1", "name": "portal-admins-renamed", "path": "/portal-admins"}]
     )
     resp2 = client.post(
         f"/admin/rbac/groups/sync/{realm.id}",
@@ -149,12 +154,11 @@ def test_sync_403_role_missing_message(client, db_session):
     settings = _test_settings()
     realm = _make_realm(db_session, settings)
     token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
-    groups_url = "https://kc.example.com/admin/realms/demo/groups?briefRepresentation=false"
 
     respx.post(token_url).respond(
         200, json={"access_token": "t"}, headers={"content-type": "application/json"}
     )
-    respx.get(groups_url).respond(403, json={"error": "forbidden"})
+    respx.get(url__regex=_GROUPS_LIST_RE).respond(403, json={"error": "forbidden"})
 
     resp = client.post(
         f"/admin/rbac/groups/sync/{realm.id}",
@@ -170,13 +174,11 @@ def test_realm_list_force_sync_imports_groups(client, db_session):
     realm = _make_realm(db_session, settings)
 
     token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
-    groups_url = "https://kc.example.com/admin/realms/demo/groups?briefRepresentation=false"
     respx.post(token_url).respond(
         200, json={"access_token": "t"}, headers={"content-type": "application/json"}
     )
-    respx.get(groups_url).respond(
-        200,
-        json=[{"id": "g1", "name": "portal-admins", "path": "/portal-admins", "subGroups": []}],
+    _mock_kc_group_tree(
+        [{"id": "g1", "name": "portal-admins", "path": "/portal-admins", "subGroups": []}],
     )
 
     import hashlib
@@ -199,4 +201,88 @@ def test_realm_list_force_sync_imports_groups(client, db_session):
     assert data["imported"] == 1
     db_session.refresh(realm)
     assert realm.last_groups_sync_status == "ok"
+
+
+@respx.mock
+def test_sync_paginates_keycloak_groups(client, db_session, monkeypatch):
+    from urllib.parse import parse_qs, urlparse
+
+    monkeypatch.setattr("app.rbac.keycloak_admin._GROUPS_PAGE_SIZE", 2)
+    settings = _test_settings()
+    realm = _make_realm(db_session, settings)
+    token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
+    respx.post(token_url).respond(
+        200, json={"access_token": "t"}, headers={"content-type": "application/json"}
+    )
+
+    def _paged(request):
+        first = int(parse_qs(urlparse(str(request.url)).query).get("first", ["0"])[0])
+        if first == 0:
+            return Response(
+                200,
+                json=[
+                    {"id": "g0", "name": "G0", "path": "/G0"},
+                    {"id": "g1", "name": "G1", "path": "/G1"},
+                ],
+            )
+        if first == 2:
+            return Response(200, json=[{"id": "g2", "name": "G2", "path": "/G2"}])
+        return Response(200, json=[])
+
+    respx.get(url__regex=_GROUPS_LIST_RE).mock(side_effect=_paged)
+    respx.get(url__regex=_GROUPS_CHILDREN_RE).respond(200, json=[])
+    respx.get(url__regex=r".*/groups/[^/]+/members.*").respond(200, json=[])
+
+    resp = client.post(
+        f"/admin/rbac/groups/sync/{realm.id}",
+        headers={**ADMIN_HEADERS, "accept": "application/json"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fetched"] == 3
+    assert data["imported"] == 3
+
+
+@respx.mock
+def test_sync_loads_children_when_subgroups_empty(client, db_session):
+    settings = _test_settings()
+    realm = _make_realm(db_session, settings)
+    token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
+    respx.post(token_url).respond(
+        200, json={"access_token": "t"}, headers={"content-type": "application/json"}
+    )
+    respx.get(url__regex=_GROUPS_LIST_RE).respond(
+        200,
+        json=[{"id": "parent", "name": "parent", "path": "/parent", "subGroups": []}],
+    )
+
+    def _children(request):
+        url = str(request.url)
+        if "/groups/parent/children" in url:
+            return Response(
+                200,
+                json=[
+                    {
+                        "id": "child",
+                        "name": "child",
+                        "path": "/parent/child",
+                        "subGroups": [],
+                    }
+                ],
+            )
+        return Response(200, json=[])
+
+    respx.get(url__regex=_GROUPS_CHILDREN_RE).mock(side_effect=_children)
+    respx.get(url__regex=r".*/groups/[^/]+/members.*").respond(200, json=[])
+
+    resp = client.post(
+        f"/admin/rbac/groups/sync/{realm.id}",
+        headers={**ADMIN_HEADERS, "accept": "application/json"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fetched"] == 2
+    assert data["imported"] == 2
+    names = {g.name for g in db_session.query(RBACGroup).filter_by(realm_id=realm.id)}
+    assert names == {"parent", "child"}
 

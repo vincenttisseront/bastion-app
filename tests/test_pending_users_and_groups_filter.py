@@ -267,6 +267,9 @@ def test_pending_users_page_and_approve(client, db_session):
 
 @respx.mock
 def test_sync_respects_groups_include_filter(client, db_session):
+    from app.admin.throttling import reset_test_rate_limits
+
+    reset_test_rate_limits()
     settings = Settings(
         vault_portal_internal_token="test-secret",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
@@ -291,17 +294,19 @@ def test_sync_respects_groups_include_filter(client, db_session):
     db_session.commit()
 
     token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
-    groups_url = "https://kc.example.com/admin/realms/demo/groups?briefRepresentation=false"
+    groups_re = r"https://kc\.example\.com/admin/realms/demo/groups(?:\?.*)?$"
+    children_re = r"https://kc\.example\.com/admin/realms/demo/groups/[^/?]+/children.*"
     respx.post(token_url).respond(
         200, json={"access_token": "t"}, headers={"content-type": "application/json"}
     )
-    respx.get(groups_url).respond(
+    respx.get(url__regex=groups_re).respond(
         200,
         json=[
             {"id": "1", "name": "ARSYSTEMS-Users", "path": "/ARSYSTEMS-Users"},
             {"id": "2", "name": "ABIOM", "path": "/Societes/ABIOM"},
         ],
     )
+    respx.get(url__regex=children_re).respond(200, json=[])
     respx.get(
         "https://kc.example.com/admin/realms/demo/groups/1/members?max=500"
     ).respond(
@@ -358,17 +363,19 @@ async def test_sync_refreshes_members_without_include_allowlist(db_session):
     db_session.commit()
 
     token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
-    groups_url = "https://kc.example.com/admin/realms/demo/groups?briefRepresentation=false"
+    groups_re = r"https://kc\.example\.com/admin/realms/demo/groups(?:\?.*)?$"
+    children_re = r"https://kc\.example\.com/admin/realms/demo/groups/[^/?]+/children.*"
     respx.post(token_url).respond(
         200, json={"access_token": "t"}, headers={"content-type": "application/json"}
     )
-    respx.get(groups_url).respond(
+    respx.get(url__regex=groups_re).respond(
         200,
         json=[
             {"id": "10", "name": "TeamA", "path": "/TeamA"},
             {"id": "11", "name": "TeamB", "path": "/TeamB"},
         ],
     )
+    respx.get(url__regex=children_re).respond(200, json=[])
     respx.get(
         "https://kc.example.com/admin/realms/demo/groups/10/members?max=500"
     ).respond(200, json=[{"id": "u1"}, {"id": "u2"}])

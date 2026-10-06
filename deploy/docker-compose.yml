@@ -134,6 +134,7 @@ services:
   nginx:
     image: ${BASTION_NGINX_IMAGE:-vincenttisseront/bastion-pro-nginx:latest}
     container_name: bastion-nginx
+    user: "0:0"
     ulimits:
       nofile:
         soft: 65535
