@@ -634,6 +634,11 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "    }",
             "",
             f"    location {named_upstream} {{",
+            # Named locations inherit server-level ModSecurity, not location /.
+            # CRS 930130 matches "password" in jQuery.passwordValidator.js; POSTs
+            # to /WebInterface/function/ score as SQLi/XSS. Deny body is HTML
+            # plus edge nosniff → NS_ERROR_CORRUPTED_CONTENT in the browser.
+            _NGX_MODSECURITY_OFF,
             *proxy_body_lines,
             "    }",
         ]

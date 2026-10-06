@@ -199,6 +199,8 @@ def test_generate_crushftp_block_filters_portal_cookies():
     assert "try_files /nonexistent @app_upstream_transfer;" in main
     # Filter lives only in the named upstream location (after auth).
     named = block.split("location @app_upstream_transfer {", 1)[1]
+    named_body = named.split("location @portal_redirect_transfer", 1)[0]
+    assert "modsecurity off;" in named_body
     assert "set $bastion_upstream_cookie" in named
     assert "proxy_set_header Cookie $bastion_upstream_cookie;" in named
     assert "proxy_set_header Cookie $http_cookie;" not in named
