@@ -158,12 +158,13 @@
 # (no FastAPI, no error_page proxy — wget must not hang on /errors/500).
 - name: "SMOKE : nginx ModSec path /_portal_modsec_ok must not be 500"
   ansible.builtin.shell: |
-    set -o pipefail
     cid="{{ _nginx_cid.stdout | trim }}"
-    code="$(docker exec "$cid" wget -S -O /dev/null --timeout=8 --tries=1 \
-      --header="Host: {{ portal_domain | default('portal.example.com') }}" \
-      http://127.0.0.1:8080/_portal_modsec_ok 2>&1 \
-      | awk 'BEGIN{c=0} /HTTP\/[0-9.]+ [0-9][0-9][0-9]/{c=$2} END{print c+0}')"
+    # Loopback Host (in known-hosts map). Do not send portal_domain: that can
+    # rewrite to unknown-host → FastAPI before the map/reload is ready.
+    # First CRS request on 16k rules can exceed 8s — allow 30s.
+    raw="$(docker exec "$cid" wget -S -O /dev/null --timeout=30 --tries=1 \
+      http://127.0.0.1:8080/_portal_modsec_ok 2>&1 || true)"
+    code="$(printf '%s\n' "$raw" | grep -oE 'HTTP/[0-9.]+ [0-9]{3}' | awk 'END { print $2+0 }')"
     echo "modsec_ok_http=$code"
     test "$code" -ge 200 -a "$code" -lt 500 -a "$code" -ne 0
   args:
@@ -210,8 +211,7 @@
     echo "=== container logs (tail) ==="
     to docker logs --tail 40 "$cid" 2>&1 || true
     echo "=== wget /_portal_modsec_ok ==="
-    to docker exec "$cid" wget -S -O /dev/null --timeout=8 --tries=1 \
-      --header="Host: {{ portal_domain | default('portal.example.com') }}" \
+    to docker exec "$cid" wget -S -O /dev/null --timeout=30 --tries=1 \
       http://127.0.0.1:8080/_portal_modsec_ok 2>&1 || true
   args:
     executable: /bin/bash

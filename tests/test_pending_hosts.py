@@ -418,6 +418,7 @@ def test_docker_portal_has_unknown_host_rewrite():
         / "docker/nginx/templates/vhost_sso_portal.conf.template"
     ).read_text(encoding="utf-8")
     assert "$bastion_unknown_host" in text
+    assert "$uri ~ ^/_portal_" in text
     assert "location = /__bastion_unknown_host" in text
     assert "location = /internal/unknown-host" in text
     assert "proxy_intercept_errors off" in text
