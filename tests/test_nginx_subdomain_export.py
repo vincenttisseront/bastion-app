@@ -206,10 +206,9 @@ def test_generate_crushftp_block_filters_portal_cookies():
     named_body = named.split("location @portal_redirect_transfer", 1)[0]
     assert "modsecurity off;" in named_body
     assert "proxy_intercept_errors off;" in named_body
-    after_include = block.split(
-        "include /etc/nginx/snippets/modsecurity-subdomain.conf;", 1
-    )[1].split("absolute_redirect", 1)[0]
-    assert "modsecurity off;" in after_include
+    assert "include /etc/nginx/snippets/modsecurity-subdomain.conf;" not in block
+    server_preamble = block.split("absolute_redirect", 1)[0]
+    assert "    modsecurity off;" in server_preamble
     assert "set $bastion_upstream_cookie" in named
     assert "proxy_set_header Cookie $bastion_upstream_cookie;" in named
     assert "proxy_set_header Cookie $http_cookie;" not in named

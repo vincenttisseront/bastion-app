@@ -480,16 +480,18 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "    listen 0.0.0.0:8080;",
         f"    server_name {fqdn_esc};",
         "",
-        "    include /etc/nginx/snippets/modsecurity-subdomain.conf;",
         *(
             [
                 "    # CrushFTP WebInterface is incompatible with CRS (password*.js,",
-                "    # POST /WebInterface/function/). Named locations inherit server-level",
-                "    # ModSecurity, not location / — try_files would re-enable CRS.",
+                "    # POST /WebInterface/function/). Do not include the subdomain",
+                "    # snippet: it already sets `modsecurity` and nginx rejects a second",
+                "    # copy in the same server{}.",
                 "    modsecurity off;",
             ]
             if crushftp
-            else []
+            else [
+                "    include /etc/nginx/snippets/modsecurity-subdomain.conf;",
+            ]
         ),
         "",
         "    absolute_redirect off;",
