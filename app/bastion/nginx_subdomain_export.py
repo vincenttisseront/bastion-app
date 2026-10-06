@@ -37,6 +37,32 @@ _NGX_PROXY_X_AUTH_SOURCE = "        proxy_set_header X-Auth-Source $auth_source;
 # Canonical backend identity for HTTP REMOTE_USER apps (Zabbix, …) — SSO email.
 _NGX_PROXY_X_REMOTE_USER = "        proxy_set_header X-Remote-User $bastion_remote_user;"
 _NGX_MODSECURITY_OFF = "        modsecurity off;"
+# CrushFTP named-upstream overlay (connector on in location{}, never in server{}).
+_CRUSHFTP_CRS_ENGINE_ON = (
+    '        SecAction "id:1500100,phase:1,pass,nolog,ctl:ruleEngine=On"'
+)
+_CRUSHFTP_CRS_JS_LFI = (
+    '        SecRule REQUEST_URI "@rx ^/WebInterface/Resources/[^?]*\\.js$" '
+    '"id:1500101,phase:1,pass,nolog,ctl:ruleRemoveById=930130"'
+)
+_CRUSHFTP_CRS_FUNCTION = (
+    '        SecRule REQUEST_URI "@beginsWith /WebInterface/function/" '
+    '"id:1500102,phase:1,pass,nolog,'
+    "ctl:ruleRemoveById=930130,"
+    "ctl:ruleRemoveTargetById=930100;ARGS,"
+    "ctl:ruleRemoveTargetById=930110;ARGS,"
+    "ctl:ruleRemoveTargetById=930120;ARGS,"
+    "ctl:ruleRemoveTargetById=941100;ARGS:password,"
+    "ctl:ruleRemoveTargetById=941110;ARGS:password,"
+    "ctl:ruleRemoveTargetById=941160;ARGS:password,"
+    "ctl:ruleRemoveTargetById=942100;ARGS:password,"
+    'ctl:ruleRemoveTargetById=942110;ARGS:password"'
+)
+_CRUSHFTP_CRS_UPLOAD_BODY = (
+    '        SecRule REQUEST_HEADERS:Content-Type '
+    '"@rx ^(?:multipart/form-data|application/octet-stream)" '
+    '"id:1500103,phase:1,pass,nolog,ctl:requestBodyAccess=Off"'
+)
 _NGX_AUTH_REQUEST_OFF = "        auth_request off;"
 _NGX_PROXY_PASS_UPSTREAM = "        proxy_pass $app_upstream;"
 _NGX_PROXY_HTTP_VERSION = "        proxy_http_version 1.1;"
@@ -212,6 +238,26 @@ def _activesync_locations(
         "        return 401 \"ActiveSync authentication required\\n\";",
         "    }",
         "",
+    ]
+
+
+def _crushftp_named_modsecurity_lines() -> list[str]:
+    """Arm CRS on CrushFTP upstream without a second server-level `modsecurity`.
+
+    The subdomain snippet already sets the connector in server{}. This location
+    turns the engine on (family switch / SecRuleEngine may be Off) and drops
+    known WebInterface false positives only — uploads/WebFS keep URI LFI/RCE.
+    """
+    return [
+        "        # CrushFTP WebInterface: CRS on. Exclusions are UI FPs only",
+        "        # (password*.js = 930130; function/ ARGS paths look like LFI).",
+        "        modsecurity on;",
+        "        modsecurity_rules '",
+        _CRUSHFTP_CRS_ENGINE_ON,
+        _CRUSHFTP_CRS_JS_LFI,
+        _CRUSHFTP_CRS_FUNCTION,
+        _CRUSHFTP_CRS_UPLOAD_BODY,
+        "        ';",
     ]
 
 
@@ -480,19 +526,9 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "    listen 0.0.0.0:8080;",
         f"    server_name {fqdn_esc};",
         "",
-        *(
-            [
-                "    # CrushFTP WebInterface is incompatible with CRS (password*.js,",
-                "    # POST /WebInterface/function/). Do not include the subdomain",
-                "    # snippet: it already sets `modsecurity` and nginx rejects a second",
-                "    # copy in the same server{}.",
-                "    modsecurity off;",
-            ]
-            if crushftp
-            else [
-                "    include /etc/nginx/snippets/modsecurity-subdomain.conf;",
-            ]
-        ),
+        # One `modsecurity` in this server{} — the snippet includes the switch.
+        # CrushFTP arms CRS in the named upstream (location), not here.
+        "    include /etc/nginx/snippets/modsecurity-subdomain.conf;",
         "",
         "    absolute_redirect off;",
         "    port_in_redirect off;",
@@ -646,7 +682,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "    }",
             "",
             f"    location {named_upstream} {{",
-            _NGX_MODSECURITY_OFF,
+            *_crushftp_named_modsecurity_lines(),
             "        proxy_intercept_errors off;",
             *proxy_body_lines,
             "    }",

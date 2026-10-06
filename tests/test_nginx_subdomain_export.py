@@ -204,11 +204,18 @@ def test_generate_crushftp_block_filters_portal_cookies():
     # Filter lives only in the named upstream location (after auth).
     named = block.split("location @app_upstream_transfer {", 1)[1]
     named_body = named.split("location @portal_redirect_transfer", 1)[0]
-    assert "modsecurity off;" in named_body
+    assert "modsecurity on;" in named_body
+    assert "modsecurity off;" not in named_body
+    assert "ctl:ruleEngine=On" in named_body
+    assert "ctl:ruleRemoveById=930130" in named_body
+    assert "@beginsWith /WebInterface/function/" in named_body
+    assert "ctl:requestBodyAccess=Off" in named_body
     assert "proxy_intercept_errors off;" in named_body
-    assert "include /etc/nginx/snippets/modsecurity-subdomain.conf;" not in block
+    assert "include /etc/nginx/snippets/modsecurity-subdomain.conf;" in block
+    assert block.count("include /etc/nginx/snippets/modsecurity-subdomain.conf;") == 1
     server_preamble = block.split("absolute_redirect", 1)[0]
-    assert "    modsecurity off;" in server_preamble
+    assert "    modsecurity off;" not in server_preamble
+    assert "    modsecurity on;" not in server_preamble
     assert "set $bastion_upstream_cookie" in named
     assert "proxy_set_header Cookie $bastion_upstream_cookie;" in named
     assert "proxy_set_header Cookie $http_cookie;" not in named
