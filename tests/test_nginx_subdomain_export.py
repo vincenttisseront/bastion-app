@@ -138,6 +138,10 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "proxy_set_header Connection $connection_upgrade;" in main
     assert "proxy_set_header Connection $http_connection;" not in block
     assert "include /etc/nginx/snippets/modsecurity-subdomain.conf;" in block
+    after_include = block.split(
+        "include /etc/nginx/snippets/modsecurity-subdomain.conf;", 1
+    )[1].split("absolute_redirect", 1)[0]
+    assert "modsecurity off;" not in after_include
     hop = block.split("location = /.bastion/session-cookies {", 1)[1].split("}", 1)[0]
     assert "modsecurity off;" in hop
 
@@ -201,6 +205,11 @@ def test_generate_crushftp_block_filters_portal_cookies():
     named = block.split("location @app_upstream_transfer {", 1)[1]
     named_body = named.split("location @portal_redirect_transfer", 1)[0]
     assert "modsecurity off;" in named_body
+    assert "proxy_intercept_errors off;" in named_body
+    after_include = block.split(
+        "include /etc/nginx/snippets/modsecurity-subdomain.conf;", 1
+    )[1].split("absolute_redirect", 1)[0]
+    assert "modsecurity off;" in after_include
     assert "set $bastion_upstream_cookie" in named
     assert "proxy_set_header Cookie $bastion_upstream_cookie;" in named
     assert "proxy_set_header Cookie $http_cookie;" not in named

@@ -124,6 +124,16 @@ async def lifespan(app: FastAPI):
             from app.security.banning.engine import ensure_security_defaults
 
             ensure_security_defaults(db)
+            try:
+                from app.bastion.nginx_subdomain_export import (
+                    write_subdomain_apps_exports,
+                )
+
+                write_subdomain_apps_exports(db, settings)
+            except Exception:
+                logger.exception(
+                    "subdomain nginx export at startup failed (non-fatal)"
+                )
         try:
             sync_hot_engine_from_config(db, settings)
         except Exception:

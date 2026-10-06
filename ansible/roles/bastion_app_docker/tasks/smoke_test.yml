@@ -507,6 +507,8 @@
         exit 1
       fi
       docker exec bastion-nginx grep -q 'proxy_redirect http://' "$conf"
+      docker exec bastion-nginx grep -A3 'location @app_upstream_' "$conf" \
+        | grep -q 'modsecurity off'
     fi
     echo "subdomain export bastion_sub + vhost fqdn + Cookie capture OK"
   args:
