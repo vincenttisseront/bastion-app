@@ -10,8 +10,7 @@
 # on owasp/modsecurity-crs as of this pin).
 FROM owasp/modsecurity-crs:4.28.0-nginx-alpine-202607160307
 
-# Image defaults to USER nginx; entrypoint writes conf.d then drops privileges.
-# NOSONAR: USER root is required for that entrypoint, not a runtime identity.
+# Image defaults to USER nginx; apk and COPY need root during the build.
 USER root
 
 RUN apk add --no-cache bash gettext wget jq findutils openssl logrotate \
@@ -57,3 +56,7 @@ EXPOSE 80 443 8080
 
 ENTRYPOINT ["/docker-entrypoint-portal.sh"]
 CMD ["nginx", "-g", "daemon off;"]
+
+# Last USER must not be root (docker:S6471). The portal entrypoint still needs
+# root at runtime to render conf.d and start crond — compose sets user: "0:0".
+USER nginx

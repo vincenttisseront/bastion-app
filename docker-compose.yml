@@ -159,6 +159,8 @@ services:
     build: ./docker/nginx
     image: bastion-nginx:local
     container_name: bastion-nginx
+    # Image default USER is nginx (docker:S6471). Entrypoint writes /etc/nginx/conf.d.
+    user: "0:0"
     # Match worker_rlimit_nofile in docker/nginx/nginx.conf (default Docker soft=1024 → EMFILE).
     ulimits:
       nofile:

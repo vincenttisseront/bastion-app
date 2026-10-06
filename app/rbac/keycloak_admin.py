@@ -22,6 +22,14 @@ _KC_REALMS_PATH = "/realms/"
 
 # Concurrent Keycloak member-count refreshes during group sync.
 _MEMBER_REFRESH_CONCURRENCY = 8
+# GET /groups defaults to max=100 and empty subGroups (Keycloak 23+).
+_GROUPS_PAGE_SIZE = 100
+_GROUPS_HARD_CAP = 5000
+_GROUPS_TREE_TIMEOUT = 30.0
+_MSG_QUERY_GROUPS = (
+    "Le compte de service n'a pas le rôle realm-management:query-groups. "
+    "Vérifiez la configuration côté Keycloak."
+)
 
 
 def _issuer_parts(issuer_url: str) -> tuple[str, str]:
@@ -875,20 +883,14 @@ async def find_keycloak_group_by_match_key(
 async def _load_keycloak_groups_list(
     realm: RealmConfig, settings: Settings, *, token: str
 ) -> list:
-    resp = await _admin_get(
-        realm,
-        settings,
-        "/groups?briefRepresentation=false",
-        token=token,
-    )
-    if resp.status_code == 403:
+    try:
+        return await _fetch_keycloak_groups_with_token(realm, settings, token)
+    except ValueError as exc:
+        if "query-groups" not in str(exc):
+            raise
         # Fall back to sync account (query-groups) when provision lacks it.
         raw = await fetch_keycloak_groups(realm, settings)
         return raw if isinstance(raw, list) else []
-    if resp.status_code >= 400:
-        raise ValueError(f"Échec lecture groupes Keycloak (HTTP {resp.status_code})")
-    data = resp.json()
-    return data if isinstance(data, list) else []
 
 
 def _pick_best_group_match(matches: list[dict], organization: str) -> dict:
@@ -1033,20 +1035,91 @@ def _flatten_groups(groups: list[dict]) -> list[dict]:
     return out
 
 
+def _groups_page_query(first: int) -> str:
+    return (
+        f"briefRepresentation=false&populateHierarchy=false"
+        f"&first={int(first)}&max={_GROUPS_PAGE_SIZE}"
+    )
+
+
+async def _get_groups_page(
+    client: httpx.AsyncClient, url: str, headers: dict[str, str]
+) -> tuple[int, list]:
+    resp = await client.get(url, headers=headers)
+    data = resp.json() if resp.status_code < 400 else []
+    return resp.status_code, data if isinstance(data, list) else []
+
+
+async def _paginate_group_collection(
+    client: httpx.AsyncClient, collection_url: str, headers: dict[str, str]
+) -> tuple[int, list[dict]]:
+    first = 0
+    out: list[dict] = []
+    status = 200
+    while first < _GROUPS_HARD_CAP:
+        status, batch = await _get_groups_page(
+            client, f"{collection_url}?{_groups_page_query(first)}", headers
+        )
+        if status >= 400:
+            return status, out
+        if not batch:
+            break
+        out.extend(batch)
+        if len(batch) < _GROUPS_PAGE_SIZE:
+            break
+        first += _GROUPS_PAGE_SIZE
+    return status, out
+
+
+async def _hydrate_group_tree(
+    client: httpx.AsyncClient,
+    groups_base: str,
+    headers: dict[str, str],
+    groups: list[dict],
+) -> list[dict]:
+    """Fill empty subGroups via GET /groups/{id}/children (Keycloak 23+)."""
+    sem = asyncio.Semaphore(_MEMBER_REFRESH_CONCURRENCY)
+
+    async def hydrate(group: dict) -> dict:
+        if not isinstance(group, dict):
+            return {}
+        gid = str(group.get("id") or "").strip()
+        kids = group.get("subGroups") if isinstance(group.get("subGroups"), list) else []
+        if not kids and gid:
+            async with sem:
+                status, kids = await _paginate_group_collection(
+                    client, f"{groups_base}/{quote(gid, safe='')}/children", headers
+                )
+            if status == 403:
+                raise ValueError(_MSG_QUERY_GROUPS)
+            if status >= 400:
+                kids = []
+        filled = await asyncio.gather(*[hydrate(child) for child in kids])
+        out = dict(group)
+        out["subGroups"] = list(filled)
+        return out
+
+    return list(await asyncio.gather(*[hydrate(g) for g in groups]))
+
+
+async def _fetch_keycloak_groups_with_token(
+    realm: RealmConfig, settings: Settings, token: str
+) -> list[dict]:
+    base, realm_name = _issuer_parts(realm.issuer_url)
+    groups_base = f"{base}/admin/realms/{realm_name}/groups"
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(timeout=_GROUPS_TREE_TIMEOUT) as client:
+        status, roots = await _paginate_group_collection(client, groups_base, headers)
+        if status == 403:
+            raise ValueError(_MSG_QUERY_GROUPS)
+        if status >= 400:
+            raise ValueError(f"Échec lecture groupes Keycloak (HTTP {status})")
+        return await _hydrate_group_tree(client, groups_base, headers, roots)
+
+
 async def fetch_keycloak_groups(realm: RealmConfig, settings: Settings) -> list[dict]:
     token = await get_admin_token(realm, settings)
-    base, realm_name = _issuer_parts(realm.issuer_url)
-    admin_url = f"{base}/admin/realms/{realm_name}/groups?briefRepresentation=false"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(admin_url, headers={"Authorization": f"Bearer {token}"})
-    if resp.status_code == 403:
-        raise ValueError(
-            "Le compte de service n'a pas le rôle realm-management:query-groups. "
-            "Vérifiez la configuration côté Keycloak."
-        )
-    if resp.status_code >= 400:
-        raise ValueError(f"Échec lecture groupes Keycloak (HTTP {resp.status_code})")
-    return resp.json()
+    return await _fetch_keycloak_groups_with_token(realm, settings, token)
 
 
 def parse_groups_sync_include(raw: str | None) -> list[str]:
@@ -1125,6 +1198,7 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
         raise ValueError(f"Keycloak injoignable depuis le serveur : {exc}") from exc
 
     groups = _flatten_groups(raw if isinstance(raw, list) else [])
+    fetched = len(groups)
     include = parse_groups_sync_include(getattr(realm, "groups_sync_include", None))
     now = utcnow()
     imported = 0
@@ -1222,6 +1296,7 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
     return {
         "realm_id": realm.id,
         "status": "ok",
+        "fetched": fetched,
         "imported": imported,
         "updated": updated,
         "orphaned": orphaned,

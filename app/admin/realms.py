@@ -1349,6 +1349,7 @@ async def admin_realms_force_sync(
             k: result.get(k)
             for k in (
                 "status",
+                "fetched",
                 "imported",
                 "updated",
                 "orphaned",

@@ -13,6 +13,7 @@ from tests.test_bastion_account_creation import (
     JSON_HEADERS,
     KC_ADMIN,
     TOKEN_URL,
+    _mock_kc_groups_list,
     _mock_no_duplicate,
     _realm,
     _settings,
@@ -92,16 +93,15 @@ async def test_ensure_company_group_reuses_fuzzy_rbac(db_session):
 async def test_ensure_company_group_reuses_keycloak_fuzzy(db_session):
     realm = _realm(db_session)
     respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
-    respx.get(f"{KC_ADMIN}/groups").respond(
-        200,
-        json=[
+    _mock_kc_groups_list(
+        [
             {
                 "id": "kc-existing",
                 "name": "SDIS81",
                 "path": "/SDIS81",
                 "subGroups": [],
             }
-        ],
+        ]
     )
 
     group = await ensure_company_group(

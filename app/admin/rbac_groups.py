@@ -168,6 +168,7 @@ async def admin_rbac_groups_sync(
             k: result.get(k)
             for k in (
                 "status",
+                "fetched",
                 "imported",
                 "updated",
                 "orphaned",
@@ -201,7 +202,8 @@ async def admin_rbac_groups_sync(
             "sur la fiche realm pour compter les membres)"
         )
 
-    response = RedirectResponse(url=_ADMIN_RBAC_PATH, status_code=302)
+    # Empty groups are hidden on /admin/rbac by default — show them after sync.
+    response = RedirectResponse(url=f"{_ADMIN_RBAC_PATH}?include_empty=1", status_code=302)
     flash_redirect(
         response,
         f"Synchronisation groupes OK ({', '.join(parts)}){members_bit}.",
