@@ -203,17 +203,26 @@ def test_generate_crushftp_block_filters_portal_cookies():
     assert "try_files /nonexistent @app_upstream_transfer;" in main
     # Filter lives only in the named upstream location (after auth).
     named = block.split("location @app_upstream_transfer {", 1)[1]
-    named_body = named.split("location @portal_redirect_transfer", 1)[0]
+    named_body = named.split("location ^~ /WebInterface/function", 1)[0]
     assert "modsecurity on;" in named_body
     assert "modsecurity off;" not in named_body
     assert "ctl:ruleEngine=On" in named_body
     assert "ctl:ruleRemoveById=930130" in named_body
-    assert "ctl:ruleRemoveByTag=attack-rfi" in named_body
-    assert "ctl:ruleRemoveByTag=attack-lfi" in named_body
-    assert "ctl:ruleRemoveByTag=attack-xss" in named_body
-    assert "@beginsWith /WebInterface/function/" in named_body
+    assert "ctl:ruleRemoveByTag=attack-rfi" not in named_body
+    assert "@beginsWith /WebInterface/function/" not in named_body
     assert "ctl:requestBodyAccess=Off" in named_body
     assert "proxy_intercept_errors off;" in named_body
+    function_loc = block.split("location ^~ /WebInterface/function {", 1)[1]
+    function_gate = function_loc.split("location @app_function_transfer", 1)[0]
+    assert "modsecurity off;" in function_gate
+    assert "auth_request /internal/subdomain-auth;" in function_gate
+    assert "try_files /nonexistent @app_function_transfer;" in function_gate
+    assert "CrushAuth=$cookie_CrushAuth" not in function_gate
+    function_named = function_loc.split("location @app_function_transfer {", 1)[1]
+    function_named_body = function_named.split("location @portal_redirect_transfer", 1)[0]
+    assert "modsecurity off;" in function_named_body
+    assert "modsecurity on;" not in function_named_body
+    assert "CrushAuth=$cookie_CrushAuth" in function_named_body
     assert "include /etc/nginx/snippets/modsecurity-subdomain.conf;" in block
     assert block.count("include /etc/nginx/snippets/modsecurity-subdomain.conf;") == 1
     server_preamble = block.split("absolute_redirect", 1)[0]
