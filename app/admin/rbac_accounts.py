@@ -23,7 +23,14 @@ from app.bastion.bastion_fields import (
     normalize_provisioning_driver,
 )
 from app.database import get_db
-from app.models import App, BastionAccount, BastionAccountProvisioning, RBACGroup, RealmConfig
+from app.models import (
+    App,
+    BastionAccount,
+    BastionAccountProvisioning,
+    GroupAppCredential,
+    RBACGroup,
+    RealmConfig,
+)
 from app.rbac.account_service import (
     AccountCreationError,
     assign_account_to_rbac_group,
@@ -218,17 +225,28 @@ def _is_company_group_tag(tag: str | None) -> bool:
     return (tag or "").strip().lower() in _COMPANY_GROUP_TAGS
 
 
-def _company_groups_for_picker(groups: list[RBACGroup]) -> list[RBACGroup]:
-    """Société-tagged groups first; fall back to top-level KC groups if none tagged."""
-    tagged = [g for g in groups if _is_company_group_tag(g.group_tag)]
-    if tagged:
-        return tagged
-    return [
-        g
-        for g in groups
-        if (g.path or "").strip().count("/") == 1
-        or not (g.path or "").strip()
-    ]
+def _company_groups_for_picker(
+    groups: list[RBACGroup],
+    *,
+    shared_account_group_ids: set[int] | None = None,
+) -> list[RBACGroup]:
+    """Société picker: tagged companies plus LDAP top-level / shared-account groups.
+
+    If any group is tagged Société (CrushFTP import), the old logic returned
+    *only* those tags and hid Keycloak-synced companies (e.g. 28RT).
+    """
+    shared = shared_account_group_ids or set()
+    picked: dict[int, RBACGroup] = {}
+    for group in groups:
+        path = (group.path or "").strip()
+        top_level = path.count("/") <= 1
+        if (
+            _is_company_group_tag(group.group_tag)
+            or top_level
+            or group.id in shared
+        ):
+            picked[group.id] = group
+    return sorted(picked.values(), key=lambda row: (row.name or "").lower())
 
 
 def _resolve_organization_from_form(
@@ -282,10 +300,17 @@ def _form_context(db: Session) -> dict:
         .all()
     )
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
+    shared_ids = {
+        row[0]
+        for row in db.query(GroupAppCredential.rbac_group_id).distinct().all()
+        if row[0] is not None
+    }
     return {
         "provision_realms": realms,
         "provision_groups": groups,
-        "company_groups": _company_groups_for_picker(groups),
+        "company_groups": _company_groups_for_picker(
+            groups, shared_account_group_ids=shared_ids
+        ),
         "provision_apps": apps,
         "provisioning_driver_labels": PROVISIONING_DRIVER_LABELS,
     }

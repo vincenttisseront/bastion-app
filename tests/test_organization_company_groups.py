@@ -234,3 +234,41 @@ def test_new_user_form_lists_company_groups(client, db_session):
     assert "Nouvelle société" in resp.text
     assert "Société existante" in resp.text
     assert "SDIS81" in resp.text
+
+
+def test_new_user_form_lists_untagged_top_level_group_beside_societe(client, db_session):
+    """LDAP companies stay in the picker even when CrushFTP sociétés are tagged."""
+    realm = _realm(db_session)
+    db_session.add_all(
+        [
+            RBACGroup(
+                realm_id=realm.id,
+                keycloak_group_id="kc-ademd",
+                name="ADEMD",
+                path="/ADEMD",
+                group_tag="Société",
+            ),
+            RBACGroup(
+                realm_id=realm.id,
+                keycloak_group_id="kc-28rt",
+                name="28RT",
+                path="/28RT - Realm clients",
+                group_tag=None,
+            ),
+            RBACGroup(
+                realm_id=realm.id,
+                keycloak_group_id="kc-nested",
+                name="nested",
+                path="/CLIENTS/nested",
+                group_tag=None,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    resp = client.get("/admin/rbac/users/new", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    pick = resp.text.split('id="organization_pick"', 1)[1].split("</select>", 1)[0]
+    assert "ADEMD" in pick
+    assert "28RT" in pick
+    assert "nested" not in pick
