@@ -42,6 +42,13 @@ def test_docker_portal_keeps_modsecurity_wiring_but_off():
     )[0]
     assert "modsecurity off;" in dashboard
     assert "auth_request /portal_auth_check;" in dashboard
+    modsec_ok = text.split("location = /_portal_modsec_ok {", 1)[1].split(
+        "location @portal_modsec_ok_fail", 1
+    )[0]
+    assert "modsecurity off;" not in modsec_ok
+    assert "return 200" in modsec_ok
+    nginx_ok = text.split("location = /_portal_nginx_ok {", 1)[1].split("}", 1)[0]
+    assert "modsecurity off;" in nginx_ok
     api_admin = text.split("location ^~ /api/admin {", 1)[1].split(
         "location ^~ /admin {", 1
     )[0]
