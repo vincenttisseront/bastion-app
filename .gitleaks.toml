@@ -1,0 +1,31 @@
+# Gitleaks — bastion-app (aligned with .betterleaks.toml allowlist)
+# https://github.com/gitleaks/gitleaks
+
+title = "bastion-app"
+
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+  '''(?i)(?:^|/)tests(?:/.*)?$''',
+  '''(?i)(?:^|/)docs(?:/.*)?$''',
+  '''(?i)(?:^|/)\.venv(?:/.*)?$''',
+  '''(?i)(?:^|/)venv(?:/.*)?$''',
+  '''(?i)(?:^|/)tmp(?:/.*)?$''',
+  '''(?i)(?:^|/)reports(?:/.*)?$''',
+  '''(?i)(?:^|/)\.agents(?:/.*)?$''',
+  '''(?i)(?:^|/)\.scannerwork(?:/.*)?$''',
+  '''(?i)(?:^|/)node_modules(?:/.*)?$''',
+  '''(?i)(?:^|/)\.env\.example$''',
+  '''(?i)(?:^|/)deploy/\.env\.example$''',
+  '''(?i)\.example$''',
+  '''(?i)(?:^|/)app/static/uploads(?:/.*)?$''',
+  '''(?i)(?:^|/)deploy/data(?:/.*)?$''',
+]
+
+regexes = [
+  '''(?i)keycloak_user_id\s*[:=]''',
+  '''(?i)password\s*:\s*password\b''',
+  '''(?i)robotic_username''',
+]
