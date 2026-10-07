@@ -573,6 +573,20 @@
     if (caTlsTestBtn) caTlsTestBtn.disabled = !valid;
   }
 
+  function siemCaAlert(message, title) {
+    if (window.BastionBusy && typeof window.BastionBusy.hide === 'function') {
+      try { window.BastionBusy.reset(); } catch (e) { /* ignore */ }
+    }
+    if (window.bastionAlert) {
+      return window.bastionAlert({
+        title: title || BastionI18n.t('Syslog TLS'),
+        message: message,
+        confirmLabel: BastionI18n.t('OK'),
+      });
+    }
+    return Promise.resolve();
+  }
+
   if (caFileInput && caFileLabel) {
     caFileInput.addEventListener('change', function () {
       var f = caFileInput.files && caFileInput.files[0];
@@ -584,16 +598,16 @@
     caImportBtn.addEventListener('click', async function () {
       var f = caFileInput && caFileInput.files && caFileInput.files[0];
       if (!f) {
-        alert('Choisissez un certificat CA PEM.');
+        await siemCaAlert(BastionI18n.t('Choisissez un certificat CA PEM.'));
         return;
       }
       var name = (f.name || '').toLowerCase();
       if (!(name.endsWith('.pem') || name.endsWith('.crt'))) {
-        alert('Formats acceptés : .pem ou .crt');
+        await siemCaAlert(BastionI18n.t('Formats acceptés : .pem ou .crt'));
         return;
       }
       if (f.size > 65536) {
-        alert('Fichier trop volumineux.');
+        await siemCaAlert(BastionI18n.t('Fichier trop volumineux.'));
         return;
       }
       var fd = new FormData();
@@ -608,14 +622,19 @@
         });
         var data = await resp.json().catch(function () { return {}; });
         if (!resp.ok || data.ok === false) {
-          alert(data.error || ('Échec import HTTP ' + resp.status));
+          await siemCaAlert(
+            data.error || (BastionI18n.t('Échec import HTTP') + ' ' + resp.status),
+            BastionI18n.t('Import CA')
+          );
           return;
         }
         applyCaStatus(data);
         if (caFileInput) caFileInput.value = '';
         if (caFileLabel) caFileLabel.textContent = '';
       } catch (err) {
-        alert('Erreur réseau: ' + (err && err.message ? err.message : String(err)));
+        await siemCaAlert(
+          BastionI18n.t('Erreur réseau:') + ' ' + (err && err.message ? err.message : String(err))
+        );
       } finally {
         caImportBtn.disabled = false;
       }
@@ -624,9 +643,17 @@
 
   if (caDeleteBtn) {
     caDeleteBtn.addEventListener('click', async function () {
-      if (!confirm('Supprimer la CA Syslog TLS ? Le forwarding TLS sécurisé ne fonctionnera plus jusqu’à réimport.')) {
-        return;
-      }
+      var ok = window.bastionConfirm
+        ? await window.bastionConfirm({
+            title: BastionI18n.t('Supprimer la CA'),
+            message: BastionI18n.t(
+              'Supprimer la CA Syslog TLS ? Le forwarding TLS sécurisé ne fonctionnera plus jusqu’à réimport.'
+            ),
+            confirmLabel: BastionI18n.t('Supprimer'),
+            danger: true,
+          })
+        : false;
+      if (!ok) return;
       caDeleteBtn.disabled = true;
       try {
         var resp = await fetch(caDeleteBtn.dataset.url || '/api/admin/siem/syslog-tls/ca', {
@@ -636,12 +663,17 @@
         });
         var data = await resp.json().catch(function () { return {}; });
         if (!resp.ok) {
-          alert(data.error || ('Échec suppression HTTP ' + resp.status));
+          await siemCaAlert(
+            data.error || (BastionI18n.t('Échec suppression HTTP') + ' ' + resp.status),
+            BastionI18n.t('Suppression CA')
+          );
           return;
         }
         applyCaStatus(data);
       } catch (err) {
-        alert('Erreur réseau: ' + (err && err.message ? err.message : String(err)));
+        await siemCaAlert(
+          BastionI18n.t('Erreur réseau:') + ' ' + (err && err.message ? err.message : String(err))
+        );
       } finally {
         caDeleteBtn.disabled = false;
       }
