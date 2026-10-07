@@ -1045,6 +1045,10 @@
   function liveVerifySelected() {
     selectedEmail = resolveSelected();
     if (!selectedEmail) return Promise.resolve();
+    var page = document.getElementById('sessions-page');
+    var kind = (page && page.dataset.kind) || 'all';
+    var body = { user_email: selectedEmail };
+    if (kind === 'user' || kind === 'app') body.kind = kind;
     return fetch('/api/sessions/live-verify', {
       method: 'POST',
       headers: {
@@ -1052,7 +1056,7 @@
         'Content-Type': 'application/json',
       },
       credentials: 'same-origin',
-      body: JSON.stringify({ user_email: selectedEmail }),
+      body: JSON.stringify(body),
     })
       .then(function (r) {
         if (!r.ok) throw new Error('live-verify failed');

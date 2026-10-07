@@ -1913,7 +1913,13 @@ async def live_verify_sessions(
     from app.i18n.middleware import get_request_locale
 
     locale = get_request_locale(request)
-    sessions = get_active_sessions(db, viewer=user, locale=locale)
+    # Honour the same kind filter as GET /api/sessions — otherwise the LIVE
+    # poller replaces a kind=user rail with app sessions (2 people under
+    # « Utilisateurs » while the tab still says 1).
+    kind = (body.get("kind") or "").strip().lower() or None
+    if kind not in (KIND_USER, KIND_APP):
+        kind = None
+    sessions = get_active_sessions(db, viewer=user, kind=kind, locale=locale)
     return {
         "verified": verified,
         "revoked": [v["id"] for v in verified if v.get("revoked")],

@@ -36,7 +36,7 @@ def _driven_row(
         kind="app",
         user_email=email,
         username="alice",
-        realm="ar-systems",
+        realm="default",
         protocol="HTTPS",
         target=slug,
         source_ip="203.0.113.10",
@@ -64,7 +64,7 @@ ADMIN_HEADERS = {
     "X-Email": "admin@example.com",
     "X-Preferred-Username": "admin",
     "X-Groups": "portal-admins",
-    "X-Portal-Realm-Slug": "ar-systems",
+    "X-Portal-Realm-Slug": "default",
 }
 
 
@@ -227,6 +227,54 @@ def test_live_verify_active_resets_invalid_streak(client: TestClient, db_session
         )
     assert resp.json()["verified"][0]["revoked"] is False
     assert db_session.query(ActiveSession).filter_by(id=row.id).one()
+
+
+def test_live_verify_respects_kind_filter(client: TestClient, db_session: Session):
+    """LIVE poller must not replace a kind=user rail with app sessions."""
+    portal = ActiveSession(
+        id="user:admin@breakglass.local:portal",
+        kind="user",
+        user_email="admin@breakglass.local",
+        username="admin",
+        realm="breakglass",
+        protocol="BREAKGLASS",
+        target="portal",
+        source_ip="10.0.0.10",
+        status="active",
+        started_at=utcnow(),
+        last_seen_at=utcnow(),
+        details={"auth_family": "breakglass"},
+    )
+    db_session.add(portal)
+    app_row = _driven_row(
+        db_session,
+        email="vincent@example.com",
+        slug="files",
+        username="vincent",
+    )
+    with patch(
+        "app.web.session_verify.CrushFTPDriver.get_username",
+        new=AsyncMock(return_value="vincent"),
+    ):
+        resp = client.post(
+            "/api/sessions/live-verify",
+            headers=ADMIN_HEADERS,
+            json={"user_email": "admin@breakglass.local", "kind": "user"},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    session_ids = {s["id"] for s in body["sessions"]}
+    assert portal.id in session_ids
+    assert app_row.id not in session_ids
+    assert body["counts"]["user"] == 1
+    assert body["counts"]["app"] == 1
+    assert body["counts"]["all"] == 2
+    group_emails = {
+        (g.get("user_email") or g.get("email") or "").lower()
+        for g in body["groups"]
+    }
+    assert "admin@breakglass.local" in group_emails
+    assert "vincent@example.com" not in group_emails
 
 
 def test_live_verify_unknown_is_neutral(client: TestClient, db_session: Session):
