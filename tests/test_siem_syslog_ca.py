@@ -259,6 +259,105 @@ def test_probe_failure_discards_staging_keeps_active(tmp_path):
     assert not staging.is_file()
 
 
+def _leaf_der(*, subject_cn: str, issuer_cn: str) -> bytes:
+    """Build a leaf DER cert with distinct Subject/Issuer CNs (for identity hint tests)."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.now(timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subject_cn)]))
+        .issuer_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, issuer_cn)]))
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=30))
+        .sign(key, hashes.SHA256())
+    )
+    return cert.public_bytes(serialization.Encoding.DER)
+
+
+def test_peer_cert_identity_from_der_exposes_subject_issuer():
+    der = _leaf_der(subject_cn="siem.example.com", issuer_cn="Corp Root CA")
+    hint = ca.peer_cert_identity_from_der(der)
+    assert "Subject=CN=siem.example.com" in hint
+    assert "Issuer=CN=Corp Root CA" in hint
+    assert "BEGIN CERTIFICATE" not in hint
+    assert "-----" not in hint
+
+
+def test_peer_cert_identity_from_der_empty_or_garbage():
+    assert ca.peer_cert_identity_from_der(b"") == ""
+    assert ca.peer_cert_identity_from_der(b"not-a-cert") == ""
+
+
+def test_probe_verify_error_appends_peer_hint_when_no_sock_factory(tmp_path, monkeypatch):
+    import ssl
+
+    settings = _settings(tmp_path)
+    active = ca.resolve_ca_path(settings)
+    pem, fp = _build_ca(cn="Wrong CA")
+    ca.write_staging_ca(active, pem)
+    ca.commit_staging_to_active(active, expected_fingerprint=fp)
+
+    monkeypatch.setattr(
+        ca,
+        "fetch_peer_cert_identity_hint",
+        lambda **_kw: " — certificat présenté : Subject=CN=siem.example.com ; Issuer=CN=Corp Root CA",
+    )
+
+    class _FakeCtx:
+        def wrap_socket(self, *_a, **_k):
+            raise ssl.SSLCertVerificationError("certificate verify failed: unknown ca")
+
+    monkeypatch.setattr(ca, "build_ssl_context_for_cafile", lambda _p: _FakeCtx())
+    monkeypatch.setattr(ca.socket, "create_connection", lambda *_a, **_k: MagicMock())
+
+    with pytest.raises(ca.SyslogCaError, match=r"CA inconnue — certificat présenté") as ei:
+        ca.probe_tls_handshake(
+            host="10.0.0.10",
+            port=6514,
+            cafile=active,
+            sock_factory=None,
+        )
+    assert "Issuer=CN=Corp Root CA" in str(ei.value)
+    assert "BEGIN CERTIFICATE" not in str(ei.value)
+
+
+def test_probe_verify_error_skips_hint_with_sock_factory(tmp_path):
+    import ssl
+
+    settings = _settings(tmp_path)
+    active = ca.resolve_ca_path(settings)
+    pem, fp = _build_ca()
+    ca.write_staging_ca(active, pem)
+    ca.commit_staging_to_active(active, expected_fingerprint=fp)
+
+    def boom():
+        raise ssl.SSLCertVerificationError("certificate verify failed: unknown ca")
+
+    with pytest.raises(ca.SyslogCaError, match=r"^CA inconnue$"):
+        ca.probe_tls_handshake(
+            host="10.0.0.10",
+            port=6514,
+            cafile=active,
+            sock_factory=boom,
+        )
+
+
+def test_map_ssl_verify_error_messages():
+    import ssl
+
+    assert ca._map_ssl_verify_error(
+        ssl.SSLCertVerificationError("certificate has expired")
+    ) == "certificat expiré"
+    assert ca._map_ssl_verify_error(
+        ssl.SSLCertVerificationError("unable to get local issuer certificate")
+    ) == "CA inconnue"
+    assert ca._map_ssl_verify_error(
+        ssl.SSLCertVerificationError("hostname mismatch")
+    ) == "hostname ou IP absente du SAN"
+
+
 def test_rollback_after_failed_fingerprint(tmp_path):
     settings = _settings(tmp_path)
     active = ca.resolve_ca_path(settings)
