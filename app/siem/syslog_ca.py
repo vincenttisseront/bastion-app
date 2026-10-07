@@ -472,6 +472,61 @@ def build_ssl_context_for_cafile(cafile: Path) -> ssl.SSLContext:
         raise SyslogCaError("permission refusée ou lecture CA impossible") from exc
 
 
+def _truncate_dn(value: str, *, limit: int = 180) -> str:
+    text = (value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)] + "…"
+
+
+def peer_cert_identity_from_der(der: bytes) -> str:
+    """Human-readable Subject/Issuer from a peer DER cert (no PEM in output)."""
+    if not der:
+        return ""
+    try:
+        cert = x509.load_der_x509_certificate(der, default_backend())
+    except Exception:
+        return ""
+    subject = _truncate_dn(cert.subject.rfc4514_string())
+    issuer = _truncate_dn(cert.issuer.rfc4514_string())
+    if not subject and not issuer:
+        return ""
+    return f" — certificat présenté : Subject={subject} ; Issuer={issuer}"
+
+
+def fetch_peer_cert_identity_hint(
+    *,
+    host: str,
+    port: int,
+    timeout: float = 15.0,
+) -> str:
+    """Second connect with verify disabled to expose the server cert identity.
+
+    Used only after a verification failure so the UI can show which CA issued
+    the collector certificate (what to import into Bastion).
+    """
+    host = (host or "").strip()
+    if not host:
+        return ""
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        raw = socket.create_connection((host, int(port)), timeout=timeout)
+        try:
+            with ctx.wrap_socket(raw, server_hostname=host) as sock:
+                der = sock.getpeercert(binary_form=True) or b""
+        finally:
+            try:
+                raw.close()
+            except OSError:
+                pass
+        return peer_cert_identity_from_der(der)
+    except Exception:
+        logger.debug("peer cert identity hint unavailable", exc_info=True)
+        return ""
+
+
 def probe_tls_handshake(
     *,
     host: str,
@@ -499,7 +554,14 @@ def probe_tls_handshake(
             # Touch negotiated cipher to ensure handshake completed.
             _ = sock.cipher()
     except ssl.SSLCertVerificationError as exc:
-        raise SyslogCaError(_map_ssl_verify_error(exc)) from exc
+        base = _map_ssl_verify_error(exc)
+        # Real network only — test sock_factory mocks must not be re-entered.
+        hint = ""
+        if sock_factory is None:
+            hint = fetch_peer_cert_identity_hint(
+                host=host, port=int(port), timeout=timeout
+            )
+        raise SyslogCaError(base + hint) from exc
     except ssl.SSLError as exc:
         raise SyslogCaError("échec de négociation TLS") from exc
     except TimeoutError as exc:
