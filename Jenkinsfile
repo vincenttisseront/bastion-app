@@ -1,4 +1,5 @@
-// bastion-app — CI qualité (BetterLeaks + ruff + pytest + SonarQube) + DAST TIWAP (OWASP ZAP)
+// bastion-app — CI qualité (BetterLeaks hard-gate + ruff + pytest + SonarQube) + DAST TIWAP (OWASP ZAP)
+// Secrets aussi sur GitHub Actions : .github/workflows/gitleaks.yml (chaque PR).
 //
 // Jenkins tourne en conteneur avec docker.sock : les chemins du workspace sont
 // dans le volume jenkins_data, PAS sur le FS hôte. Il faut donc
@@ -97,65 +98,63 @@ pipeline {
       }
     }
 
-    // Secrets scan (BetterLeaks, successeur Gitleaks). Soft gate phase 1 : findings → UNSTABLE,
-    // rapport JSON archivé ; retirer catchError pour bloquer le build sur fuite.
+    // Secrets scan (BetterLeaks, successeur Gitleaks). Hard gate : findings → FAILURE.
+    // Miroir GitHub Actions : .github/workflows/gitleaks.yml (gitleaks-action) sur chaque PR.
     stage('BetterLeaks') {
       steps {
-        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-          timeout(time: 20, unit: 'MINUTES') {
-            sh '''
-              set -eux
-              # Workspace Jenkins persistant : purger les artefacts d'un build précédent
-              # (ruff/junit) avant le scan secrets.
-              mkdir -p "${WORKSPACE}/reports"
-              find "${WORKSPACE}/reports" -mindepth 1 -maxdepth 1 ! -name betterleaks -exec rm -rf {} +
-              mkdir -p "${WORKSPACE}/reports/betterleaks"
-              chmod -R a+rwX "${WORKSPACE}/reports/betterleaks"
-              test -f "${WORKSPACE}/.betterleaks.toml"
+        timeout(time: 20, unit: 'MINUTES') {
+          sh '''
+            set -eux
+            # Workspace Jenkins persistant : purger les artefacts d'un build précédent
+            # (ruff/junit) avant le scan secrets.
+            mkdir -p "${WORKSPACE}/reports"
+            find "${WORKSPACE}/reports" -mindepth 1 -maxdepth 1 ! -name betterleaks -exec rm -rf {} +
+            mkdir -p "${WORKSPACE}/reports/betterleaks"
+            chmod -R a+rwX "${WORKSPACE}/reports/betterleaks"
+            test -f "${WORKSPACE}/.betterleaks.toml"
 
-              # Arbre courant (toujours) + historique git disponible (clone Jenkins).
-              # Note: image stable utilise --git-workers (pas --source-workers de la doc main).
-              set +e
-              docker run --rm \
-                --volumes-from "${JENKINS_CONTAINER_NAME}" \
-                -u root:root \
-                -w "${WORKSPACE}" \
-                "${BETTERLEAKS_IMAGE}" \
-                dir . \
-                  --config .betterleaks.toml \
-                  --redact \
-                  --report-path reports/betterleaks/findings-dir.json \
-                  --report-format json \
-                  -v
-              DIR_RC=$?
-              # Historique git (allowlist paths/regexes) ; --since sans espaces pour Docker argv.
-              docker run --rm \
-                --volumes-from "${JENKINS_CONTAINER_NAME}" \
-                -u root:root \
-                -w "${WORKSPACE}" \
-                "${BETTERLEAKS_IMAGE}" \
-                git . \
-                  --config .betterleaks.toml \
-                  --git-workers 8 \
-                  --log-opts="--all --since=2025-12-01" \
-                  --redact \
-                  --report-path reports/betterleaks/findings-git.json \
-                  --report-format json \
-                  --platform github \
-                  -v
-              GIT_RC=$?
-              set -e
+            # Arbre courant (toujours) + historique git disponible (clone Jenkins).
+            # Note: image stable utilise --git-workers (pas --source-workers de la doc main).
+            set +e
+            docker run --rm \
+              --volumes-from "${JENKINS_CONTAINER_NAME}" \
+              -u root:root \
+              -w "${WORKSPACE}" \
+              "${BETTERLEAKS_IMAGE}" \
+              dir . \
+                --config .betterleaks.toml \
+                --redact \
+                --report-path reports/betterleaks/findings-dir.json \
+                --report-format json \
+                -v
+            DIR_RC=$?
+            # Historique git (allowlist paths/regexes) ; --since sans espaces pour Docker argv.
+            docker run --rm \
+              --volumes-from "${JENKINS_CONTAINER_NAME}" \
+              -u root:root \
+              -w "${WORKSPACE}" \
+              "${BETTERLEAKS_IMAGE}" \
+              git . \
+                --config .betterleaks.toml \
+                --git-workers 8 \
+                --log-opts="--all --since=2025-12-01" \
+                --redact \
+                --report-path reports/betterleaks/findings-git.json \
+                --report-format json \
+                --platform github \
+                -v
+            GIT_RC=$?
+            set -e
 
-              echo "betterleaks_dir_exit=${DIR_RC}" | tee "${WORKSPACE}/reports/betterleaks/exit.txt"
-              echo "betterleaks_git_exit=${GIT_RC}" | tee -a "${WORKSPACE}/reports/betterleaks/exit.txt"
-              ls -lah "${WORKSPACE}/reports/betterleaks" || true
+            echo "betterleaks_dir_exit=${DIR_RC}" | tee "${WORKSPACE}/reports/betterleaks/exit.txt"
+            echo "betterleaks_git_exit=${GIT_RC}" | tee -a "${WORKSPACE}/reports/betterleaks/exit.txt"
+            ls -lah "${WORKSPACE}/reports/betterleaks" || true
 
-              # Soft gate : non-zero si fuites (ou erreur outil) sur dir ou git.
-              if [ "${DIR_RC}" -ne 0 ] || [ "${GIT_RC}" -ne 0 ]; then
-                exit 1
-              fi
-            '''
-          }
+            # Hard gate : non-zero si fuites (ou erreur outil) sur dir ou git.
+            if [ "${DIR_RC}" -ne 0 ] || [ "${GIT_RC}" -ne 0 ]; then
+              exit 1
+            fi
+          '''
         }
       }
       post {
