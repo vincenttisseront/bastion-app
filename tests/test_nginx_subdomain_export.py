@@ -512,3 +512,23 @@ def test_m2m_bypass_prefix_api_location():
     assert "auth_request off;" in api
     assert "modsecurity off;" in api
     assert "proxy_set_header Authorization $http_authorization;" in block
+
+
+def test_m2m_bypass_login_does_not_duplicate_portal_bounce():
+    """Admin M2M /login must not collide with portal location = /login."""
+    app = App(
+        slug="ops",
+        label="Ops",
+        upstream_url="https://10.0.0.30/",
+        access_mode="subdomain_proxy",
+        public_fqdn="ops.example.com",
+        auth_mode="sso",
+        enabled=True,
+        m2m_bypass_paths=json.dumps(["/login", "/api/", "/auth/login"]),
+    )
+    block = generate_subdomain_server_block(app, _settings())
+    assert block.count("location = /login {") == 1
+    assert block.count("location = /auth/login {") == 1
+    login = block.split("location = /login {", 1)[1].split("    }", 1)[0]
+    assert "return 302 https://portal.ar-systems.fr/auth/login;" in login
+    assert "location ^~ /api/ {" in block

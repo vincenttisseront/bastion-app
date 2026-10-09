@@ -334,6 +334,17 @@ def _m2m_bypass_proxy_lines(
     ]
 
 
+# Portal login bounce locations (non-app_oidc). Must not collide with M2M
+# ``location = /login`` / ``= /auth/login`` or nginx rejects the conf.
+_PORTAL_LOGIN_BOUNCE_PATHS = frozenset({"/login", "/auth/login"})
+
+
+def _m2m_path_collides_portal_login(path: str) -> bool:
+    """True when a bypass path would emit the same exact location as the bounce."""
+    base = (path or "").rstrip("/") or "/"
+    return base in _PORTAL_LOGIN_BOUNCE_PATHS
+
+
 def _m2m_bypass_locations(
     app: App,
     *,
@@ -348,6 +359,12 @@ def _m2m_bypass_locations(
     from app.bastion.m2m_policy import bypass_paths_for_app, nginx_location_specs
 
     paths = bypass_paths_for_app(app)
+    if not paths:
+        return []
+    # trusted_headers (etc.) already claim exact /login + /auth/login → portal.
+    # Emitting them again as M2M bypass → ``duplicate location "/login"``.
+    if normalize_sso_bridge(getattr(app, "sso_bridge", None)) != "app_oidc":
+        paths = [p for p in paths if not _m2m_path_collides_portal_login(p)]
     if not paths:
         return []
     long_timeout = bool(getattr(app, "m2m_bypass_long_timeout", False))
