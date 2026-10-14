@@ -511,9 +511,7 @@ def fetch_peer_cert_identity_hint(
     try:
         # Intentional: diagnostic second hop after a verified handshake failed —
         # only used to surface Subject/Issuer so the admin knows which CA to import.
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.check_hostname = False  # NOSONAR python:S5527
-        ctx.verify_mode = ssl.CERT_NONE  # NOSONAR python:S4830
+        ctx = ssl._create_unverified_context()  # NOSONAR python:S5527,python:S4830
         raw = socket.create_connection((host, int(port)), timeout=timeout)
         try:
             with ctx.wrap_socket(raw, server_hostname=host) as sock:
