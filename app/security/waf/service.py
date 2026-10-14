@@ -224,9 +224,54 @@ def _require_exclusion_anchor(
 
 
 _MAX_URI_REGEX_LEN = 256
-# ModSecurity runs @rx on PCRE (backtracking): reject the classic catastrophic shapes.
-_NESTED_QUANTIFIER = re.compile(r"\((?:[^()\\]|\\.)*[*+}](?:[^()\\]|\\.)*\)\s*[*+{]")
-_BACKREFERENCE = re.compile(r"\\[1-9]")
+
+
+def _uri_regex_has_redos_shape(pattern: str) -> bool:
+    """Linear scan for nested quantifiers / backrefs (ModSecurity @rx is PCRE).
+
+    Avoids a detector regex that itself backtracks (Sonar python:S8786).
+    """
+    i = 0
+    n = len(pattern)
+    while i < n:
+        ch = pattern[i]
+        if ch == "\\" and i + 1 < n:
+            nxt = pattern[i + 1]
+            if nxt in "123456789":
+                return True
+            i += 2
+            continue
+        if ch == "(":
+            depth = 1
+            j = i + 1
+            inner_quant = False
+            while j < n and depth:
+                c = pattern[j]
+                if c == "\\" and j + 1 < n:
+                    j += 2
+                    continue
+                if c == "(":
+                    depth += 1
+                elif c == ")":
+                    depth -= 1
+                    if depth == 0:
+                        k = j + 1
+                        while k < n and pattern[k].isspace():
+                            k += 1
+                        if inner_quant and k < n and pattern[k] in "*+{":
+                            return True
+                    j += 1
+                    continue
+                elif depth == 1 and c in "*+}":
+                    # `}` alone is not a quantifier start, but `*+` / trailing
+                    # `}` after `{m,n}` inside the group is enough as a signal.
+                    if c != "}" or (j > 0 and pattern[j - 1].isdigit()):
+                        inner_quant = True
+                j += 1
+            i = j
+            continue
+        i += 1
+    return False
 
 
 def _validate_uri_regex(pattern: str) -> None:
@@ -236,7 +281,7 @@ def _validate_uri_regex(pattern: str) -> None:
         re.compile(pattern)
     except re.error as exc:
         raise ValueError(f"regex URI invalide : {exc.msg}") from None
-    if _NESTED_QUANTIFIER.search(pattern) or _BACKREFERENCE.search(pattern):
+    if _uri_regex_has_redos_shape(pattern):
         raise ValueError(
             "regex URI refusée : quantificateurs imbriqués ou références arrière (risque ReDoS)"
         )
