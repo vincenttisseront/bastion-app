@@ -22,6 +22,7 @@ from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.csrf import portal_signing_secret
 
 router = APIRouter(tags=["admin-dependencies"], dependencies=[Depends(require_admin)])
 
@@ -124,7 +125,7 @@ def admin_dependencies_refresh(
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     response = RedirectResponse(url="/admin/dependencies", status_code=302)
     try:
         result = refresh_latest_versions(db)

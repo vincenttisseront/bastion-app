@@ -6,6 +6,7 @@ Target: cookie_expire=12h, cookie_refresh=1h, Keycloak ssoSessionMaxLifespan ≤
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,8 @@ from app.admin.export import (
 from app.models import RealmConfig
 from app.rbac.keycloak_admin import _admin_get, _issuer_parts
 from app.sso_settings import Settings
+
+logger = logging.getLogger(__name__)
 
 # Must stay in sync with generate_oauth2_proxy_config().
 TARGET_COOKIE_EXPIRE = "12h"
@@ -268,8 +271,9 @@ async def _align_one_realm(realm: RealmConfig, settings: Settings) -> RealmSessi
         client_max = _as_int(timeouts.get("clientSessionMaxLifespan"))
     except ValueError as exc:
         kc_error = str(exc)
-    except Exception as exc:
-        kc_error = f"Keycloak injoignable: {exc}"
+    except Exception:
+        logger.warning("Session timeouts unavailable for realm %s", realm.slug, exc_info=True)
+        kc_error = "Keycloak injoignable (voir les logs)"
 
     cookie_for_eval = export_expire or gen.get("cookie_expire")
     refresh_for_eval = export_refresh or gen.get("cookie_refresh")

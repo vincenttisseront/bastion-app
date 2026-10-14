@@ -54,7 +54,7 @@ def test_launch_url_teleport_uses_impersonate():
         slug="teleport",
         robotic_driver="teleport",
         access_mode="subdomain_proxy",
-        public_fqdn="teleport.ar-systems.fr",
+        public_fqdn="teleport.example.com",
     )
     assert app_launch_url(app) == "/api/internal/impersonate/teleport"
 

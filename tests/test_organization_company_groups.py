@@ -251,8 +251,8 @@ def test_new_user_form_lists_untagged_top_level_group_beside_societe(client, db_
             RBACGroup(
                 realm_id=realm.id,
                 keycloak_group_id="kc-28rt",
-                name="28RT",
-                path="/28RT - Realm clients",
+                name="ACME01",
+                path="/ACME01 - Realm clients",
                 group_tag=None,
             ),
             RBACGroup(
@@ -270,7 +270,7 @@ def test_new_user_form_lists_untagged_top_level_group_beside_societe(client, db_
     assert resp.status_code == 200
     pick = resp.text.split('id="organization_pick"', 1)[1].split("</select>", 1)[0]
     assert "ADEMD" in pick
-    assert "28RT" in pick
+    assert "ACME01" in pick
     assert "nested" not in pick
 
 

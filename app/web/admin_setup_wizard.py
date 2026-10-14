@@ -19,6 +19,7 @@ from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.csrf import portal_signing_secret
 
 router = APIRouter(tags=["admin-setup-wizard"], dependencies=[Depends(require_admin)])
 
@@ -73,14 +74,14 @@ def setup_wizard_save_site(
             "Rechargez bastion-nginx pour appliquer le FQDN edge "
             "(exports/bastion-site.env).",
             "success",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
     except ValueError as exc:
         flash_redirect(
             response,
             str(exc),
             "error",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
     return response
 
@@ -104,7 +105,7 @@ def setup_wizard_complete(
             response,
             "Configuration initiale terminée.",
             "success",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
         return response
     except ValueError as exc:
@@ -113,6 +114,6 @@ def setup_wizard_complete(
             response,
             str(exc),
             "error",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
         return response

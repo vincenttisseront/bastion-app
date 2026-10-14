@@ -28,7 +28,7 @@ from app.sso_settings import Settings, get_settings
 from app.testing_framework.throttle import reset_throttles
 
 KC = "http://keycloak.internal:8080"
-REALM = "ar-systems"
+REALM = "example-corp"
 AUTH = f"{KC}/realms/{REALM}/protocol/openid-connect/auth"
 TOKEN = f"{KC}/realms/{REALM}/protocol/openid-connect/token"
 DISCOVERY = f"{KC}/realms/{REALM}/.well-known/openid-configuration"
@@ -67,7 +67,7 @@ def e2e_settings(monkeypatch):
         database_url="sqlite://",
         oauth2_proxy_default_url="http://127.0.0.1:4180",
         rfc1918_bypass_enabled=False,
-        oidc_native_session_enabled_realms="ar-systems",
+        oidc_native_session_enabled_realms="example-corp",
         oidc_session_jwt_secret=OIDC_SECRET,
         oidc_session_cookie_name=COOKIE,
         oidc_session_max_age=3600,
@@ -93,11 +93,11 @@ def _add_realm(db: Session, settings: Settings) -> None:
     db.add(
         RealmConfig(
             slug=REALM,
-            name="AR-SYSTEMS",
+            name="EXAMPLE-CORP",
             issuer_url=f"{KC}/realms/{REALM}",
             client_id="portal",
             client_secret_encrypted=encrypt_secret("secret", seed),
-            redirect_uri="https://portal.example/oauth2/ar-systems/callback",
+            redirect_uri="https://portal.example/oauth2/example-corp/callback",
             oauth2_proxy_port=4180,
             is_default=True,
             enabled=True,

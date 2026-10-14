@@ -24,7 +24,7 @@ from app.robotic.robotic_session_cookies import (
     INJECTED_COOKIE_SCOPE_LABELS,
     INJECTED_COOKIE_SCOPES,
 )
-from app.web.csrf import csrf_secret, make_csrf_token
+from app.web.csrf import make_csrf_token, portal_signing_secret
 
 FLASH_COOKIE = "portal_flash"
 FLASH_MAX_AGE = 30
@@ -168,7 +168,7 @@ def _resolve_branding_for_template(extra: dict[str, Any], db) -> Any:
 def base_template_context(request: Request, settings: Any, app_version: str, **extra: Any) -> dict[str, Any]:
     from datetime import datetime, timezone
 
-    secret = settings.vault_portal_internal_token or "dev-insecure"
+    secret = portal_signing_secret(settings)
     user = None
     is_admin = False
     realm_slug = settings.sso_portal_default_realm_slug
@@ -212,7 +212,7 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         "realm_slug": realm_slug,
         "app_version": app_version,
         "messages": messages,
-        "csrf_token": make_csrf_token(request, csrf_secret(settings)),
+        "csrf_token": make_csrf_token(request, portal_signing_secret(settings)),
         "hide_chrome": extra.pop("hide_chrome", False),
         "now": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
         "locale": locale,

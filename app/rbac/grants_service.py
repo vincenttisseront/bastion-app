@@ -209,6 +209,7 @@ def list_grants(
     application_id: int | None = None,
     file_id: int | None = None,
     folder_id: int | None = None,
+    limit: int | None = None,
 ) -> list[AccessGrant]:
     query = db.query(AccessGrant).order_by(AccessGrant.granted_at.desc())
     if rbac_group_id is not None:
@@ -236,6 +237,8 @@ def list_grants(
             AccessGrant.resource_type == "folder",
             AccessGrant.folder_id == folder_id,
         )
+    if limit is not None:
+        query = query.limit(limit)
     return query.all()
 
 

@@ -31,12 +31,12 @@ def _settings() -> Settings:
 def _realm(db) -> RealmConfig:
     s = _settings()
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", s),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         enabled=True,
         groups_sync_enabled=True,
@@ -101,7 +101,7 @@ async def test_rbac_application_view_lists_group_and_user_grants(db_session):
         AccessGrantCreate(
             subject_type="user",
             keycloak_user_id=user_id,
-            user_display_cache="vincent.tisseront",
+            user_display_cache="alice.martin",
             resource_type="application",
             application_id=app.id,
             access_level="manage",
@@ -112,13 +112,13 @@ async def test_rbac_application_view_lists_group_and_user_grants(db_session):
 
     token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
     members_url = (
-        f"https://kc.example.com/admin/realms/AR-SYSTEMS/groups/{group.keycloak_group_id}/members"
+        f"https://kc.example.com/admin/realms/EXAMPLE-CORP/groups/{group.keycloak_group_id}/members"
     )
     respx.post(token_url).respond(200, json={"access_token": "t"})
     respx.get(members_url).respond(
         200,
         json=[
-            {"id": user_id, "username": "vincent.tisseront", "enabled": True},
+            {"id": user_id, "username": "alice.martin", "enabled": True},
             {"id": "user-other", "username": "other", "enabled": True},
         ],
     )

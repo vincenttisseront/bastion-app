@@ -54,7 +54,7 @@ from app.testing_framework.throttle import (
     failure_block_retry_after,
     record_failure,
 )
-from app.web.csrf import csrf_secret, verify_csrf_token
+from app.web.csrf import portal_signing_secret, verify_csrf_token
 from app.web.openapi_responses import RESP_401, RESP_403, RESP_503
 from app.web.templates import render
 
@@ -907,7 +907,7 @@ async def oidc_login(
         otp_code=otp_code,
     )
     try:
-        if ctx.html_mode and not verify_csrf_token(request, csrf_secret(settings), csrf_token):
+        if ctx.html_mode and not verify_csrf_token(request, portal_signing_secret(settings), csrf_token):
             raise _LoginRejected(403, _CSRF_EXPIRED)
         _resolve_login_realm(ctx)
         _check_login_allowed(ctx)

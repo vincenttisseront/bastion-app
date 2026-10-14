@@ -12,7 +12,7 @@ ADMIN_HEADERS = {
     "X-Email": "admin@example.com",
     "X-Preferred-Username": "admin",
     "X-Groups": "portal-admins",
-    "X-Portal-Realm-Slug": "ar-systems",
+    "X-Portal-Realm-Slug": "example-corp",
 }
 
 

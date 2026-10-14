@@ -24,16 +24,16 @@ def _settings() -> Settings:
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         portal_domain="portal.test",
         database_url="sqlite://",
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
     )
 
 
 def _user(**kwargs) -> UserContext:
     defaults = dict(
-        email="herve.tisseront",
-        username="herve.tisseront",
+        email="bob.durand",
+        username="bob.durand",
         groups=[],
-        realm_slug="ar-systems",
+        realm_slug="example-corp",
         auth_source="sso",
         is_admin=False,
         keycloak_user_id="kc-herve",
@@ -45,12 +45,12 @@ def _user(**kwargs) -> UserContext:
 def _realm(db: Session) -> RealmConfig:
     settings = _settings()
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", settings),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         is_default=True,
         enabled=True,
@@ -66,13 +66,13 @@ def _realm(db: Session) -> RealmConfig:
 
 
 def test_looks_like_email():
-    assert looks_like_email("herve.tisseront@ar-systems.fr")
-    assert not looks_like_email("herve.tisseront")
+    assert looks_like_email("bob.durand@example.com")
+    assert not looks_like_email("bob.durand")
     assert not looks_like_email("")
 
 
 def test_keycloak_email_diagnostics_missing():
-    diag = keycloak_email_diagnostics({"username": "herve.tisseront", "email": ""})
+    diag = keycloak_email_diagnostics({"username": "bob.durand", "email": ""})
     assert diag["has_email"] is False
     assert diag["warning"]
 
@@ -80,8 +80,8 @@ def test_keycloak_email_diagnostics_missing():
 def test_keycloak_email_diagnostics_unverified():
     diag = keycloak_email_diagnostics(
         {
-            "username": "herve.tisseront",
-            "email": "herve.tisseront@ar-systems.fr",
+            "username": "bob.durand",
+            "email": "bob.durand@example.com",
             "emailVerified": False,
         }
     )
@@ -99,22 +99,22 @@ async def test_resolve_user_email_uses_keycloak_when_session_short(db_session: S
         new=AsyncMock(
             return_value={
                 "id": "kc-herve",
-                "username": "herve.tisseront",
-                "email": "herve.tisseront@ar-systems.fr",
+                "username": "bob.durand",
+                "email": "bob.durand@example.com",
                 "emailVerified": False,
             }
         ),
     ):
         email = await resolve_user_email(db_session, _settings(), user)
-    assert email == "herve.tisseront@ar-systems.fr"
+    assert email == "bob.durand@example.com"
 
 
 @pytest.mark.asyncio
 async def test_resolve_user_email_keeps_session_when_already_full(db_session: Session):
-    user = _user(email="vincent.tisseront@ar-systems.fr")
+    user = _user(email="alice.martin@example.com")
     with patch(
         "app.rbac.oidc_email.fetch_keycloak_user",
         new=AsyncMock(side_effect=AssertionError("must not call Keycloak")),
     ):
         email = await resolve_user_email(db_session, _settings(), user)
-    assert email == "vincent.tisseront@ar-systems.fr"
+    assert email == "alice.martin@example.com"

@@ -24,7 +24,7 @@ from app.ip_cidrs import DEFAULT_TRUSTED_PROXY_CIDRS, INFRA_HOP_NETWORKS
 logger = logging.getLogger(__name__)
 
 # Intermediate hops that are never the end-user client.
-# Do NOT mark the whole 172.24.0.0/16 as infra: that is the corp/DMZ LAN where
+# Do NOT mark the whole 10.20.0.0/16 as infra: that is the corp/DMZ LAN where
 # workstations live. Only the nginx edge host itself.
 _INFRA_NETWORKS = INFRA_HOP_NETWORKS
 

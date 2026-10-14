@@ -28,7 +28,7 @@ def test_direct_fastapi_spoofed_rfc1918_xff_is_external():
     ip = client_ip_from_request(
         _req(
             headers={
-                "X-Forwarded-For": "10.0.0.50, 172.24.0.108",
+                "X-Forwarded-For": "10.0.0.50, 10.20.0.108",
                 "X-Real-IP": "10.0.0.50",
                 "CF-Connecting-IP": "192.168.0.1",
             },
@@ -68,11 +68,11 @@ def test_trusted_proxy_corp_172_24_lan_is_rfc1918():
     """Same /16 as reverse01 but not .108 — real workstation."""
     ip = client_ip_from_request(
         _req(
-            headers={"X-Real-IP": "172.24.0.50", "X-Forwarded-For": "172.24.0.50"},
+            headers={"X-Real-IP": "10.20.0.50", "X-Forwarded-For": "10.20.0.50"},
             host="10.5.0.2",
         )
     )
-    assert ip == "172.24.0.50"
+    assert ip == "10.20.0.50"
     assert is_rfc1918(ip, get_settings().rfc1918_cidrs)
 
 
@@ -80,13 +80,13 @@ def test_reverse01_never_resolved_as_client():
     ip = client_ip_from_request(
         _req(
             headers={
-                "X-Real-IP": "172.24.0.108",
-                "X-Forwarded-For": "172.24.0.108",
+                "X-Real-IP": "10.20.0.108",
+                "X-Forwarded-For": "10.20.0.108",
             },
             host="10.5.0.2",
         )
     )
-    assert ip != "172.24.0.108"
+    assert ip != "10.20.0.108"
     assert ip == ""
     settings = get_settings()
     assert not is_rfc1918(ip, settings.rfc1918_cidrs)
@@ -106,7 +106,7 @@ def test_breakglass_rejected_when_only_reverse_ip_visible(
             "password": "super-secret-password",
             "rd": "/dashboard",
         },
-        headers={"X-Real-IP": "172.24.0.108", "X-Forwarded-For": "172.24.0.108"},
+        headers={"X-Real-IP": "10.20.0.108", "X-Forwarded-For": "10.20.0.108"},
         follow_redirects=False,
     )
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import ValidationError
 from sqlalchemy import func, or_
@@ -19,7 +19,6 @@ from app.models import (
     App,
     BastionAccount,
     BastionAccountProvisioning,
-    FileResource,
     RBACGroup,
     RealmConfig,
 )
@@ -67,6 +66,7 @@ from app.web.openapi_responses import (
     RESP_404,
     RESP_409,
 )
+from app.web.csrf import portal_signing_secret
 
 _GROUP_ACCOUNT_MISSING = 'Compte groupe introuvable'
 
@@ -246,19 +246,6 @@ def _realm_or_404(db: Session, realm_id: int) -> RealmConfig:
     return realm
 
 
-def _keycloak_error_response(request: Request, exc: ValueError, redirect_url: str):
-    if _wants_json(request):
-        return JSONResponse({"ok": False, "errors": {"_form": str(exc)}}, status_code=400)
-    response = RedirectResponse(url=redirect_url, status_code=302)
-    flash_redirect(
-        response,
-        str(exc),
-        "error",
-        get_settings().vault_portal_internal_token or "dev",
-    )
-    return response
-
-
 @router.get("/admin/rbac/groups/{group_id}")
 async def admin_rbac_group_detail(
     group_id: int,
@@ -358,7 +345,7 @@ async def admin_rbac_group_credential_set(
     priority: int = Form(100),
 ):
     group, _realm = _realm_for_group(db, group_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     fallback = f"/admin/rbac/groups/{group.id}#comptes"
     try:
         cred = set_group_credential(
@@ -411,7 +398,7 @@ async def admin_rbac_group_credential_delete(
     user=Depends(require_admin),
 ):
     group, _realm = _realm_for_group(db, group_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     fallback = f"/admin/rbac/groups/{group.id}#comptes"
     cred = next(
         (c for c in list_group_credentials(db, group.id) if c.id == credential_id),
@@ -443,7 +430,7 @@ async def admin_rbac_group_credential_exclusion_add(
     keycloak_user_id: str = Form(...),
 ):
     group, _realm = _realm_for_group(db, group_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     fallback = f"/admin/rbac/groups/{group.id}#comptes"
     cred = next(
         (c for c in list_group_credentials(db, group.id) if c.id == credential_id),
@@ -494,7 +481,7 @@ async def admin_rbac_group_credential_exclusion_remove(
     user=Depends(require_admin),
 ):
     group, _realm = _realm_for_group(db, group_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     fallback = f"/admin/rbac/groups/{group.id}#comptes"
     cred = next(
         (c for c in list_group_credentials(db, group.id) if c.id == credential_id),
@@ -635,6 +622,7 @@ async def admin_rbac_users_page(
         db, granted_users, group_filter=group, status_filter=status
     )
 
+    shown_kc_ids = {u["keycloak_user_id"] for u in enriched_users if u.get("keycloak_user_id")}
     bastion_by_kc: dict[str, BastionAccount] = {}
     for row in (
         db.query(BastionAccount)
@@ -643,8 +631,10 @@ async def admin_rbac_users_page(
                 BastionAccountProvisioning.application
             ),
         )
-        .filter(BastionAccount.keycloak_user_id.is_not(None))
+        .filter(BastionAccount.keycloak_user_id.in_(shown_kc_ids))
         .all()
+        if shown_kc_ids
+        else ()
     ):
         if row.keycloak_user_id:
             bastion_by_kc[row.keycloak_user_id] = row
@@ -753,7 +743,10 @@ async def admin_rbac_users_page(
     )
     filter_groups = filter_groups_q.all()
     if group:
-        selected_g = db.query(RBACGroup).filter_by(name=group).first()
+        selected_q = db.query(RBACGroup).filter_by(name=group)
+        if selected_realm is not None:
+            selected_q = selected_q.filter(RBACGroup.realm_id == selected_realm.id)
+        selected_g = selected_q.first()
         if selected_g and all(g.id != selected_g.id for g in filter_groups):
             filter_groups = [selected_g, *filter_groups]
 
@@ -868,7 +861,7 @@ async def admin_rbac_users_bulk_groups(
         resolve_bastion_account_ids,
     )
 
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     fallback = "/admin/rbac/users?list_tab=bastion"
     act = (action or "").strip().lower()
     if act not in {"add", "remove"}:
@@ -1092,6 +1085,7 @@ def admin_rbac_grants_list(
     rbac_group_id: int | None = None,
     keycloak_user_id: str | None = None,
     application_id: int | None = None,
+    limit: int = Query(500, ge=1, le=2000),
     db: Session = Depends(get_db),
     _user=Depends(require_admin),
 ):
@@ -1100,6 +1094,7 @@ def admin_rbac_grants_list(
         rbac_group_id=rbac_group_id,
         keycloak_user_id=keycloak_user_id,
         application_id=application_id,
+        limit=limit,
     )
     return JSONResponse(
         {"ok": True, "grants": [serialize_grant(g, db) for g in grants]}
@@ -1141,7 +1136,9 @@ async def admin_rbac_grants_create(
             body[k] = v
         redirect_url = str(form.get("redirect_url") or redirect_url)
 
-    preferred_redirect = body.get("redirect_url") or redirect_url
+    preferred_redirect = _safe_redirect_url(
+        str(body.get("redirect_url") or redirect_url), _ADMIN_RBAC_PATH
+    )
 
     try:
         data = AccessGrantCreate.model_validate(body)
@@ -1151,17 +1148,17 @@ async def admin_rbac_grants_create(
                 {"ok": False, "errors": {e["loc"][-1]: e["msg"] for e in exc.errors()}},
                 status_code=400,
             )
-        response = RedirectResponse(url=str(preferred_redirect), status_code=302)
+        response = RedirectResponse(url=preferred_redirect, status_code=302)
         flash_redirect(
             response,
             exc.errors()[0]["msg"],
             "error",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
         return response
 
-    if preferred_redirect and str(preferred_redirect) != _ADMIN_RBAC_PATH:
-        redirect_url = str(preferred_redirect)
+    if preferred_redirect != _ADMIN_RBAC_PATH:
+        redirect_url = preferred_redirect
     elif data.subject_type == "group" and data.rbac_group_id:
         group = db.query(RBACGroup).filter_by(id=data.rbac_group_id).first()
         if not group:
@@ -1196,7 +1193,7 @@ async def admin_rbac_grants_create(
             response,
             "Impossible d’enregistrer ce droit.",
             "error",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
         return response
 
@@ -1237,7 +1234,7 @@ async def admin_rbac_grants_create(
         return JSONResponse(payload)
 
     response = RedirectResponse(url=redirect_url, status_code=302)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     if provisioning_summary is None:
         flash_redirect(response, "Droit accordé.", "success", secret)
     elif provisioning_summary.get("status") == "success":
@@ -1303,7 +1300,8 @@ def admin_rbac_grants_delete(
     if not existing:
         raise HTTPException(status_code=404, detail="Grant introuvable")
 
-    secret = settings.vault_portal_internal_token or "dev"
+    redirect_url = _safe_redirect_url(redirect_url, _ADMIN_RBAC_PATH)
+    secret = portal_signing_secret(settings)
     if is_self_portal_admin_grant(
         existing, actor_keycloak_user_id=user.keycloak_user_id
     ):

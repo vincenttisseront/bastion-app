@@ -79,7 +79,7 @@ def test_render_clears_consumed_flash_cookie():
         csrf_token="x",
         hide_chrome=True,
         app_version="test",
-        realm_slug="ar-systems",
+        realm_slug="example-corp",
         status_code=404,
     )
     set_cookies = " ".join(response.headers.getlist("set-cookie")).lower()

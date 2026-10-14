@@ -7,8 +7,6 @@ otherwise capture ``/admin/rbac/users/new`` (route order matters in FastAPI).
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import logging
 import time
@@ -61,6 +59,7 @@ from app.rbac.user_identity import (
     format_identity_first_name,
     format_identity_last_name,
 )
+from app.secret_crypto import decrypt_secret, encrypt_secret
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
@@ -73,6 +72,7 @@ from app.web.openapi_responses import (
     RESP_404,
     RESP_409,
 )
+from app.web.csrf import portal_signing_secret
 
 logger = logging.getLogger(__name__)
 
@@ -82,35 +82,15 @@ _KC_REALMS_PATH = '/realms/'
 
 router = APIRouter(tags=["admin-rbac-accounts"], dependencies=[Depends(require_admin)])
 
-# One-shot temporary Keycloak password after create/reset — httponly cookie, never logged.
+# One-shot temporary Keycloak password after create/reset — Fernet-sealed httponly cookie, never logged.
 _REVEAL_PW_COOKIE = "portal_temp_cred"
 _REVEAL_PW_MAX_AGE = 120
-
-
-def _sign_reveal_payload(payload: str, secret: str) -> str:
-    sig = hmac.new(
-        (secret or "dev").encode(), payload.encode(), hashlib.sha256
-    ).hexdigest()
-    return f"{payload}.{sig}"
-
-
-def _unsign_reveal_payload(signed: str, secret: str) -> str | None:
-    if "." not in signed:
-        return None
-    payload, sig = signed.rsplit(".", 1)
-    expected = hmac.new(
-        (secret or "dev").encode(), payload.encode(), hashlib.sha256
-    ).hexdigest()
-    if not hmac.compare_digest(sig, expected):
-        return None
-    return payload
 
 
 def set_temporary_password_reveal(
     response: Response,
     *,
     password: str,
-    secret: str,
     account_id: int | None = None,
     keycloak_user_id: str | None = None,
     realm_id: int | None = None,
@@ -127,10 +107,14 @@ def set_temporary_password_reveal(
         data["kid"] = kid
         if realm_id is not None:
             data["rid"] = int(realm_id)
-    payload = json.dumps(data, separators=(",", ":"))
+    try:
+        sealed = encrypt_secret(json.dumps(data, separators=(",", ":")), get_settings())
+    except ValueError:
+        logger.warning("Vault key unavailable: temporary password not kept for display")
+        return
     response.set_cookie(
         key=_REVEAL_PW_COOKIE,
-        value=_sign_reveal_payload(payload, secret),
+        value=sealed,
         max_age=_REVEAL_PW_MAX_AGE,
         httponly=True,
         secure=True,
@@ -142,7 +126,6 @@ def set_temporary_password_reveal(
 def pop_temporary_password_reveal(
     request: Request,
     *,
-    secret: str,
     account_id: int | None = None,
     keycloak_user_id: str | None = None,
     realm_id: int | None = None,
@@ -151,12 +134,9 @@ def pop_temporary_password_reveal(
     raw = request.cookies.get(_REVEAL_PW_COOKIE)
     if not raw:
         return None
-    payload = _unsign_reveal_payload(raw, secret)
-    if not payload:
-        return None
     try:
-        data = json.loads(payload)
-    except json.JSONDecodeError:
+        data = json.loads(decrypt_secret(raw, get_settings()))
+    except (ValueError, TypeError):
         return None
     if not isinstance(data, dict):
         return None
@@ -233,7 +213,7 @@ def _company_groups_for_picker(
     """Société picker: tagged companies plus LDAP top-level / shared-account groups.
 
     If any group is tagged Société (CrushFTP import), the old logic returned
-    *only* those tags and hid Keycloak-synced companies (e.g. 28RT).
+    *only* those tags and hid Keycloak-synced companies (e.g. ACME01).
     """
     shared = shared_account_group_ids or set()
     picked: dict[int, RBACGroup] = {}
@@ -674,10 +654,8 @@ async def admin_rbac_user_view(
         realm_id=realm.id if realm else None,
     )
 
-    secret = settings.vault_portal_internal_token or "dev"
     initial_temporary_password = pop_temporary_password_reveal(
         request,
-        secret=secret,
         account_id=(account.id if account else None),
         keycloak_user_id=keycloak_user_id,
         realm_id=(realm.id if realm else None),
@@ -816,8 +794,8 @@ async def admin_rbac_users_new_submit(
             "(compte de service provisioning + opt-in explicite)."
         )
 
-    # Groups belong to a realm — drop any id that is not for the selected realm
-    # (UI filters them, but never trust a crafted POST).
+    # Only Keycloak-synced groups can be assigned; a group from another realm
+    # creates a linked identity there (see _assign_selected_rbac_groups).
     if group_ids:
         allowed = {
             g.id
@@ -907,13 +885,12 @@ async def admin_rbac_users_new_submit(
         )
 
     response = RedirectResponse(url=f"/admin/rbac/accounts/{account.id}", status_code=302)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     if reveal_pw:
         set_temporary_password_reveal(
             response,
             account_id=account.id,
             password=reveal_pw,
-            secret=secret,
         )
         reveal_pw = None  # noqa: F841
     if account.status == "pending":
@@ -1029,7 +1006,7 @@ def _redirect_users_picker(
         response,
         message,
         "warning",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -1119,9 +1096,8 @@ def admin_rbac_account_detail(
         extra_app_slugs=extra_vault_slugs or None,
     )
 
-    secret = settings.vault_portal_internal_token or "dev"
     initial_temporary_password = pop_temporary_password_reveal(
-        request, account_id=account.id, secret=secret
+        request, account_id=account.id
     )
 
     response = render(
@@ -1164,7 +1140,7 @@ async def admin_rbac_account_update_identity(
 ):
     """Edit identity — BastionAccount + Keycloak + re-push vault credentials to apps."""
     account = _account_or_404(db, account_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     fallback = f"/admin/rbac/users/view?account_id={account.id}#identite"
     try:
         step_errors = await update_bastion_account_identity(
@@ -1227,7 +1203,7 @@ async def admin_rbac_account_reset_password(
 ):
     """Réinitialise le mot de passe Keycloak (temporaire) — optionnellement email SMTP."""
     account = _account_or_404(db, account_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     fallback = f"/admin/rbac/accounts/{account.id}"
     want_email = _want_send_email(send_email)
     email_error: str | None = None
@@ -1294,7 +1270,6 @@ async def admin_rbac_account_reset_password(
             response,
             account_id=account.id,
             password=reveal_pw,
-            secret=secret,
         )
         reveal_pw = None  # noqa: F841
     _flash_reset_password_outcome(
@@ -1362,7 +1337,7 @@ async def admin_rbac_user_reset_password(
     redirect_url: str = Form(""),
 ):
     """Reset Keycloak password from the user fiche (SSO-only or bastion-linked)."""
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     realm, account, uid, fallback = _user_reset_password_context(
         db, realm_id=realm_id, keycloak_user_id=keycloak_user_id
     )
@@ -1406,7 +1381,6 @@ async def admin_rbac_user_reset_password(
         set_temporary_password_reveal(
             response,
             password=reveal_pw,
-            secret=secret,
             account_id=(account.id if account else None),
             keycloak_user_id=uid,
             realm_id=realm.id,
@@ -1439,7 +1413,7 @@ async def admin_rbac_account_group_add(
 ):
     """Attach account identity to an RBAC/Keycloak group (any realm)."""
     account = _account_or_404(db, account_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     fallback = f"/admin/rbac/users/view?account_id={account.id}#groupes"
     group = db.query(RBACGroup).filter_by(id=group_id).first()
     if group is None:
@@ -1488,7 +1462,7 @@ async def admin_rbac_account_group_remove(
 ):
     """Detach account identity from an RBAC/Keycloak group."""
     account = _account_or_404(db, account_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     fallback = f"/admin/rbac/users/view?account_id={account.id}#groupes"
     group = db.query(RBACGroup).filter_by(id=group_id).first()
     if group is None:
@@ -1536,7 +1510,7 @@ async def admin_rbac_account_verify_email(
 ):
     """Force Keycloak emailVerified=true for a bastion-linked account."""
     account = _account_or_404(db, account_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     fallback = f"/admin/rbac/accounts/{account.id}"
     realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
     if realm is None or not account.keycloak_user_id:
@@ -1595,7 +1569,7 @@ async def admin_rbac_user_verify_email(
     redirect_url: str = Form(""),
 ):
     """Force Keycloak emailVerified=true from the user fiche (with or without bastion row)."""
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if realm is None:
         raise HTTPException(status_code=404, detail=_MSG_REALM_NOT_FOUND)
@@ -1661,7 +1635,7 @@ async def admin_rbac_account_require_otp(
 ):
     """Queue CONFIGURE_TOTP so the next portal login shows Bastion OTP enrollment."""
     account = _account_or_404(db, account_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     fallback = f"/admin/rbac/users/view?account_id={account.id}#identite"
     realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
     if realm is None or not account.keycloak_user_id:
@@ -1720,7 +1694,7 @@ async def admin_rbac_user_require_otp(
     redirect_url: str = Form(""),
 ):
     """Queue CONFIGURE_TOTP from the user fiche (with or without bastion row)."""
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if realm is None:
         raise HTTPException(status_code=404, detail=_MSG_REALM_NOT_FOUND)
@@ -1785,7 +1759,7 @@ async def admin_rbac_account_retry_keycloak(
 ):
     """Bouton « Relancer Keycloak » — retry explicite de l'étape IdP (+ groupes/apps en attente)."""
     account = _account_or_404(db, account_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     try:
         step_errors, temp_password = await retry_bastion_account_keycloak(
             db,
@@ -1907,7 +1881,7 @@ async def admin_rbac_account_provision_selected(
 ):
     """Lancer le provisioning pour les applications cochées sur la fiche compte."""
     account = _account_or_404(db, account_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     dest = f"/admin/rbac/accounts/{account.id}"
 
     if not account.keycloak_user_id:
@@ -2010,7 +1984,7 @@ async def admin_rbac_account_provision_retry(
 
     dest = _safe_redirect_url(redirect_url, f"/admin/rbac/accounts/{account.id}")
     response = RedirectResponse(url=dest, status_code=302)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     if row.status == "success":
         flash_redirect(response, f"Provisioning {app.label} : succès.", "success", secret)
     elif row.status == "not_applicable":
@@ -2039,7 +2013,7 @@ async def admin_rbac_account_delete(
     (retry possible) — jamais de suppression silencieusement partielle.
     """
     account = _account_or_404(db, account_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     detail_url = f"/admin/rbac/accounts/{account.id}"
 
     if (confirm_username or "").strip() != account.username:
@@ -2173,7 +2147,7 @@ async def admin_rbac_account_provision_retry_all(
 
     dest = _safe_redirect_url(redirect_url, f"/admin/rbac/accounts/{account.id}")
     response = RedirectResponse(url=dest, status_code=302)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     if not app_ids:
         flash_redirect(response, "Rien à relancer.", "info", secret)
     elif failures:

@@ -54,7 +54,7 @@ from app.web.admin_logs import router as admin_logs_router
 from app.web.admin_setup_wizard import router as admin_setup_wizard_router
 from app.web.audit_service import router as audit_router
 from app.web.constants import APP_VERSION
-from app.web.csrf import CrossOriginWriteMiddleware, CsrfCookieMiddleware
+from app.web.csrf import CrossOriginWriteMiddleware, CsrfCookieMiddleware, portal_signing_secret
 from app.web.flash import base_template_context, flash_redirect
 from app.web.global_search import router as global_search_router
 from app.web.health_service import router as health_router
@@ -341,7 +341,7 @@ def _html_client_error_response(
             response,
             message,
             "warning",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
         return response
     ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)

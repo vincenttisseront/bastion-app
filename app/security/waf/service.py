@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 from sqlalchemy.orm import Session
@@ -15,6 +16,7 @@ from app.bastion.nginx_waf_export import (
     MODE_ON,
     SCOPE_RULE,
     URI_MATCH_EXACT,
+    URI_MATCH_REGEX,
     VALID_MODES,
     VALID_SCOPE_KINDS,
     VALID_URI_MATCH,
@@ -221,6 +223,25 @@ def _require_exclusion_anchor(
     )
 
 
+_MAX_URI_REGEX_LEN = 256
+# ModSecurity runs @rx on PCRE (backtracking): reject the classic catastrophic shapes.
+_NESTED_QUANTIFIER = re.compile(r"\((?:[^()\\]|\\.)*[*+}](?:[^()\\]|\\.)*\)\s*[*+{]")
+_BACKREFERENCE = re.compile(r"\\[1-9]")
+
+
+def _validate_uri_regex(pattern: str) -> None:
+    if len(pattern) > _MAX_URI_REGEX_LEN:
+        raise ValueError(f"regex URI trop longue (max {_MAX_URI_REGEX_LEN} caractères)")
+    try:
+        re.compile(pattern)
+    except re.error as exc:
+        raise ValueError(f"regex URI invalide : {exc.msg}") from None
+    if _NESTED_QUANTIFIER.search(pattern) or _BACKREFERENCE.search(pattern):
+        raise ValueError(
+            "regex URI refusée : quantificateurs imbriqués ou références arrière (risque ReDoS)"
+        )
+
+
 def _validate_exclusion_fields(
     *,
     reason: str,
@@ -241,6 +262,8 @@ def _validate_exclusion_fields(
         uri_match=uri_match,
     )
     _require_exclusion_anchor(uri, host_s, kind=kind, allow_global=allow_global)
+    if uri and match == URI_MATCH_REGEX:
+        _validate_uri_regex(uri)
     if crs_rule_id is None:
         raise ValueError("crs_rule_id requis")
     return reason_s, uri, host_s, kind, target, match

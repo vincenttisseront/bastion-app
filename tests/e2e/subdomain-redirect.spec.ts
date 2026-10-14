@@ -5,7 +5,7 @@ const staging = process.env.E2E_STAGING_TRANSFER_URL;
 test.describe("subdomain redirect", () => {
   test.skip(
     !staging,
-    "Requires E2E_STAGING_TRANSFER_URL (e.g. https://transfer.ar-systems.fr) — real CrushFTP/Keycloak. " +
+    "Requires E2E_STAGING_TRANSFER_URL (e.g. https://transfer.example.com) — real CrushFTP/Keycloak. " +
       "Not mockable in pure browser e2e without MSW; deferred to staging.",
   );
 

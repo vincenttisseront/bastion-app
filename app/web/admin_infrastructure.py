@@ -30,6 +30,7 @@ from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.csrf import portal_signing_secret
 
 _INFRASTRUCTURE_APPLY_ACTION = 'infrastructure.apply'
 
@@ -139,7 +140,7 @@ def admin_infrastructure_apply(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     response = RedirectResponse(url=_ADMIN_INFRASTRUCTURE_PATH, status_code=302)
     manifest = apply_infrastructure(db, settings)
     file_count = len(manifest.get("files") or [])
@@ -288,7 +289,7 @@ def admin_infrastructure_apply_wait(
     audit_source: str = Query(_INFRASTRUCTURE_APPLY_ACTION),
 ):
     """Poll host apply status and only then return the admin to ``next``."""
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     next_path = safe_admin_next_path(next)
     context_label = (context or "").strip()[:200]
     target = (audit_target or "infrastructure").strip()[:120] or "infrastructure"

@@ -86,12 +86,12 @@ def test_unknown_host_hammering_bans_scanner_ip(db_session: Session):
     for _ in range(4):
         assert (
             record_unknown_host_refusal(
-                db_session, ip=ip, hostname="ar-systems.fr", uri="/api/v2/settings"
+                db_session, ip=ip, hostname="example.com", uri="/api/v2/settings"
             )
             is None
         )
     ban = record_unknown_host_refusal(
-        db_session, ip=ip, hostname="ar-systems.fr", uri="/api/v2/settings"
+        db_session, ip=ip, hostname="example.com", uri="/api/v2/settings"
     )
     assert ban is not None
     assert ban.target == ip

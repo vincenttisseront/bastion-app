@@ -53,7 +53,7 @@ def _render_subdomain(*, slug: str = "demoapp", fqdn: str = "demo.example.test")
             "fqdn": fqdn,
             "upstream_url": "https://127.0.0.1:8443/",
             "upstream_host": "127.0.0.1",
-            "realm_slug": "ar-systems",
+            "realm_slug": "example-corp",
             "ssl_cert": "/etc/ssl/certs/test.pem",
             "ssl_key": "/etc/ssl/private/test.key",
         },
@@ -63,7 +63,7 @@ def _render_subdomain(*, slug: str = "demoapp", fqdn: str = "demo.example.test")
         sso_portal_bind_port="8000",
         portal_domain="portal.example.test",
         bastion_app_proxy_pass="https://127.0.0.1:8443",
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
         nginx_legacy_proxy_redirect_enabled=False,
         nginx_legacy_proxy_redirects=[],
     )
@@ -135,7 +135,7 @@ def test_grommunio_is_in_subdomain_vhosts_list():
         ROOT / "ansible/roles/sso_portal/defaults/main.yml"
     ).read_text(encoding="utf-8")
     assert "slug: grommunio" in defaults
-    assert "fqdn: webmail.ar-systems.fr" in defaults
+    assert "fqdn: webmail.example.com" in defaults
     assert "vhost-subdomain-crushftp.conf.j2" in (
         ROOT / "ansible/roles/sso_portal/tasks/nginx_vhosts.yml"
     ).read_text(encoding="utf-8")
@@ -190,6 +190,6 @@ def _nginx_t_for_rendered(server_conf: str, label: str) -> None:
 
 def test_nginx_t_transfer_and_grommunio_renders():
     transfer = _render_transfer()
-    grommunio = _render_subdomain(slug="grommunio", fqdn="webmail.ar-systems.fr")
+    grommunio = _render_subdomain(slug="grommunio", fqdn="webmail.example.com")
     _nginx_t_for_rendered(transfer, "transfer")
     _nginx_t_for_rendered(grommunio, "grommunio")

@@ -40,9 +40,9 @@ def test_parse_and_match_groups_sync_include():
 def test_record_first_login_only_on_new_session(db_session):
     row = record_first_login_if_new(
         db_session,
-        user_email="brigitte@ar-systems.fr",
+        user_email="carol@example.com",
         username="brigitte",
-        realm_slug="ar-systems",
+        realm_slug="example-corp",
         source_ip="1.2.3.4",
         is_new_session_row=True,
     )
@@ -52,9 +52,9 @@ def test_record_first_login_only_on_new_session(db_session):
 
     again = record_first_login_if_new(
         db_session,
-        user_email="brigitte@ar-systems.fr",
+        user_email="carol@example.com",
         username="brigitte",
-        realm_slug="ar-systems",
+        realm_slug="example-corp",
         source_ip="1.2.3.4",
         is_new_session_row=False,
     )
@@ -69,9 +69,9 @@ def test_record_first_login_only_on_new_session(db_session):
     assert (
         record_first_login_if_new(
             db_session,
-            user_email="brigitte@ar-systems.fr",
+            user_email="carol@example.com",
             username="brigitte",
-            realm_slug="ar-systems",
+            realm_slug="example-corp",
             source_ip="1.2.3.4",
             is_new_session_row=True,
         )
@@ -86,7 +86,7 @@ def test_discover_skips_uuid_duplicate_and_known_grants(db_session):
         AccessGrant(
             subject_type="user",
             keycloak_user_id="e189ed16-79f8-4fa1-85ee-1bb7ff28852e",
-            user_display_cache="vincent.tisseront@ar-systems.fr",
+            user_display_cache="alice.martin@example.com",
             resource_type="system_role",
             system_role="portal_admin",
             access_level="manage",
@@ -95,23 +95,23 @@ def test_discover_skips_uuid_duplicate_and_known_grants(db_session):
     )
     for email, uname, sid in (
         (
-            "vincent.tisseront@ar-systems.fr",
-            "vincent.tisseront",
-            "u:vincent@ar-systems",
+            "alice.martin@example.com",
+            "alice.martin",
+            "u:alice@example-corp",
         ),
         (
             "e189ed16-79f8-4fa1-85ee-1bb7ff28852e",
-            "vincent.tisseront",
+            "alice.martin",
             "u:vincent-uuid",
         ),
         (
-            "brigitte.tisseront@ar-systems.fr",
-            "brigitte.tisseront",
+            "carol.petit@example.com",
+            "carol.petit",
             "u:brigitte",
         ),
         (
             "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-            "brigitte.tisseront",
+            "carol.petit",
             "u:brigitte-uuid",
         ),
     ):
@@ -121,7 +121,7 @@ def test_discover_skips_uuid_duplicate_and_known_grants(db_session):
                 kind="user",
                 user_email=email,
                 username=uname,
-                realm="ar-systems",
+                realm="example-corp",
                 protocol="oidc",
                 target="portal",
                 status="active",
@@ -132,17 +132,17 @@ def test_discover_skips_uuid_duplicate_and_known_grants(db_session):
     # Spurious pending rows already in DB (production state)
     db_session.add(
         PendingUser(
-            user_email="vincent.tisseront@ar-systems.fr",
-            username="vincent.tisseront",
-            realm_slug="ar-systems",
+            user_email="alice.martin@example.com",
+            username="alice.martin",
+            realm_slug="example-corp",
             status="pending",
         )
     )
     db_session.add(
         PendingUser(
             user_email="e189ed16-79f8-4fa1-85ee-1bb7ff28852e",
-            username="vincent.tisseront",
-            realm_slug="ar-systems",
+            username="alice.martin",
+            realm_slug="example-corp",
             status="pending",
         )
     )
@@ -155,10 +155,10 @@ def test_discover_skips_uuid_duplicate_and_known_grants(db_session):
         db_session.query(PendingUser).filter_by(status="pending").order_by(PendingUser.id).all()
     )
     emails = [p.user_email for p in pending]
-    assert "vincent.tisseront@ar-systems.fr" not in emails
+    assert "alice.martin@example.com" not in emails
     assert not any("e189ed16" in e for e in emails)
     assert not any("aaaaaaaa" in e for e in emails)
-    assert emails == ["brigitte.tisseront@ar-systems.fr"]
+    assert emails == ["carol.petit@example.com"]
     assert created >= 0
 
 
@@ -167,7 +167,7 @@ def test_record_skips_known_bastion_user(db_session):
         AccessGrant(
             subject_type="user",
             keycloak_user_id="kc-herve",
-            user_display_cache="herve.tisseront@ar-systems.fr",
+            user_display_cache="bob.durand@example.com",
             resource_type="system_role",
             system_role="portal_admin",
             access_level="view",
@@ -178,9 +178,9 @@ def test_record_skips_known_bastion_user(db_session):
     assert (
         record_first_login_if_new(
             db_session,
-            user_email="herve.tisseront@ar-systems.fr",
-            username="herve.tisseront",
-            realm_slug="ar-systems",
+            user_email="bob.durand@example.com",
+            username="bob.durand",
+            realm_slug="example-corp",
             source_ip="1.1.1.1",
             is_new_session_row=True,
         )
@@ -195,7 +195,7 @@ def test_breakglass_never_enters_pending_queue(db_session):
             db_session,
             user_email="admin@breakglass.local",
             username="admin",
-            realm_slug="ar-systems",
+            realm_slug="example-corp",
             source_ip="10.0.0.1",
             is_new_session_row=True,
         )
@@ -207,18 +207,18 @@ def test_breakglass_never_enters_pending_queue(db_session):
         PendingUser(
             user_email="admin@breakglass.local",
             username="admin",
-            realm_slug="ar-systems",
+            realm_slug="example-corp",
             status="pending",
             hit_count=3,
         )
     )
     db_session.add(
         ActiveSession(
-            id="portal:admin@breakglass.local:ar-systems",
+            id="portal:admin@breakglass.local:example-corp",
             kind="user",
             user_email="admin@breakglass.local",
             username="admin",
-            realm="ar-systems",
+            realm="example-corp",
             protocol="BREAKGLASS",
             target="portal",
             status="active",
@@ -242,9 +242,9 @@ def test_breakglass_never_enters_pending_queue(db_session):
 def test_pending_users_page_and_approve(client, db_session):
     db_session.add(
         PendingUser(
-            user_email="brigitte@ar-systems.fr",
+            user_email="carol@example.com",
             username="brigitte",
-            realm_slug="ar-systems",
+            realm_slug="example-corp",
             status="pending",
             hit_count=1,
         )
@@ -252,7 +252,7 @@ def test_pending_users_page_and_approve(client, db_session):
     db_session.commit()
     resp = client.get("/admin/pending-users", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
-    assert "brigitte@ar-systems.fr" in resp.text
+    assert "carol@example.com" in resp.text
     assert "nouvelle connexion" in resp.text
 
     approve = client.post(
@@ -261,7 +261,7 @@ def test_pending_users_page_and_approve(client, db_session):
         follow_redirects=False,
     )
     assert approve.status_code == 302
-    row = db_session.query(PendingUser).filter_by(user_email="brigitte@ar-systems.fr").one()
+    row = db_session.query(PendingUser).filter_by(user_email="carol@example.com").one()
     assert row.status == "approved"
 
 

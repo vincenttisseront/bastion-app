@@ -10,21 +10,14 @@ from app.testing_framework.throttle import (
     failure_block_retry_after,
     record_failure,
     reset_throttles,
-    throttle_retry_after,
     throttle_retry_after_key,
 )
 
-_TEST_COOLDOWN_SECONDS = 5.0
 _SYNC_COOLDOWN_SECONDS = 30.0
 
 # Identity password attempts: 5 failures / 5 minutes
 IDENTITY_MAX_FAILURES = 5
 IDENTITY_FAILURE_WINDOW_SECONDS = 300.0
-
-
-def check_test_rate_limit(key: str) -> float | None:
-    """Return seconds to wait if throttled, else None. Key format: ``type:id``."""
-    return throttle_retry_after_key(key, _TEST_COOLDOWN_SECONDS)
 
 
 def check_sync_rate_limit(key: str) -> float | None:

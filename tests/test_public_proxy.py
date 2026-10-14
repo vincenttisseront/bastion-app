@@ -25,8 +25,8 @@ from app.sso_settings import Settings
 
 def _settings(**kwargs) -> Settings:
     base = {
-        "portal_domain": "portal.ar-systems.fr",
-        "sso_portal_default_realm_slug": "ar-systems",
+        "portal_domain": "portal.example.com",
+        "sso_portal_default_realm_slug": "example-corp",
         "exports_dir": "data/test-exports",
     }
     base.update(kwargs)
@@ -43,7 +43,7 @@ def test_validate_public_proxy_requires_fqdn():
     errors = validate_app_access_fields("public_proxy", "http://127.0.0.1:8080", None)
     assert "public_fqdn" in errors
     ok = validate_app_access_fields(
-        "public_proxy", "http://127.0.0.1:8080", "status.ar-systems.fr"
+        "public_proxy", "http://127.0.0.1:8080", "status.example.com"
     )
     assert ok == {}
 
@@ -51,21 +51,21 @@ def test_validate_public_proxy_requires_fqdn():
 def test_app_launch_url_public_proxy():
     app = SimpleNamespace(
         access_mode="public_proxy",
-        upstream_url="http://172.24.0.120:8080/",
-        public_fqdn="status.ar-systems.fr",
+        upstream_url="http://10.20.0.120:8080/",
+        public_fqdn="status.example.com",
         slug="status",
         robotic_driver=None,
     )
-    assert app_launch_url(app) == "https://status.ar-systems.fr"
+    assert app_launch_url(app) == "https://status.example.com"
 
 
 def test_effective_apps_excludes_public_proxy_even_with_grants(db_session):
     pub = App(
         slug="status",
         label="Status",
-        upstream_url="http://172.24.0.120:8080/",
+        upstream_url="http://10.20.0.120:8080/",
         access_mode="public_proxy",
-        public_fqdn="status.ar-systems.fr",
+        public_fqdn="status.example.com",
         enabled=True,
     )
     wiki = App(
@@ -110,9 +110,9 @@ def test_public_proxy_nginx_has_no_auth(db_session, tmp_path):
         App(
             slug="status",
             label="Status",
-            upstream_url="http://172.24.0.120:8080/",
+            upstream_url="http://10.20.0.120:8080/",
             access_mode="public_proxy",
-            public_fqdn="status.ar-systems.fr",
+            public_fqdn="status.example.com",
             enabled=True,
         )
     )
@@ -122,7 +122,7 @@ def test_public_proxy_nginx_has_no_auth(db_session, tmp_path):
             label="ERP",
             upstream_url="https://10.0.0.5/",
             access_mode="subdomain_proxy",
-            public_fqdn="erp.ar-systems.fr",
+            public_fqdn="erp.example.com",
             enabled=True,
         )
     )
@@ -132,12 +132,12 @@ def test_public_proxy_nginx_has_no_auth(db_session, tmp_path):
         App(
             slug="status",
             label="Status",
-            upstream_url="http://172.24.0.120:8080/",
+            upstream_url="http://10.20.0.120:8080/",
             access_mode="public_proxy",
-            public_fqdn="status.ar-systems.fr",
+            public_fqdn="status.example.com",
         )
     )
-    assert "server_name status.ar-systems.fr;" in block
+    assert "server_name status.example.com;" in block
     assert "include /etc/nginx/snippets/modsecurity-public.conf;" in block
     healthz = block.split("location = /healthz {", 1)[1].split("}", 1)[0]
     assert "modsecurity off;" in healthz
@@ -162,7 +162,7 @@ def test_public_proxy_nginx_has_no_auth(db_session, tmp_path):
             label="Teleport",
             upstream_url="https://10.0.31.103/",
             access_mode="public_proxy",
-            public_fqdn="teleport.ar-systems.fr",
+            public_fqdn="teleport.example.com",
         )
     )
     assert "proxy_ssl_verify off;" in https_block
@@ -180,7 +180,7 @@ def test_public_proxy_nginx_has_no_auth(db_session, tmp_path):
     # Regression: subdomain_proxy export still has auth
     sub_conf = generate_subdomain_apps_nginx(db_session, _settings())
     assert "auth_request /internal/subdomain-auth;" in sub_conf
-    assert "status.ar-systems.fr" not in sub_conf
+    assert "status.example.com" not in sub_conf
 
     # portal-apps snippet points to dedicated file, no location for public_proxy
     portal = generate_nginx_apps_conf(db_session)

@@ -41,12 +41,12 @@ def _settings() -> Settings:
 def _realm(db) -> RealmConfig:
     s = _settings()
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", s),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         enabled=True,
         groups_sync_enabled=True,
@@ -131,7 +131,7 @@ def test_promote_via_html_form_like_users_ui(client, db_session):
     """Simulate the HTML form posted from /admin/rbac/users (not JSON API)."""
     realm = _realm(db_session)
     token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
-    user_url = f"https://kc.example.com/admin/realms/AR-SYSTEMS/users/{KC_USER_ID}"
+    user_url = f"https://kc.example.com/admin/realms/EXAMPLE-CORP/users/{KC_USER_ID}"
     groups_url = f"{user_url}/groups"
     respx.post(token_url).respond(200, json={"access_token": "t"})
     respx.get(user_url).respond(
@@ -261,7 +261,7 @@ async def test_list_sso_users_with_access_includes_group_members(db_session):
             {
                 "id": "u-via-group",
                 "username": "brigitte",
-                "email": "brigitte@example.com",
+                "email": "carol@example.com",
             }
         ],
     )

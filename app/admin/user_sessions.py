@@ -51,11 +51,19 @@ def _resolve_realm(
         slug = realm_slug.strip().lower()
         realm = db.query(RealmConfig).filter(RealmConfig.slug == slug).first()
         if realm is None:
-            # Session registry may store Keycloak realm name, not portal slug
-            realm = (
-                db.query(RealmConfig)
-                .filter(RealmConfig.issuer_url.contains(f"/realms/{realm_slug}"))
-                .first()
+            # Session registry may store Keycloak realm name, not portal slug.
+            # Exact realm segment only: "/realms/fo" must not pick realm "foo".
+            from app.auth.oidc_bff_config_service import keycloak_realm_from_issuer
+
+            realm = next(
+                (
+                    r
+                    for r in db.query(RealmConfig).filter(
+                        RealmConfig.issuer_url.contains(f"/realms/{realm_slug.strip()}")
+                    )
+                    if (keycloak_realm_from_issuer(r.issuer_url) or "").lower() == slug
+                ),
+                None,
             )
     if not realm:
         raise HTTPException(  # NOSONAR

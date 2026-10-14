@@ -36,7 +36,7 @@ def test_app_access_logs_tab_lists_apps(client, db_session, tmp_path, monkeypatc
     (logs_dir / "overseerr.access.log").write_text(
         '1.2.3.4 - - [05/Aug/2026:14:00:00 +0000] host=overseerr.example.test '
         '"GET / HTTP/1.1" 200 42 "-" "curl/8" '
-        "rt=0.01 upstream=172.24.0.109:443 us=200 ut=0.01 auth_err=-\n",
+        "rt=0.01 upstream=10.20.0.109:443 us=200 ut=0.01 auth_err=-\n",
         encoding="utf-8",
     )
     db_session.add(
@@ -45,7 +45,7 @@ def test_app_access_logs_tab_lists_apps(client, db_session, tmp_path, monkeypatc
             label="Overseerr",
             access_mode="public_proxy",
             public_fqdn="overseerr.example.test",
-            upstream_url="https://172.24.0.109",
+            upstream_url="https://10.20.0.109",
             enabled=True,
         )
     )
@@ -275,9 +275,9 @@ def test_parse_app_access_activesync_user_and_empty_auth_err():
     from app.web.nginx_app_logs import parse_app_access_line
 
     line = (
-        r"92.184.121.16 - ar-systems.fr\x5Cvincent.tisseront@ar-systems.fr "
-        "[05/Aug/2026:15:36:10 +0000] host=webmail.ar-systems.fr "
-        '"POST /Microsoft-Server-ActiveSync?User=vincent.tisseront@ar-systems.fr'
+        r"92.184.121.16 - example.com\x5Calice.martin@example.com "
+        "[05/Aug/2026:15:36:10 +0000] host=webmail.example.com "
+        '"POST /Microsoft-Server-ActiveSync?User=alice.martin@example.com'
         '&DeviceID=FBJV9GQU3D7890K74K10V5IC5K&DeviceType=iPhone&Cmd=Sync HTTP/1.1" '
         '200 0 "-" "Apple-iPhone13C4/2306.84" '
         "rt=0.760 upstream=172.24.10.104:443 us=200 ut=0.322 auth_err="
@@ -286,8 +286,8 @@ def test_parse_app_access_activesync_user_and_empty_auth_err():
     assert e is not None
     assert e["parse_ok"] is True
     assert e["remote_addr"] == "92.184.121.16"
-    assert e["remote_user"] == r"ar-systems.fr\vincent.tisseront@ar-systems.fr"
-    assert e["host"] == "webmail.ar-systems.fr"
+    assert e["remote_user"] == r"example.com\alice.martin@example.com"
+    assert e["host"] == "webmail.example.com"
     assert e["method"] == "POST"
     assert e["path"].startswith("/Microsoft-Server-ActiveSync")
     assert e["status"] == "200"
@@ -295,24 +295,24 @@ def test_parse_app_access_activesync_user_and_empty_auth_err():
     assert e["auth_err"] == ""
 
     with_email = (
-        "127.0.0.1 - - [07/Aug/2026:08:02:01 +0000] host=wikijs.ar-systems.fr "
+        "127.0.0.1 - - [07/Aug/2026:08:02:01 +0000] host=wikijs.example.com "
         '"GET / HTTP/1.1" 304 0 "-" '
         '"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:153.0) Gecko/20100101 Firefox/153.0" '
         "rt=0.090 upstream=10.0.31.112:443 us=304 ut=0.058 "
-        "auth_err= auth_email=vincent.tisseront@ar-systems.fr"
+        "auth_err= auth_email=alice.martin@example.com"
     )
     e_email = parse_app_access_line(with_email)
     assert e_email is not None
     assert e_email["parse_ok"] is True
     assert e_email["status"] == "304"
     assert e_email["auth_err"] == ""
-    assert e_email["auth_email"] == "vincent.tisseront@ar-systems.fr"
+    assert e_email["auth_email"] == "alice.martin@example.com"
     assert e_email["upstream_addr"] == "10.0.31.112:443"
 
     enriched = (
-        "92.184.121.16 - - [07/Aug/2026:18:10:00 +0000] host=wikijs.ar-systems.fr "
+        "92.184.121.16 - - [07/Aug/2026:18:10:00 +0000] host=wikijs.example.com "
         '"GET /en HTTP/1.1" 200 1234 '
-        '"https://portal.ar-systems.fr/" "Mozilla/5.0" '
+        '"https://portal.example.com/" "Mozilla/5.0" '
         "rt=0.120 uct=0.001 uht=0.040 ut=0.110 "
         "upstream=10.0.31.112:443 us=200 "
         "req_len=512 "
@@ -321,11 +321,11 @@ def test_parse_app_access_activesync_user_and_empty_auth_err():
         "proto=https "
         "rid=req-abc-123 "
         "auth_err= "
-        "auth_email=vincent.tisseront@ar-systems.fr "
-        "auth_user=vincent.tisseront "
+        "auth_email=alice.martin@example.com "
+        "auth_user=alice.martin "
         "auth_app=wikijs "
         "auth_src=portal "
-        "auth_pref=vtisseront"
+        "auth_pref=amartin"
     )
     e3 = parse_app_access_line(enriched)
     assert e3 is not None
@@ -338,19 +338,19 @@ def test_parse_app_access_activesync_user_and_empty_auth_err():
     assert e3["client_ip"] == "203.0.113.9"
     assert e3["forwarded_proto"] == "https"
     assert e3["request_id"] == "req-abc-123"
-    assert e3["auth_user"] == "vincent.tisseront"
+    assert e3["auth_user"] == "alice.martin"
     assert e3["auth_app"] == "wikijs"
     assert e3["auth_source"] == "portal"
-    assert e3["auth_preferred"] == "vtisseront"
+    assert e3["auth_preferred"] == "amartin"
 
     spaced = (
-        r"172.24.1.230 - A.R. Systems\x5Ccherve.tisseront@ar-systems.fr "
-        "[05/Aug/2026:15:36:10 +0000] host=webmail.ar-systems.fr "
+        r"172.24.1.230 - A.R. Systems\x5Ccbob.durand@example.com "
+        "[05/Aug/2026:15:36:10 +0000] host=webmail.example.com "
         '"POST /Microsoft-Server-ActiveSync?Cmd=Sync HTTP/1.1" 200 0 "-" "Apple" '
         "rt=0.1 upstream=172.24.10.104:443 us=200 ut=0.1 auth_err="
     )
     e2 = parse_app_access_line(spaced)
     assert e2 is not None
     assert e2["parse_ok"] is True
-    assert e2["remote_user"] == r"A.R. Systems\cherve.tisseront@ar-systems.fr"
+    assert e2["remote_user"] == r"A.R. Systems\cbob.durand@example.com"
     assert e2["method"] == "POST"

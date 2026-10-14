@@ -186,11 +186,11 @@ def test_apps_portal_renders_group_grants_from_x_groups(client: TestClient, db_s
     empty = client.get(
         "/apps",
         headers={
-            "X-Email": "vincent.tisseront@ar-systems.fr",
-            "X-Preferred-Username": "vincent.tisseront",
+            "X-Email": "alice.martin@example.com",
+            "X-Preferred-Username": "alice.martin",
             "X-User-Id": "kc-vincent",
             "X-Groups": "",
-            "X-Portal-Realm-Slug": "ar-systems",
+            "X-Portal-Realm-Slug": "example-corp",
         },
     )
     assert empty.status_code == 200
@@ -201,11 +201,11 @@ def test_apps_portal_renders_group_grants_from_x_groups(client: TestClient, db_s
     ok = client.get(
         "/apps",
         headers={
-            "X-Email": "vincent.tisseront@ar-systems.fr",
-            "X-Preferred-Username": "vincent.tisseront",
+            "X-Email": "alice.martin@example.com",
+            "X-Preferred-Username": "alice.martin",
             "X-User-Id": "kc-vincent",
             "X-Groups": "ARSYSTEMS-Users",
-            "X-Portal-Realm-Slug": "ar-systems",
+            "X-Portal-Realm-Slug": "example-corp",
         },
     )
     assert ok.status_code == 200
@@ -339,8 +339,8 @@ def test_user_portal_shows_description_when_set(client: TestClient, db_session: 
 def test_user_portal_admin_link_visible_in_dropdown(client: TestClient):
     """Administration must appear inside the user-menu dropdown for portal admins."""
     headers = {
-        "X-Email": "vincent.tisseront@ar-systems.fr",
-        "X-Preferred-Username": "vincent.tisseront",
+        "X-Email": "alice.martin@example.com",
+        "X-Preferred-Username": "alice.martin",
         "X-Groups": "/portal-admins",
     }
     resp = client.get("/apps", headers=headers)
@@ -366,8 +366,8 @@ def test_user_portal_admin_link_absent_in_dropdown_for_user(client: TestClient):
 def test_user_portal_admin_link_path_style_groups(client: TestClient):
     """Keycloak often forwards groups as /portal-admins — still grant Administration."""
     headers = {
-        "X-Email": "vincent@example.com",
-        "X-Preferred-Username": "vincent.tisseront",
+        "X-Email": "alice@example.com",
+        "X-Preferred-Username": "alice.martin",
         "X-Groups": "/portal-admins,/team-ops",
     }
     resp = client.get("/apps", headers=headers)

@@ -35,19 +35,19 @@ async def test_search_keycloak_users_fuzzy_typo(db_session):
 
     # Native typo query returns nothing; prefix pool returns the real user.
     respx.get(
-        "https://kc.example.com/admin/realms/AR-SYSTEMS/users?search=vincnet&max=20"
+        "https://kc.example.com/admin/realms/EXAMPLE-CORP/users?search=vincnet&max=20"
     ).respond(200, json=[])
     respx.get(
-        "https://kc.example.com/admin/realms/AR-SYSTEMS/users?search=vi&max=100"
+        "https://kc.example.com/admin/realms/EXAMPLE-CORP/users?search=vi&max=100"
     ).respond(
         200,
         json=[
             {
                 "id": "user-1",
-                "username": "vincent.tisseront",
-                "email": "vincent@example.com",
+                "username": "alice.martin",
+                "email": "alice@example.com",
                 "firstName": "Vincent",
-                "lastName": "Tisseront",
+                "lastName": "Martin",
             },
             {
                 "id": "user-2",
@@ -59,7 +59,7 @@ async def test_search_keycloak_users_fuzzy_typo(db_session):
 
     results = await search_keycloak_users_fuzzy(realm, "vincnet", settings, limit=8)
     assert results
-    assert results[0]["username"] == "vincent.tisseront"
+    assert results[0]["username"] == "alice.martin"
 
 
 @pytest.mark.asyncio
@@ -77,27 +77,27 @@ def test_rbac_user_search_endpoint_fuzzy(client, db_session):
     token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
     respx.post(token_url).respond(200, json={"access_token": "t"})
     respx.get(
-        "https://kc.example.com/admin/realms/AR-SYSTEMS/users?search=vincent&max=20"
+        "https://kc.example.com/admin/realms/EXAMPLE-CORP/users?search=vincent&max=20"
     ).respond(
         200,
         json=[
             {
                 "id": "user-1",
-                "username": "vincent.tisseront",
-                "email": "vincent@example.com",
+                "username": "alice.martin",
+                "email": "alice@example.com",
             }
         ],
     )
     # Broad prefix call (same results OK)
     respx.get(
-        "https://kc.example.com/admin/realms/AR-SYSTEMS/users?search=vi&max=100"
+        "https://kc.example.com/admin/realms/EXAMPLE-CORP/users?search=vi&max=100"
     ).respond(
         200,
         json=[
             {
                 "id": "user-1",
-                "username": "vincent.tisseront",
-                "email": "vincent@example.com",
+                "username": "alice.martin",
+                "email": "alice@example.com",
             }
         ],
     )
@@ -109,7 +109,7 @@ def test_rbac_user_search_endpoint_fuzzy(client, db_session):
     assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is True
-    assert data["users"][0]["username"] == "vincent.tisseront"
+    assert data["users"][0]["username"] == "alice.martin"
 
 
 @respx.mock

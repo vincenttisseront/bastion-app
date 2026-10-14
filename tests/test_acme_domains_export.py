@@ -16,7 +16,7 @@ from app.sso_settings import Settings
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
         portal_domain="portal.example.fr",
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
         exports_dir=str(tmp_path / "exports"),
         vault_portal_internal_token="test-secret",
     )  # type: ignore[call-arg]
@@ -30,7 +30,7 @@ def test_acme_domains_manifest_includes_all_families(db_session, tmp_path):
             label="Teleport",
             upstream_url="https://10.0.31.103/",
             access_mode="public_proxy",
-            public_fqdn="teleport.ar-systems.fr",
+            public_fqdn="teleport.example.com",
             enabled=True,
         )
     )
@@ -40,7 +40,7 @@ def test_acme_domains_manifest_includes_all_families(db_session, tmp_path):
             label="Doli",
             upstream_url="https://10.0.0.1/",
             access_mode="subdomain_proxy",
-            public_fqdn="dolibarr.ar-systems.fr",
+            public_fqdn="dolibarr.example.com",
             enabled=True,
         )
     )
@@ -51,13 +51,13 @@ def test_acme_domains_manifest_includes_all_families(db_session, tmp_path):
     assert manifest["scope"] == "all_bastion_hosts"
     by_family = {d["family"]: d["fqdn"] for d in manifest["domains"]}
     assert by_family["portal"] == "portal.example.fr"
-    assert by_family["subdomain_proxy"] == "dolibarr.ar-systems.fr"
-    assert by_family["public_proxy"] == "teleport.ar-systems.fr"
+    assert by_family["subdomain_proxy"] == "dolibarr.example.com"
+    assert by_family["public_proxy"] == "teleport.example.com"
     fqdns = [d["fqdn"] for d in manifest["domains"]]
     assert fqdns == [
         "portal.example.fr",
-        "dolibarr.ar-systems.fr",
-        "teleport.ar-systems.fr",
+        "dolibarr.example.com",
+        "teleport.example.com",
     ]
 
 

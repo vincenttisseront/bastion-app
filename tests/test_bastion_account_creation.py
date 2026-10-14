@@ -14,8 +14,8 @@ ADMIN_HEADERS = {
 JSON_HEADERS = {**ADMIN_HEADERS, "Accept": "application/json"}
 
 KC_BASE = "https://kc.example.com"
-KC_ADMIN = f"{KC_BASE}/admin/realms/AR-SYSTEMS"
-TOKEN_URL = f"{KC_BASE}/realms/AR-SYSTEMS/protocol/openid-connect/token"
+KC_ADMIN = f"{KC_BASE}/admin/realms/EXAMPLE-CORP"
+TOKEN_URL = f"{KC_BASE}/realms/EXAMPLE-CORP/protocol/openid-connect/token"
 _KC_GROUPS_LIST_RE = rf"{KC_ADMIN.replace('.', r'\.')}/groups(?:\?.*)?$"
 _KC_GROUPS_CHILDREN_RE = rf"{KC_ADMIN.replace('.', r'\.')}/groups/[^/?]+/children.*"
 
@@ -37,12 +37,12 @@ def _settings() -> Settings:
 def _realm(db, *, provisioning_enabled: bool = True) -> RealmConfig:
     s = _settings()
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url=f"{KC_BASE}/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url=f"{KC_BASE}/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", s),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         enabled=True,
         groups_sync_enabled=True,

@@ -236,21 +236,21 @@ async def test_crushftp_subdomain_login_uses_upstream_with_public_host(
     app = App(
         slug="transfer",
         label="Transfer",
-        upstream_url="https://172.24.0.106/",
-        public_fqdn="transfer.ar-systems.fr",
+        upstream_url="https://10.20.0.106/",
+        public_fqdn="transfer.example.com",
         robotic_driver="crushftp",
         access_mode="subdomain_proxy",
         enabled=True,
     )
     db_session.add(app)
     db_session.commit()
-    settings = _settings(subdomain_sso_enabled=True, portal_domain="portal.ar-systems.fr")
+    settings = _settings(subdomain_sso_enabled=True, portal_domain="portal.example.com")
     set_app_credential(db_session, "transfer", "robot", SECRET_PASSWORD, settings)
 
     fake_session = CrushFTPSession(
         cookies={"CrushAuth": "FQDNCOOKIE1234", "currentAuth": "1234"},
-        base_url="https://172.24.0.106/",
-        request_headers={"Host": "transfer.ar-systems.fr"},
+        base_url="https://10.20.0.106/",
+        request_headers={"Host": "transfer.example.com"},
     )
     login_mock = AsyncMock(return_value=fake_session)
     with (
@@ -270,15 +270,15 @@ async def test_crushftp_subdomain_login_uses_upstream_with_public_host(
         result = await impersonate(db_session, "transfer", settings, actor="user@test")
 
     login_mock.assert_awaited_once()
-    assert login_mock.await_args.args[0] == "https://172.24.0.106/"
+    assert login_mock.await_args.args[0] == "https://10.20.0.106/"
     assert login_mock.await_args.kwargs.get("extra_headers", {}).get("Host") == (
-        "transfer.ar-systems.fr"
+        "transfer.example.com"
     )
     assert result.mode == "subdomain"
     assert result.target_url == (
-        "https://transfer.ar-systems.fr/WebInterface/new-ui/index.html"
+        "https://transfer.example.com/WebInterface/new-ui/index.html"
     )
-    assert result.login_base_url == "https://172.24.0.106/"
+    assert result.login_base_url == "https://10.20.0.106/"
 
 
 @pytest.mark.asyncio
@@ -288,21 +288,21 @@ async def test_crushftp_subdomain_login_prefers_admin_api_when_upstream_is_publi
     app = App(
         slug="transfer",
         label="Transfer",
-        upstream_url="https://transfer.ar-systems.fr/",
-        public_fqdn="transfer.ar-systems.fr",
-        crushftp_admin_base_url="https://172.24.0.106:8080/",
+        upstream_url="https://transfer.example.com/",
+        public_fqdn="transfer.example.com",
+        crushftp_admin_base_url="https://10.20.0.106:8080/",
         robotic_driver="crushftp",
         access_mode="subdomain_proxy",
         enabled=True,
     )
     db_session.add(app)
     db_session.commit()
-    settings = _settings(subdomain_sso_enabled=True, portal_domain="portal.ar-systems.fr")
+    settings = _settings(subdomain_sso_enabled=True, portal_domain="portal.example.com")
     set_app_credential(db_session, "transfer", "robot", SECRET_PASSWORD, settings)
 
     fake_session = CrushFTPSession(
         cookies={"CrushAuth": "ADMINBASE1234", "currentAuth": "1234"},
-        base_url="https://172.24.0.106:8080/",
+        base_url="https://10.20.0.106:8080/",
     )
     login_mock = AsyncMock(return_value=fake_session)
     with (
@@ -321,5 +321,5 @@ async def test_crushftp_subdomain_login_prefers_admin_api_when_upstream_is_publi
     ):
         result = await impersonate(db_session, "transfer", settings, actor="user@test")
 
-    assert login_mock.await_args.args[0] == "https://172.24.0.106:8080/"
-    assert result.login_base_url == "https://172.24.0.106:8080/"
+    assert login_mock.await_args.args[0] == "https://10.20.0.106:8080/"
+    assert result.login_base_url == "https://10.20.0.106:8080/"

@@ -18,8 +18,8 @@ from app.sso_settings import Settings
 
 def _settings(**kwargs) -> Settings:
     base = {
-        "portal_domain": "portal.ar-systems.fr",
-        "sso_portal_default_realm_slug": "ar-systems",
+        "portal_domain": "portal.example.com",
+        "sso_portal_default_realm_slug": "example-corp",
         "exports_dir": "data/test-exports",
     }
     base.update(kwargs)
@@ -41,7 +41,7 @@ def test_iter_subdomain_proxy_apps_filters(db_session):
                 label="ERP",
                 upstream_url="https://10.0.0.5/",
                 access_mode="subdomain_proxy",
-                public_fqdn="erp.ar-systems.fr",
+                public_fqdn="erp.example.com",
                 enabled=True,
             ),
             App(
@@ -49,7 +49,7 @@ def test_iter_subdomain_proxy_apps_filters(db_session):
                 label="Off",
                 upstream_url="https://10.0.0.6/",
                 access_mode="subdomain_proxy",
-                public_fqdn="off.ar-systems.fr",
+                public_fqdn="off.example.com",
                 enabled=False,
             ),
         ]
@@ -65,19 +65,19 @@ def test_generate_server_block_includes_hop_not_internal():
         label="ERP",
         upstream_url="https://10.0.0.5/dolibarr/",
         access_mode="subdomain_proxy",
-        public_fqdn="dolibarr.ar-systems.fr",
-        realm_slug="ar-systems",
+        public_fqdn="dolibarr.example.com",
+        realm_slug="example-corp",
         enabled=True,
     )
     block = generate_subdomain_server_block(app, _settings())
-    assert "server_name dolibarr.ar-systems.fr;" in block
+    assert "server_name dolibarr.example.com;" in block
     assert "location = /.bastion/session-cookies" in block
     assert "location = /.bastion/sso-session-mirror" in block
     main = block.split("location / {", 1)[1]
     assert "modsecurity off;" in main.split("}", 1)[0]
     assert "internal;" not in block.split("session-cookies")[1].split("location /")[0]
     assert "session-cookie-hop" in block
-    assert "proxy_set_header Host portal.ar-systems.fr;" in block
+    assert "proxy_set_header Host portal.example.com;" in block
     assert "auth_request /internal/subdomain-auth;" in block
     assert "location = /healthz {" in block
     healthz = block.split("location = /healthz {", 1)[1].split("}", 1)[0]
@@ -91,7 +91,7 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "rd=https://$bastion_vhost_fqdn$request_uri" in block
     assert "bastion_sub=1" in block
     assert "ae=$bastion_auth_err" in block
-    assert 'set $bastion_vhost_fqdn "dolibarr.ar-systems.fr";' in block
+    assert 'set $bastion_vhost_fqdn "dolibarr.example.com";' in block
     assert "/auth/login?rd=https://" in block
     redirect = block.split("@portal_redirect_doli {", 1)[1].split("    }", 1)[0]
     assert "bastion_unauth_return_401" in redirect
@@ -155,10 +155,10 @@ def test_generate_crushftp_block_filters_portal_cookies():
     app = App(
         slug="transfer",
         label="Transfer",
-        upstream_url="https://172.24.0.106/",
+        upstream_url="https://10.20.0.106/",
         access_mode="subdomain_proxy",
-        public_fqdn="transfer.ar-systems.fr",
-        realm_slug="ar-systems",
+        public_fqdn="transfer.example.com",
+        realm_slug="example-corp",
         robotic_driver="crushftp",
         enabled=True,
     )
@@ -168,8 +168,8 @@ def test_generate_crushftp_block_filters_portal_cookies():
     assert "bastion_session=$cookie_bastion_session" not in block
     assert "set $bastion_upstream_cookie" in block
     assert "proxy_set_header Cookie $bastion_upstream_cookie;" in block
-    assert "proxy_redirect http://172.24.0.106/" in block
-    assert "proxy_redirect https://172.24.0.106/" in block
+    assert "proxy_redirect http://10.20.0.106/" in block
+    assert "proxy_redirect https://10.20.0.106/" in block
     # Forwarded-IP headers must be BLANKED (not just omitted) toward CrushFTP:
     # the DMZ edge proxy adds X-Forwarded-For: <client-ip> and nginx forwards
     # inbound headers unchanged unless overridden. CrushFTP trusts XFF, while
@@ -256,8 +256,8 @@ def test_generate_server_block_strips_web_path():
         label="Mail",
         upstream_url="https://10.0.0.50/web/",
         access_mode="subdomain_proxy",
-        public_fqdn="webmail.ar-systems.fr",
-        realm_slug="ar-systems",
+        public_fqdn="webmail.example.com",
+        realm_slug="example-corp",
         enabled=True,
     )
     block = generate_subdomain_server_block(app, _settings())
@@ -286,7 +286,7 @@ def test_app_oidc_keeps_auth_login_on_app_host():
     assert "app_oidc — keep /auth/login" in block
     assert "location = /auth/login {" not in block
     assert "location = /login {" not in block
-    assert "return 302 https://portal.ar-systems.fr/auth/login;" not in block
+    assert "return 302 https://portal.example.com/auth/login;" not in block
     # Unauthenticated browsers still bounce to portal via error_page.
     assert "auth_request /internal/subdomain-auth;" in block
     assert "@portal_redirect_immich" in block
@@ -298,10 +298,10 @@ def test_generate_crushftp_auth_include_keeps_full_cookie_path():
     app = App(
         slug="transfer",
         label="Transfer",
-        upstream_url="https://172.24.0.106/",
+        upstream_url="https://10.20.0.106/",
         access_mode="subdomain_proxy",
-        public_fqdn="transfer.ar-systems.fr",
-        realm_slug="ar-systems",
+        public_fqdn="transfer.example.com",
+        realm_slug="example-corp",
         robotic_driver="crushftp",
         enabled=True,
     )
@@ -386,14 +386,14 @@ def test_generate_conf_and_inventory(db_session, tmp_path):
             label="Mail",
             upstream_url="https://mail-backend:8443/",
             access_mode="subdomain_proxy",
-            public_fqdn="webmail.ar-systems.fr",
+            public_fqdn="webmail.example.com",
             enabled=True,
         )
     )
     db_session.commit()
     settings = _settings(exports_dir=str(tmp_path))
     conf = generate_subdomain_apps_nginx(db_session, settings)
-    assert "webmail.ar-systems.fr" in conf
+    assert "webmail.example.com" in conf
     assert "/.bastion/session-cookies" in conf
     inv = generate_subdomain_apps_inventory(db_session, settings)
     assert inv["applications"][0]["slug"] == "mail"
@@ -530,5 +530,5 @@ def test_m2m_bypass_login_does_not_duplicate_portal_bounce():
     assert block.count("location = /login {") == 1
     assert block.count("location = /auth/login {") == 1
     login = block.split("location = /login {", 1)[1].split("    }", 1)[0]
-    assert "return 302 https://portal.ar-systems.fr/auth/login;" in login
+    assert "return 302 https://portal.example.com/auth/login;" in login
     assert "location ^~ /api/ {" in block

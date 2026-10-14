@@ -21,9 +21,9 @@ def test_normalize_audit_actor_moves_uuid_to_details():
 def test_normalize_audit_actor_prefers_detail_username():
     actor, details = normalize_audit_actor(
         KC_SUB,
-        {"username": "vincent.tisseront@ar-systems.fr", "family": "sso"},
+        {"username": "alice.martin@example.com", "family": "sso"},
     )
-    assert actor == "vincent.tisseront@ar-systems.fr"
+    assert actor == "alice.martin@example.com"
     assert details["keycloak_user_id"] == KC_SUB
 
 
@@ -31,11 +31,11 @@ def test_normalize_audit_actor_prefers_robotic_username():
     actor, details = normalize_audit_actor(
         KC_SUB,
         {
-            "robotic_username": "vincent.tisseront@ar-systems.fr",
+            "robotic_username": "alice.martin@example.com",
             "driver": "generic_form",
         },
     )
-    assert actor == "vincent.tisseront@ar-systems.fr"
+    assert actor == "alice.martin@example.com"
     assert details["keycloak_user_id"] == KC_SUB
 
 
@@ -60,7 +60,7 @@ def test_serialize_rewrites_legacy_uuid_actor_rows(db_session: Session):
         target="deadbeef",
         details={
             "family": "sso",
-            "username": "vincent.tisseront@ar-systems.fr",
+            "username": "alice.martin@example.com",
             "subnet": "192.168.2.0/24",
         },
     )
@@ -69,7 +69,7 @@ def test_serialize_rewrites_legacy_uuid_actor_rows(db_session: Session):
     db_session.refresh(row)
 
     payload = serialize_audit_row(row)
-    assert payload["actor"] == "vincent.tisseront@ar-systems.fr"
+    assert payload["actor"] == "alice.martin@example.com"
     assert KC_SUB not in payload["actor"]
     assert "keycloak_user_id" in (payload["detail_full"] or "")
     assert KC_SUB in (payload["detail_full"] or "")

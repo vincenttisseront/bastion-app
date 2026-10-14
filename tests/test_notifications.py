@@ -26,7 +26,7 @@ def test_feed_empty(db_session):
 
 def test_feed_pending_host_and_denied(db_session):
     record = PendingHost(
-        hostname="ghost.ar-systems.fr",
+        hostname="ghost.example.com",
         hit_count=3,
         last_uri="/admin/",
         last_client_ip="10.0.0.1",
@@ -39,7 +39,7 @@ def test_feed_pending_host_and_denied(db_session):
         db_session,
         actor="anonymous",
         action="access_denied_unknown_host",
-        target="ghost.ar-systems.fr",
+        target="ghost.example.com",
         details={"uri": "/admin/", "reason": "unknown_host"},
         ip_address="10.0.0.1",
     )
@@ -51,13 +51,13 @@ def test_feed_pending_host_and_denied(db_session):
     assert "access-denied-summary" in ids
     pending = next(i for i in feed["items"] if i["id"] == "pending-hosts")
     assert pending["href"].startswith("/admin/pending-hosts")
-    assert "ghost.ar-systems.fr" in pending["body"]
+    assert "ghost.example.com" in pending["body"]
     assert pending.get("fingerprint")
 
 
 def test_dismiss_hides_until_fingerprint_changes(db_session):
     db_session.add(
-        PendingHost(hostname="ghost.ar-systems.fr", status="pending", hit_count=1)
+        PendingHost(hostname="ghost.example.com", status="pending", hit_count=1)
     )
     db_session.commit()
     feed = build_notification_feed(db_session, user_email="admin@example.com")
@@ -76,7 +76,7 @@ def test_dismiss_hides_until_fingerprint_changes(db_session):
     assert feed2["count"] == 0
 
     # New activity → new fingerprint → notification returns
-    row = db_session.query(PendingHost).filter_by(hostname="ghost.ar-systems.fr").one()
+    row = db_session.query(PendingHost).filter_by(hostname="ghost.example.com").one()
     row.hit_count = 99
     from app.models import utcnow
 

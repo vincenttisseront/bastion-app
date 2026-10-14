@@ -144,14 +144,14 @@ def test_audit_sse_respects_advanced_filters(client: TestClient, db_engine, monk
                 actor="match@ex.com",
                 action="realm.test",
                 details={"status": "error", "note": "live-match"},
-                ip_address="172.24.0.108",
+                ip_address="10.20.0.108",
             )
         finally:
             db2.close()
 
     threading.Thread(target=_insert_later, daemon=True).start()
 
-    qs = urlencode([("status", "error"), ("ip", "172.24.0.108"), ("action", "realm.test")])
+    qs = urlencode([("status", "error"), ("ip", "10.20.0.108"), ("action", "realm.test")])
     with client.stream(
         "GET",
         f"/admin/logs/stream?{qs}",

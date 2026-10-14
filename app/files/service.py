@@ -1073,6 +1073,21 @@ def delete_channel_assignment(
     return row
 
 
+def delete_file_resource(db: Session, resource: FileResource) -> list[str]:
+    """Delete a file with its grants, versions and assignments; return blob paths to unlink.
+
+    SQLite runs without ``PRAGMA foreign_keys``: grants pointing at the file
+    would otherwise survive the delete and reattach to a future id.
+    """
+    blob_paths = [v.storage_path for v in resource.versions if v.storage_path]
+    db.query(AccessGrant).filter(AccessGrant.file_id == resource.id).delete(
+        synchronize_session=False
+    )
+    db.delete(resource)
+    db.flush()
+    return blob_paths
+
+
 def list_file_versions(db: Session, file_id: int) -> list[FileVersion]:
     return (
         db.query(FileVersion)

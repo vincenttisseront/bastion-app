@@ -196,7 +196,7 @@ def test_eas_locations_disable_modsecurity_in_subdomain_export():
     block = generate_subdomain_server_block(
         app,
         Settings(
-            portal_domain="portal.ar-systems.fr",
+            portal_domain="portal.example.com",
             vault_portal_internal_token="test-secret",
         ),
     )

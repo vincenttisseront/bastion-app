@@ -46,9 +46,21 @@ def _nonce(request: Request) -> str:
     return getattr(request.state, _STATE_KEY, "") or request.cookies.get(CSRF_COOKIE, "")
 
 
-def csrf_secret(settings) -> str:
-    """HMAC key shared by every page that renders or checks a form token."""
-    return settings.vault_portal_internal_token or "dev-insecure"
+_DEV_SIGNING_SECRET = "dev-insecure"
+
+
+def portal_signing_secret(settings) -> str:
+    """HMAC key for portal cookies (CSRF tokens, flash messages, one-shot reveals).
+
+    Outside production an empty ``VAULT_PORTAL_INTERNAL_TOKEN`` falls back to a
+    public constant; in production that would make every signed cookie forgeable.
+    """
+    secret = (settings.vault_portal_internal_token or "").strip()
+    if secret:
+        return secret
+    if getattr(settings, "is_production", False):
+        raise RuntimeError("VAULT_PORTAL_INTERNAL_TOKEN is required in production")
+    return _DEV_SIGNING_SECRET
 
 
 def make_csrf_token(request: Request, secret: str) -> str:

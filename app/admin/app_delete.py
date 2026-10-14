@@ -11,11 +11,13 @@ from app.models import (
     ActiveSyncDevice,
     App,
     AppCredential,
+    BastionAccount,
     BastionAccountProvisioning,
     GroupAppCredential,
     PendingHost,
     UserAppCredential,
     UserAppFavorite,
+    UserPublicAppLink,
 )
 from app.sso_settings import Settings
 
@@ -67,6 +69,20 @@ def purge_application(
         .filter(UserAppFavorite.application_id == app_id)
         .delete(synchronize_session=False)
     )
+    summary["user_public_app_links"] = (
+        db.query(UserPublicAppLink)
+        .filter(UserPublicAppLink.application_id == app_id)
+        .delete(synchronize_session=False)
+    )
+    pending_accounts = 0
+    for account in db.query(BastionAccount).filter(
+        BastionAccount.pending_application_ids.is_not(None)
+    ):
+        pending = account.pending_application_ids
+        if isinstance(pending, list) and app_id in pending:
+            account.pending_application_ids = [i for i in pending if i != app_id] or None
+            pending_accounts += 1
+    summary["pending_provisioning_cleared"] = pending_accounts
 
     pending_rows = (
         db.query(PendingHost).filter(PendingHost.approved_app_slug == slug).all()

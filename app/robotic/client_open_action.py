@@ -49,6 +49,7 @@ from app.testing_framework.throttle import throttle_retry_after_key
 from app.web.flash import flash_redirect
 from app.web.sessions_service import app_cookie_diagnostics, touch_app_session
 from app.web.user_context import UserContext, require_user_enriched
+from app.web.csrf import portal_signing_secret
 
 _MIME_JSON = 'application/json'
 
@@ -105,7 +106,7 @@ def _wants_json(request: Request) -> bool:
 
 
 def _flash_secret(settings: Settings) -> str:
-    return settings.vault_portal_internal_token or "dev"
+    return portal_signing_secret(settings)
 
 
 async def _read_identity_password(request: Request) -> str:

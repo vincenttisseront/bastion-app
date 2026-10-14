@@ -15,8 +15,8 @@ def test_playbook_hosts_are_awx_driven():
     assert "bastion_edge_play_hosts" in text
     assert "default('all')" in text
     assert "Limit" in text or "inventaire AWX" in text
-    assert "hosts: vmdmz-docker01" not in text
-    assert "hosts: vmdmz-reverse01" not in text
+    assert "hosts: docker01" not in text
+    assert "hosts: reverse01" not in text
     # Must not require AWX groups that may not exist
     assert "default('sso_portal_docker')" not in text
     assert "default('nginx_dmz" not in text

@@ -34,9 +34,9 @@ def _settings() -> Settings:
 def _seed(db):
     s = _settings()
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", s),
         redirect_uri="https://portal.test/cb",
@@ -56,7 +56,7 @@ def _seed(db):
         crushftp_admin_server_group="MainUsers",
         crushftp_admin_username="crushadmin",
         crushftp_admin_password_encrypted=encrypt_secret("admin-pass", s),
-        crushftp_vfs_base_path="/crush_data/AR-SYSTEMS",
+        crushftp_vfs_base_path="/crush_data/EXAMPLE-CORP",
     )
     db.add_all([realm, app])
     db.commit()
@@ -130,7 +130,7 @@ async def test_crushftp_group_add_success_same_admin_session(db_session):
     assert user_form["xmlItem"] == ["user"]
     assert user_form["username"] == ["jdoe"]
     assert user_form["serverGroup"] == ["MainUsers"]
-    assert "FILE://crush_data/AR-SYSTEMS/SDIS999/" in user_form["vfs_items"][0]
+    assert "FILE://crush_data/EXAMPLE-CORP/SDIS999/" in user_form["vfs_items"][0]
 
     assert b"getUser" in (route.calls[3].request.content or b"")
 

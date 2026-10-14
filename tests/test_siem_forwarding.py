@@ -64,7 +64,7 @@ def test_cef_format_and_escape():
         detail={
             "uri": (
                 "/Microsoft-Server-ActiveSync?Cmd=Sync"
-                "&User=herve%40ar-systems.fr&DeviceId=ABC=123&DeviceType=iPhone"
+                "&User=herve%40example.com&DeviceId=ABC=123&DeviceType=iPhone"
             ),
             "note": "a=b|c\\d",
         },
@@ -89,7 +89,7 @@ def test_cef_format_and_escape():
 
 def test_cef_suser_is_canonical_email_not_display_blob():
     entry = _sample_entry(
-        actor="A.R. Systems herve.tisseront@ar-systems.fr",
+        actor="A.R. Systems bob.durand@example.com",
         action="activesync.allowed",
         event_code="BST-AUTH-0007",
         event_label="ACTIVESYNC_ALLOWED",
@@ -98,38 +98,38 @@ def test_cef_suser_is_canonical_email_not_display_blob():
         detail={
             "uri": (
                 "/Microsoft-Server-ActiveSync?Cmd=Sync"
-                "&User=herve.tisseront%40ar-systems.fr"
+                "&User=bob.durand%40example.com"
                 "&DeviceId=ApplC39ZH2VJJCM3&DeviceType=iPhone"
             ),
         },
     )
     suser, display = canonical_siem_actor(entry)
-    assert suser == "herve.tisseront@ar-systems.fr"
+    assert suser == "bob.durand@example.com"
     assert display == "A.R. Systems"
     cef = format_cef(entry)
-    assert "suser=herve.tisseront@ar-systems.fr" in cef
+    assert "suser=bob.durand@example.com" in cef
     assert "cs3Label=displayName" in cef
     assert "cs3=A.R. Systems" in cef
     assert "deviceExternalId=ApplC39ZH2VJJCM3" in cef
-    assert "suser=herve.tisseront@ar-systems.fr" in cef
+    assert "suser=bob.durand@example.com" in cef
     # Display blob must not remain the suser value.
-    assert "suser=A.R. Systems herve.tisseront@ar-systems.fr" not in cef
+    assert "suser=A.R. Systems bob.durand@example.com" not in cef
 
 
 def test_cef_suser_prefers_keycloak_uuid():
     entry = _sample_entry(
-        actor="Vincent Tisseront",
+        actor="Alice Martin",
         detail={
             "keycloak_user_id": "e189ed16-79f0-4fa1-85ee-1bb7ff28052c",
-            "email": "vincent.tisseront@ar-systems.fr",
+            "email": "alice.martin@example.com",
         },
     )
     suser, display = canonical_siem_actor(entry)
     assert suser == "e189ed16-79f0-4fa1-85ee-1bb7ff28052c"
-    assert display == "Vincent Tisseront"
+    assert display == "Alice Martin"
     cef = format_cef(entry)
     assert f"suser={suser}" in cef
-    assert "cs3=Vincent Tisseront" in cef
+    assert "cs3=Alice Martin" in cef
 
 
 def test_cef_strips_mailto_artifacts():
@@ -146,15 +146,15 @@ def test_cef_strips_mailto_artifacts():
 
 def test_ecs_uses_canonical_user():
     entry = _sample_entry(
-        actor="A.R. Systems herve@ar-systems.fr",
+        actor="A.R. Systems bob@example.com",
         event_code="BST-AUTH-0007",
         event_label="ACTIVESYNC_ALLOWED",
         catalog_severity="INFO",
         detail={"uri": "/Microsoft-Server-ActiveSync?DeviceId=DEV1"},
     )
     doc = format_ecs(entry)
-    assert doc["user"]["name"] == "herve@ar-systems.fr"
-    assert doc["user"]["email"] == "herve@ar-systems.fr"
+    assert doc["user"]["name"] == "bob@example.com"
+    assert doc["user"]["email"] == "bob@example.com"
     assert doc["user"]["full_name"] == "A.R. Systems"
     assert doc["device"]["id"] == "DEV1"
 

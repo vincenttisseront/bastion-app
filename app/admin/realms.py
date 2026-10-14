@@ -38,7 +38,7 @@ from app.secret_crypto import (
 from app.sso_settings import Settings, get_settings
 from app.testing_framework.throttle import throttle_retry_after
 from app.web.constants import APP_VERSION
-from app.web.csrf import verify_csrf_token
+from app.web.csrf import portal_signing_secret, verify_csrf_token
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 
 def _require_csrf(request: Request, settings: Settings, csrf_token: str = "") -> None:
-    secret = settings.vault_portal_internal_token or "dev-insecure"
+    secret = portal_signing_secret(settings)
     if not verify_csrf_token(request, secret, csrf_token):
         raise HTTPException(status_code=403, detail="CSRF token invalide")  # NOSONAR
 
@@ -572,6 +572,7 @@ async def admin_realms_create(
         errors["slug"] = slug_err
     if port_err := _check_port_unique(db, data.oauth2_proxy_port):
         errors["oauth2_proxy_port"] = port_err
+    test_result: dict[str, Any] | None = None
     if enabled:
         test_result = await test_oidc_connection(
             data.issuer_url, data.client_id, data.client_secret
@@ -711,10 +712,7 @@ async def admin_realms_create(
 
     _apply_default_realm(db, realm, data.is_default)
 
-    if enabled:
-        test_result = await test_oidc_connection(
-            data.issuer_url, data.client_id, data.client_secret
-        )
+    if test_result is not None:
         persist_test_result(realm, test_result)
         if test_result["status"] == "ok":
             realm.enabled = True
@@ -778,7 +776,7 @@ async def admin_realms_create(
         response,
         f"Realm '{realm.slug}' créé.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -898,6 +896,7 @@ async def admin_realms_update(
         errors["oauth2_proxy_port"] = port_err
 
     secret_for_test = _resolve_client_secret(data.client_secret, realm, settings)
+    test_result = None
     if enabled_requested and realm.last_test_status != "ok":
         if not secret_for_test:
             errors["client_secret"] = "Client secret requis pour activer"
@@ -1055,10 +1054,7 @@ async def admin_realms_update(
     _apply_default_realm(db, realm, data.is_default)
 
     if enabled_requested:
-        if realm.last_test_status != "ok" and secret_for_test:
-            test_result = await test_oidc_connection(
-                data.issuer_url, data.client_id, secret_for_test
-            )
+        if test_result is not None:
             persist_test_result(realm, test_result)
         activation_err = _guard_activation(realm, True)
         if activation_err:
@@ -1149,7 +1145,7 @@ async def admin_realms_update(
         response,
         f"Realm '{realm.slug}' mis à jour.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -1230,18 +1226,29 @@ async def admin_realms_test(
 
     body: dict[str, Any] = {}
     if request.headers.get("content-type", "").startswith("application/json"):
-        body = await request.json()
+        try:
+            body = await request.json()
+        except ValueError:
+            return JSONResponse({"ok": False, "errors": {"_form": "JSON invalide"}}, status_code=400)
+        if not isinstance(body, dict):
+            body = {}
 
-    issuer_url = body.get("issuer_url", realm.issuer_url)
-    client_id = body.get("client_id", realm.client_id)
     client_secret = _resolve_client_secret(body.get("client_secret"), realm, settings)
     if not client_secret:
         return JSONResponse(
             {"ok": False, "errors": {"client_secret": _MSG_CLIENT_SECRET_REQUIRED}},
             status_code=400,
         )
+    try:
+        target = RealmTestBody(
+            issuer_url=body.get("issuer_url") or realm.issuer_url,
+            client_id=body.get("client_id") or realm.client_id,
+            client_secret=client_secret,
+        )
+    except ValidationError as exc:
+        return JSONResponse(validation_errors_response(exc), status_code=422)
 
-    result = await test_oidc_connection(issuer_url, client_id, client_secret)
+    result = await test_oidc_connection(target.issuer_url, target.client_id, target.client_secret)
     persist_test_result(realm, result)
     db.commit()
 
@@ -1303,7 +1310,7 @@ async def admin_realms_force_sync(
     if not realm:
         raise HTTPException(status_code=404)
     dest = _safe_admin_redirect(redirect_to, _PATH_ADMIN_REALMS)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
 
     if wait := check_sync_rate_limit(f"rbac-sync:{realm_id}"):
         msg = f"Trop de synchronisations — réessayez dans {wait:.0f}s"
@@ -1408,7 +1415,7 @@ def admin_realms_enable(
         response,
         f"Realm '{realm.slug}' activé.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -1442,7 +1449,7 @@ def admin_realms_disable(
         response,
         f"Realm '{realm.slug}' désactivé.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -1482,7 +1489,7 @@ def admin_realms_oidc_native_enable(
         response,
         f"Session native OIDC activée pour '{realm.slug}'.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -1522,9 +1529,24 @@ def admin_realms_oidc_native_disable(
         response,
         f"Session native OIDC désactivée pour '{realm.slug}'.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
+
+
+async def _json_object(request: Request) -> dict[str, Any]:
+    try:
+        body = await request.json()
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _bff_throttled(wait: float) -> JSONResponse:
+    return JSONResponse(
+        {"ok": False, "error": f"Trop de tests — réessayez dans {wait:.0f}s"},
+        status_code=429,
+    )
 
 
 @router.post("/admin/realms/{realm_id}/oidc-bff/test", responses=RESP_404)
@@ -1540,11 +1562,9 @@ async def admin_realms_oidc_bff_test(
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if not realm:
         raise HTTPException(status_code=404)
-    body: dict[str, Any] = {}
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
+    if wait := throttle_retry_after("oidc_bff", realm_id, min_interval_seconds=5):
+        return _bff_throttled(wait)
+    body = await _json_object(request)
     base = (body.get("oidc_keycloak_base_url") or realm.oidc_keycloak_base_url or "").strip()
     issuer = (body.get("issuer_url") or realm.issuer_url or "").strip()
     kc_realm = keycloak_realm_from_issuer(issuer) or realm.slug
@@ -1561,10 +1581,9 @@ async def admin_realms_oidc_bff_test_draft(
     """Draft realm: ping discovery with posted base_url + issuer/slug (before save)."""
     from app.auth.oidc_bff_config_service import keycloak_realm_from_issuer, ping_oidc_discovery
 
-    try:
-        body = await request.json()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "JSON invalide"}, status_code=400)
+    if wait := throttle_retry_after("oidc_bff", "draft", min_interval_seconds=5):
+        return _bff_throttled(wait)
+    body = await _json_object(request)
     base = (body.get("oidc_keycloak_base_url") or "").strip()
     issuer = (body.get("issuer_url") or "").strip()
     slug = (body.get("slug") or "").strip()
@@ -1615,7 +1634,7 @@ def admin_realms_export(
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": message, "paths": paths})
     response = RedirectResponse(url=_PATH_ADMIN_REALMS, status_code=302)
-    flash_redirect(response, message, "success", settings.vault_portal_internal_token or "dev")
+    flash_redirect(response, message, "success", portal_signing_secret(settings))
     return response
 
 
@@ -1667,6 +1686,6 @@ def admin_realms_delete(
         response,
         f"Realm '{slug}' supprimé.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response

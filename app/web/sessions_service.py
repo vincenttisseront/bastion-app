@@ -1392,8 +1392,8 @@ def _row_to_dict(
 def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Merge flat sessions into one group per person (realm + canonical identity).
 
-    Short preferred_username emails (``vincent.tisseront``) are merged with the
-    full email (``vincent.tisseront@…``) when both appear in the same realm —
+    Short preferred_username emails (``alice.martin``) are merged with the
+    full email (``alice.martin@…``) when both appear in the same realm —
     otherwise the rail shows duplicate users for the same person.
     """
     email_map = _canonical_email_map(sessions)

@@ -35,14 +35,14 @@ SECRET_SHARED = "SharedVaultSecret-MustNotLeak"
 KC_USER = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff0001"
 
 USER_HEADERS = {
-    "X-Email": "vincent.tisseront@ar-systems.fr",
+    "X-Email": "alice.martin@example.com",
     # Short preferred_username (Keycloak often sends local-part only)
-    "X-Preferred-Username": "vincent.tisseront",
+    "X-Preferred-Username": "alice.martin",
     "X-Groups": "transfer-users",
     "X-User-Id": KC_USER,
 }
 
-FULL_EMAIL = "vincent.tisseront@ar-systems.fr"
+FULL_EMAIL = "alice.martin@example.com"
 
 
 @pytest.fixture(autouse=True)
@@ -134,7 +134,7 @@ async def test_identity_login_failure_is_generic(db_session: Session, caplog):
                 "grommunio",
                 settings,
                 actor="user@test",
-                ephemeral_username="vincent.tisseront@ar-systems.fr",
+                ephemeral_username="alice.martin@example.com",
                 ephemeral_password=WRONG_PASSWORD,
             )
 
@@ -158,7 +158,7 @@ def test_resolve_identity_login_username_prefers_email_by_default():
     assert (
         resolve_identity_login_username(
             email=FULL_EMAIL,
-            username="vincent.tisseront",
+            username="alice.martin",
             identity_format="email",
         )
         == FULL_EMAIL
@@ -166,10 +166,10 @@ def test_resolve_identity_login_username_prefers_email_by_default():
     assert (
         resolve_identity_login_username(
             email=FULL_EMAIL,
-            username="vincent.tisseront",
+            username="alice.martin",
             identity_format="username",
         )
-        == "vincent.tisseront"
+        == "alice.martin"
     )
 
 
@@ -179,10 +179,10 @@ def test_resolve_identity_login_username_rejects_uuid_as_email():
     assert (
         resolve_identity_login_username(
             email=uuid,
-            username="vincent.tisseront",
+            username="alice.martin",
             identity_format="email",
         )
-        == "vincent.tisseront"
+        == "alice.martin"
     )
     assert (
         resolve_identity_login_username(
@@ -237,7 +237,7 @@ def test_open_with_identity_uses_session_username_not_body(
     assert args[1] == FULL_EMAIL
     assert args[2] == SECRET_PASSWORD
     assert "attacker-spoofed" not in str(args)
-    assert args[1] != "vincent.tisseront"  # must not use short preferred_username
+    assert args[1] != "alice.martin"  # must not use short preferred_username
 
 
 def test_open_with_identity_recovers_email_from_keycloak(
@@ -254,12 +254,12 @@ def test_open_with_identity_recovers_email_from_keycloak(
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
     )
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", settings),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         is_default=True,
         enabled=True,
@@ -276,11 +276,11 @@ def test_open_with_identity_recovers_email_from_keycloak(
     )
     login_mock = AsyncMock(return_value=fake_session)
     short_headers = {
-        "X-Email": "herve.tisseront",
-        "X-Preferred-Username": "herve.tisseront",
+        "X-Email": "bob.durand",
+        "X-Preferred-Username": "bob.durand",
         "X-Groups": "transfer-users",
         "X-User-Id": KC_USER,
-        "X-Portal-Realm-Slug": "ar-systems",
+        "X-Portal-Realm-Slug": "example-corp",
     }
 
     with (
@@ -290,7 +290,7 @@ def test_open_with_identity_recovers_email_from_keycloak(
         ),
         patch(
             "app.robotic.impersonate_service.CrushFTPDriver.get_username",
-            new=AsyncMock(return_value="herve.tisseront@ar-systems.fr"),
+            new=AsyncMock(return_value="bob.durand@example.com"),
         ),
         patch(
             "app.robotic.impersonate_service.CrushFTPDriver.logout",
@@ -301,8 +301,8 @@ def test_open_with_identity_recovers_email_from_keycloak(
             new=AsyncMock(
                 return_value={
                     "id": KC_USER,
-                    "username": "herve.tisseront",
-                    "email": "herve.tisseront@ar-systems.fr",
+                    "username": "bob.durand",
+                    "email": "bob.durand@example.com",
                     "emailVerified": False,
                 }
             ),
@@ -316,7 +316,7 @@ def test_open_with_identity_recovers_email_from_keycloak(
         )
 
     assert resp.status_code == 200
-    assert login_mock.await_args.args[1] == "herve.tisseront@ar-systems.fr"
+    assert login_mock.await_args.args[1] == "bob.durand@example.com"
 
 
 def test_open_with_identity_password_absent_from_logs(
@@ -689,7 +689,7 @@ def test_portal_identity_tile_has_no_impersonate_href(
     assert 'data-open-identity-url="/api/apps/grommunio/open-with-identity"' in html
     assert 'data-credential-mode="identite_utilisateur"' in html
     assert f'data-identity-username="{FULL_EMAIL}"' in html
-    assert 'data-identity-username="vincent.tisseront"' not in html
+    assert 'data-identity-username="alice.martin"' not in html
     assert "/api/internal/impersonate/grommunio" not in html
     assert 'href="/api/internal/impersonate/grommunio"' not in html
     assert "bastionPasswordPrompt" in html

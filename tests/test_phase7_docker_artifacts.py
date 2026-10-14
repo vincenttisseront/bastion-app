@@ -114,7 +114,7 @@ def test_nginx_docker_uses_service_dns():
     ).read_text(encoding="utf-8")
     assert "oauth2-proxy-core:4180" in core or "$oauth2_core_upstream" in core
     assert "${SSO_PORTAL_DEFAULT_REALM_SLUG}" in core
-    assert "ar-systems" not in core
+    assert "example-corp" not in core
 
 
 def test_ansible_docker_role_present():

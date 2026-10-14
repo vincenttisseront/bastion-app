@@ -15,7 +15,7 @@ from app.web.user_context import UserContext
 from tests.test_auth_login_flow import _add_default_idp
 
 OIDC_SECRET = "oidc-login-loop-hmac-key-32bytes-min!!"
-TRANSFER_RD = "https://transfer.ar-systems.fr/WebInterface/new-ui/index.html"
+TRANSFER_RD = "https://transfer.example.com/WebInterface/new-ui/index.html"
 KC_USER = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 
@@ -25,13 +25,13 @@ def _native_settings() -> Settings:
         breakglass_jwt_secret="test-bg-jwt-secret",
         breakglass_jwt_secret_fallback_enabled=True,
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
-        portal_domain="portal.ar-systems.fr",
+        portal_domain="portal.example.com",
         database_url="sqlite://",
         oauth2_proxy_default_url="http://127.0.0.1:4180",
         oidc_session_jwt_secret=OIDC_SECRET,
         oidc_session_cookie_name="bastion_session",
         oidc_session_max_age=3600,
-        oidc_native_session_enabled_realms="ar-systems",
+        oidc_native_session_enabled_realms="example-corp",
     )
 
 
@@ -49,8 +49,8 @@ def _transfer_app_with_grant(db: Session, *, groups: tuple[str, ...] = ()) -> Ap
         upstream_url="https://transfer.internal/",
         enabled=True,
         access_mode="subdomain_proxy",
-        public_fqdn="transfer.ar-systems.fr",
-        realm_slug="ar-systems",
+        public_fqdn="transfer.example.com",
+        realm_slug="example-corp",
         robotic_driver="crushftp",
     )
     db.add(app)
@@ -101,7 +101,7 @@ def test_login_with_native_session_bounces_to_subdomain_and_sets_domain(
         db_session,
         sub=KC_USER,
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
         groups=("ARSYSTEMS-Users",),
@@ -121,7 +121,7 @@ def test_login_with_native_session_bounces_to_subdomain_and_sets_domain(
     )
     set_cookie = " ".join(resp.headers.get_list("set-cookie"))
     assert "bastion_session=" in set_cookie
-    assert "Domain=ar-systems.fr" in set_cookie or "domain=ar-systems.fr" in set_cookie
+    assert "Domain=example.com" in set_cookie or "domain=example.com" in set_cookie
 
 
 def test_login_bastion_sub_flag_stops_bounce_despite_grant(
@@ -137,7 +137,7 @@ def test_login_bastion_sub_flag_stops_bounce_despite_grant(
         db_session,
         sub=KC_USER,
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
         groups=("ARSYSTEMS-Users",),
@@ -169,8 +169,8 @@ def test_login_native_session_without_transfer_grant_goes_to_apps(
             upstream_url="https://transfer.internal/",
             enabled=True,
             access_mode="subdomain_proxy",
-            public_fqdn="transfer.ar-systems.fr",
-            realm_slug="ar-systems",
+            public_fqdn="transfer.example.com",
+            realm_slug="example-corp",
         )
     )
     db_session.commit()
@@ -178,7 +178,7 @@ def test_login_native_session_without_transfer_grant_goes_to_apps(
         db_session,
         sub=KC_USER,
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
         groups=("ARSYSTEMS-Users",),
@@ -202,8 +202,8 @@ def test_login_nested_auth_login_rd_goes_to_apps(
     client.app.dependency_overrides[get_settings] = lambda: settings
     _add_default_idp(db_session)
     nested = (
-        "https://transfer.ar-systems.fr/auth/login?rd="
-        "https://transfer.ar-systems.fr/WebInterface/new-ui/index.html"
+        "https://transfer.example.com/auth/login?rd="
+        "https://transfer.example.com/WebInterface/new-ui/index.html"
     )
     resp = client.get(f"/auth/login?rd={nested}", follow_redirects=False)
     assert resp.status_code == 200
@@ -223,7 +223,7 @@ def test_login_injected_user_without_subdomain_cookie_goes_to_apps(
         email="alice@example.com",
         username="alice",
         groups=["ARSYSTEMS-Users"],
-        realm_slug="ar-systems",
+        realm_slug="example-corp",
         auth_source="sso",
         is_admin=False,
         keycloak_user_id="kc-sub",
@@ -269,13 +269,13 @@ def test_auth_login_options_same_site_cors(client: TestClient):
     resp = client.options(
         "/auth/login",
         headers={
-            "Origin": "https://webmail.ar-systems.fr",
+            "Origin": "https://webmail.example.com",
             "Access-Control-Request-Method": "GET",
             "Access-Control-Request-Headers": "content-type",
         },
     )
     assert resp.status_code == 204
-    assert resp.headers.get("access-control-allow-origin") == "https://webmail.ar-systems.fr"
+    assert resp.headers.get("access-control-allow-origin") == "https://webmail.example.com"
     assert "GET" in (resp.headers.get("access-control-allow-methods") or "")
 
 
@@ -287,7 +287,7 @@ def test_auth_login_options_rejects_foreign_origin(client: TestClient):
     resp = client.options(
         "/auth/login",
         headers={
-            "Origin": "https://evil.example.com",
+            "Origin": "https://evil.example.net",
             "Access-Control-Request-Method": "GET",
         },
     )
@@ -307,26 +307,26 @@ def test_sso_session_mirror_sets_host_only_bastion_session(
     token, _jti = issue_oidc_session(
         db_session,
         sub=KC_USER,
-        username="vincent.tisseront",
-        realm="ar-systems",
+        username="alice.martin",
+        realm="example-corp",
         secret=settings.oidc_session_jwt_secret,
         max_age=3600,
         groups=("ARSYSTEMS-Users",),
-        email="vincent.tisseront@ar-systems.fr",
+        email="alice.martin@example.com",
     )
     db_session.commit()
 
     resp = client.get(
         "/api/internal/sso-session-mirror?next=/web/",
         headers={
-            "Host": "webmail.ar-systems.fr",
-            "X-Forwarded-Host": "webmail.ar-systems.fr",
+            "Host": "webmail.example.com",
+            "X-Forwarded-Host": "webmail.example.com",
             "Cookie": f"bastion_session={token}",
         },
         follow_redirects=False,
     )
     assert resp.status_code == 302
-    assert resp.headers.get("location") == "https://webmail.ar-systems.fr/web/"
+    assert resp.headers.get("location") == "https://webmail.example.com/web/"
     set_cookie = " ".join(resp.headers.get_list("set-cookie"))
     assert "bastion_session=" in set_cookie
     assert "Domain=" not in set_cookie
@@ -336,8 +336,8 @@ def test_redirect_via_subdomain_sso_mirror_encodes_next():
     from app.robotic.session_cookie_hop import redirect_via_subdomain_sso_mirror
 
     out = redirect_via_subdomain_sso_mirror(
-        "https://webmail.ar-systems.fr/web/?logon",
-        portal_domain="portal.ar-systems.fr",
+        "https://webmail.example.com/web/?logon",
+        portal_domain="portal.example.com",
     )
-    assert out.startswith("https://webmail.ar-systems.fr/.bastion/sso-session-mirror?next=")
+    assert out.startswith("https://webmail.example.com/.bastion/sso-session-mirror?next=")
     assert "%2Fweb%2F" in out

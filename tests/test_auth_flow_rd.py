@@ -13,20 +13,20 @@ def test_safe_rd_relative_paths():
 
 
 def test_safe_rd_absolute_same_parent():
-    portal = "portal.ar-systems.fr"
+    portal = "portal.example.com"
     assert (
         safe_post_login_rd(
-            "https://transfer.ar-systems.fr/WebInterface/new-ui/index.html",
+            "https://transfer.example.com/WebInterface/new-ui/index.html",
             portal_domain=portal,
         )
-        == "https://transfer.ar-systems.fr/WebInterface/new-ui/index.html"
+        == "https://transfer.example.com/WebInterface/new-ui/index.html"
     )
     assert (
         safe_post_login_rd(
-            "https://transfer.ar-systems.fr/WebInterface/login.html/",
+            "https://transfer.example.com/WebInterface/login.html/",
             portal_domain=portal,
         )
-        == "https://transfer.ar-systems.fr/WebInterface/login.html/"
+        == "https://transfer.example.com/WebInterface/login.html/"
     )
 
 
@@ -34,14 +34,14 @@ def test_safe_rd_rejects_foreign_absolute():
     assert (
         safe_post_login_rd(
             "https://evil.example/phish",
-            portal_domain="portal.ar-systems.fr",
+            portal_domain="portal.example.com",
         )
         == "/apps"
     )
     assert (
         safe_post_login_rd(
-            "http://transfer.ar-systems.fr/",
-            portal_domain="portal.ar-systems.fr",
+            "http://transfer.example.com/",
+            portal_domain="portal.example.com",
         )
         == "/apps"
     )

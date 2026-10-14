@@ -30,7 +30,7 @@ def test_normalize_hostname():
 def test_known_hosts_map_never_emits_ipv6_or_dollar(db_session, tmp_path):
     settings = Settings(
         portal_domain="portal.example.fr",
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
         exports_dir=str(tmp_path / "exports"),
         vault_portal_internal_token="test-secret",
     )  # type: ignore[call-arg]
@@ -125,12 +125,12 @@ def test_infra_discovery_probe_not_recorded(db_session):
         purge_infra_discovery_probes,
     )
 
-    assert is_infra_discovery_probe("discovery-probe-1785342810.ar-systems.fr")
-    assert not is_infra_discovery_probe("www.ar-systems.fr")
+    assert is_infra_discovery_probe("discovery-probe-1785342810.example.com")
+    assert not is_infra_discovery_probe("www.example.com")
     assert (
         record_unknown_host(
             db_session,
-            hostname="discovery-probe-1785342810.ar-systems.fr",
+            hostname="discovery-probe-1785342810.example.com",
             uri="/probe-discovery",
         )
         is None
@@ -140,7 +140,7 @@ def test_infra_discovery_probe_not_recorded(db_session):
     # Legacy noise already in DB is purged on demand.
     db_session.add(
         PendingHost(
-            hostname="discovery-probe-111.ar-systems.fr",
+            hostname="discovery-probe-111.example.com",
             status="pending",
             hit_count=1,
             last_uri="/probe-discovery",
@@ -148,7 +148,7 @@ def test_infra_discovery_probe_not_recorded(db_session):
     )
     db_session.add(
         PendingHost(
-            hostname="www.ar-systems.fr",
+            hostname="www.example.com",
             status="pending",
             hit_count=5,
             last_uri="/",
@@ -158,13 +158,13 @@ def test_infra_discovery_probe_not_recorded(db_session):
     assert purge_infra_discovery_probes(db_session) == 1
     left = db_session.query(PendingHost).all()
     assert len(left) == 1
-    assert left[0].hostname == "www.ar-systems.fr"
+    assert left[0].hostname == "www.example.com"
 
 
 def test_known_hosts_map_includes_portal_and_apps(db_session, tmp_path):
     settings = Settings(
         portal_domain="portal.example.fr",
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
         exports_dir=str(tmp_path / "exports"),
         vault_portal_internal_token="test-secret",
     )  # type: ignore[call-arg]
@@ -203,7 +203,7 @@ def test_known_hosts_map_includes_portal_and_apps(db_session, tmp_path):
 def test_record_and_approve_pending_host(db_session, tmp_path):
     settings = Settings(
         portal_domain="portal.example.fr",
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
         exports_dir=str(tmp_path / "exports"),
         vault_portal_internal_token="test-secret",
     )  # type: ignore[call-arg]
@@ -239,7 +239,7 @@ def test_record_and_approve_pending_host(db_session, tmp_path):
         settings,
         host_id=row.id,
         actor="admin@example.fr",
-        upstream_url="https://172.24.0.50:443/",
+        upstream_url="https://10.20.0.50:443/",
         slug="teleport",
         label="Teleport",
     )
