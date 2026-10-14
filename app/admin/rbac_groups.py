@@ -14,19 +14,13 @@ from app.database import get_db
 from app.models import RBACGroup, RealmConfig
 from app.rbac.groups_service import GroupNotEmptyError, delete_empty_rbac_group
 from app.rbac.keycloak_admin import sync_keycloak_groups
+from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
 from app.web.flash import flash_redirect
 from app.web.user_context import require_admin
 from app.web.openapi_responses import (
-    RESP_400,
-    RESP_401,
-    RESP_403,
     RESP_404,
     RESP_406,
-    RESP_409,
-    RESP_422,
-    RESP_500,
-    RESP_503,
 )
 from app.web.csrf import portal_signing_secret
 
@@ -57,7 +51,7 @@ def _sync_error_response(
 
 
 def _client_ip(request: Request) -> str:
-    return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+    return client_ip_from_request(request)
 
 
 def _safe_redirect_url(raw: str | None, fallback: str) -> str:

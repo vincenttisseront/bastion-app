@@ -16,18 +16,20 @@ from app.access_modes import (
 )
 from app.web.openapi_responses import (
     RESP_400,
-    RESP_401,
     RESP_403,
     RESP_404,
-    RESP_409,
-    RESP_422,
-    RESP_500,
     RESP_503,
 )
 from app.admin.export import export_app_catalogue_files
 from app.admin.infra_host_apply import request_host_apply
 from app.audit import list_audit_entries, log_action
-from app.auth.flow import get_default_idp_realm, oauth2_start_url, resolve_rd, setup_url
+from app.auth.flow import (
+    get_default_idp_realm,
+    oauth2_start_url,
+    resolve_rd,
+    safe_post_login_rd,
+    setup_url,
+)
 from app.bastion.bastion_fields import (
     PROVISIONING_DRIVER_LABELS,
     normalize_auth_mode,
@@ -102,6 +104,7 @@ from app.vault.user_app_credential_service import (
 )
 from app.web.admin_infrastructure import host_apply_wait_redirect
 from app.web.app_logos import (
+    MAX_LOGO_BYTES,
     LogoValidationError,
     clear_app_logo,
     logo_public_url,
@@ -109,6 +112,12 @@ from app.web.app_logos import (
 )
 from app.web.constants import APP_VERSION
 from app.web.csrf import portal_signing_secret, verify_csrf_token
+from app.web.login_surface import (
+    is_breakglass_lan_allowed,
+    log_breakglass_ip_denied,
+    login_audience_label,
+    login_surface_flags,
+)
 from app.web.flash import base_template_context, flash_i18n, flash_redirect
 from app.web.metrics_service import get_dashboard_metrics
 from app.web.sessions_service import sessions_view, touch_portal_session
@@ -146,7 +155,6 @@ _PATH_DASHBOARD = "/dashboard"
 _PATH_SETUP_WIZARD = "/admin/setup-wizard"
 _PATH_CONTAINER_LOGS = "/admin/security#container-logs"
 _PATH_ADMIN_APPS = "/admin/apps"
-_PATH_HOT_STORE = "/admin/configuration#hot-store"
 _PATH_ACCESS_REQUEST = "/auth/access-request"
 _PATH_ACCESS_PENDING = "/admin/access-requests?status=pending"
 _PATH_BANNING = "/admin/security#banning"
@@ -447,169 +455,6 @@ def _client_ip(request: Request) -> str:
     return client_ip_from_request(request)
 
 
-def _is_breakglass_lan_allowed(
-    request: Request, db: Session, settings: Settings
-) -> bool:
-    """True only for LAN / allowlisted clients — never expose BG paths on the public Internet."""
-    from app.security.banning.engine import is_breakglass_ip_allowed
-
-    return is_breakglass_ip_allowed(
-        db, _client_ip(request), rfc1918_cidrs=settings.rfc1918_cidrs
-    )
-
-
-def _log_breakglass_ip_denied(
-    db: Session,
-    request: Request,
-    *,
-    actor: str,
-    via: str,
-) -> None:
-    from app.request_client_ip import client_ip_probe
-
-    client_ip = _client_ip(request)
-    probe = client_ip_probe(request)
-    log_action(
-        db,
-        actor=actor,
-        action="breakglass.login_denied_non_lan",
-        details={
-            "reason": "breakglass_ip_not_allowed",
-            "via": via,
-            "resolved": client_ip or None,
-            "x_real_ip": probe.get("x_real_ip"),
-            "x_forwarded_for": probe.get("x_forwarded_for"),
-            "peer": probe.get("request_client_host"),
-        },
-        ip_address=client_ip or None,
-    )
-
-
-def _show_breakglass_form(request: Request, db: Session, settings: Settings) -> bool:
-    return _is_breakglass_lan_allowed(request, db, settings)
-
-
-def _login_audience_label(realm: RealmConfig) -> str:
-    """Short audience label for the login chooser (Interne / Clients / name)."""
-    custom = (getattr(realm, "login_label", None) or "").strip()
-    if custom:
-        return custom
-    blob = f"{realm.slug or ''} {realm.name or ''}".lower()
-    if any(token in blob for token in ("client", "externe", "customer")):
-        return "Clients"
-    if any(token in blob for token in ("interne", "internal", "staff")):
-        return "Interne"
-    return (realm.name or realm.slug or "Realm").strip()
-
-
-def _realm_is_login_ready(realm: RealmConfig) -> bool:
-    """Enabled realm with enough OIDC config to offer a login path."""
-    return bool(
-        realm.enabled
-        and getattr(realm, "show_on_login", True)
-        and (realm.issuer_url or "").strip()
-        and (realm.client_id or "").strip()
-    )
-
-
-def _ordered_enabled_realms(
-    db: Session, default: RealmConfig | None
-) -> list[RealmConfig]:
-    enabled_rows = (
-        db.query(RealmConfig)
-        .filter(RealmConfig.enabled.is_(True))
-        .order_by(RealmConfig.slug.asc())
-        .all()
-    )
-    ordered: list[RealmConfig] = []
-    if default is not None:
-        ordered.append(default)
-    for row in enabled_rows:
-        if default is None or row.id != default.id:
-            ordered.append(row)
-    return ordered
-
-
-def _select_login_realm(
-    login_realms: list[RealmConfig], *, want: str
-) -> RealmConfig | None:
-    if want:
-        for row in login_realms:
-            if (row.slug or "").lower() == want:
-                return row
-    if login_realms:
-        return login_realms[0]
-    return None
-
-
-def _native_realm_option_dicts(
-    db: Session,
-    settings: Settings,
-    login_realms: list[RealmConfig],
-    *,
-    is_native,
-) -> list[dict]:
-    return [
-        {
-            "slug": row.slug,
-            "name": row.name,
-            "label": _login_audience_label(row),
-            "native": is_native(db, row.slug, settings),
-            "mfa": bool(getattr(row, "oidc_mfa_enabled", True)),
-        }
-        for row in login_realms
-    ]
-
-
-def _login_surface_flags(
-    request: Request,
-    db: Session,
-    settings: Settings,
-    *,
-    rd: str,
-    preferred_realm: str | None = None,
-) -> dict:
-    """Shared flags for auth/login.html (native SSO vs oauth2-proxy vs break-glass)."""
-    from app.auth.oidc_native_session import is_oidc_native_session_enabled_for_realm
-    from app.rbac.access_request_service import realms_advertising_access_requests
-
-    default = get_default_idp_realm(db)
-    ordered = _ordered_enabled_realms(db, default)
-    login_realms = [row for row in ordered if _realm_is_login_ready(row)]
-    want = (preferred_realm or request.query_params.get("realm") or "").strip().lower()
-    selected = _select_login_realm(login_realms, want=want)
-
-    selected_native = bool(
-        selected
-        and is_oidc_native_session_enabled_for_realm(db, selected.slug, settings)
-    )
-    oauth2_url = (
-        oauth2_start_url(selected.slug, rd)
-        if selected is not None and not selected_native
-        else None
-    )
-    native_realm_options = _native_realm_option_dicts(
-        db,
-        settings,
-        login_realms,
-        is_native=is_oidc_native_session_enabled_for_realm,
-    )
-    return {
-        "show_native_login": selected_native,
-        "native_realm_slug": selected.slug if selected else None,
-        "native_realm_name": selected.name if selected else None,
-        "native_realm_label": (
-            _login_audience_label(selected) if selected else None
-        ),
-        "native_realm_options": native_realm_options,
-        "show_realm_chooser": len(native_realm_options) > 1,
-        "oauth2_url": oauth2_url,
-        "show_breakglass": _show_breakglass_form(request, db, settings),
-        "show_access_request": bool(realms_advertising_access_requests(db)),
-        "rd": rd,
-    }
-
-
 @router.get("/")
 def root():
     return RedirectResponse(url=_PATH_APPS, status_code=302)
@@ -878,7 +723,7 @@ def login_page(
                         hide_chrome=True,
                         login_error="Session break-glass expirée ou invalide — reconnectez-vous.",
                         login_panel="local",
-                        **_login_surface_flags(request, db, settings, rd=rd),
+                        **login_surface_flags(request, db, settings, rd=rd),
                     ),
                 )
                 clear_breakglass_cookie(response, settings)
@@ -987,12 +832,12 @@ def login_page(
     if rd_is_absolute_subdomain:
         rd = _PATH_APPS
 
-    surface = _login_surface_flags(request, db, settings, rd=rd)
+    surface = login_surface_flags(request, db, settings, rd=rd)
     realm = get_default_idp_realm(db)
     if not realm and not has_active_breakglass_account(db) and not surface["show_native_login"]:
-        if _is_breakglass_lan_allowed(request, db, settings):
+        if is_breakglass_lan_allowed(request, db, settings):
             return RedirectResponse(url=setup_url(rd), status_code=302)
-        _log_breakglass_ip_denied(db, request, actor="setup", via="login_redirect")
+        log_breakglass_ip_denied(db, request, actor="setup", via="login_redirect")
         return render(
             _TMPL_LOGIN,
             **_ctx(
@@ -1018,7 +863,7 @@ def login_page(
 
 
 @router.post("/auth/breakglass", responses=RESP_403)
-async def breakglass_login_post(
+def breakglass_login_post(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
@@ -1043,7 +888,7 @@ async def breakglass_login_post(
             hide_chrome=True,
             login_error=_MSG_CSRF_EXPIRED,
             login_panel="local",
-            **_login_surface_flags(request, db, settings, rd=safe_rd),
+            **login_surface_flags(request, db, settings, rd=safe_rd),
         )
         return render(_TMPL_LOGIN, status_code=403, **ctx)
 
@@ -1059,14 +904,14 @@ async def breakglass_login_post(
     if not is_breakglass_ip_allowed(
         db, client_ip, rfc1918_cidrs=settings.rfc1918_cidrs
     ):
-        _log_breakglass_ip_denied(db, request, actor=username, via="form")
+        log_breakglass_ip_denied(db, request, actor=username, via="form")
         ctx = _ctx(
             request,
             settings,
             hide_chrome=True,
             login_error=_MSG_INVALID_CREDS,
             login_panel="local",
-            **_login_surface_flags(request, db, settings, rd=safe_rd),
+            **login_surface_flags(request, db, settings, rd=safe_rd),
         )
         return render(_TMPL_LOGIN, **ctx)
 
@@ -1080,7 +925,7 @@ async def breakglass_login_post(
             hide_chrome=True,
             login_error=_MSG_INVALID_CREDS,
             login_panel="local",
-            **_login_surface_flags(request, db, settings, rd=safe_rd),
+            **login_surface_flags(request, db, settings, rd=safe_rd),
         )
         return render(_TMPL_LOGIN, **ctx)
 
@@ -1114,7 +959,7 @@ async def breakglass_login_post(
             hide_chrome=True,
             login_error=_MSG_INVALID_CREDS,
             login_panel="local",
-            **_login_surface_flags(request, db, settings, rd=safe_rd),
+            **login_surface_flags(request, db, settings, rd=safe_rd),
         )
         return render(_TMPL_LOGIN, **ctx)
 
@@ -1128,7 +973,7 @@ async def breakglass_login_post(
             hide_chrome=True,
             login_error=str(exc),
             login_panel="local",
-            **_login_surface_flags(request, db, settings, rd=safe_rd),
+            **login_surface_flags(request, db, settings, rd=safe_rd),
         )
         return render(_TMPL_LOGIN, **ctx)
 
@@ -1141,8 +986,8 @@ def setup_page(
 ):
     if get_default_idp_realm(db) or has_active_breakglass_account(db):
         raise HTTPException(status_code=403, detail=_MSG_SETUP_LOCKED)
-    if not _is_breakglass_lan_allowed(request, db, settings):
-        _log_breakglass_ip_denied(db, request, actor="setup", via="setup_get")
+    if not is_breakglass_lan_allowed(request, db, settings):
+        log_breakglass_ip_denied(db, request, actor="setup", via="setup_get")
         raise HTTPException(status_code=403, detail="Forbidden")
     rd = resolve_rd(request, portal_domain=settings.portal_domain or "")
     return render(
@@ -1152,7 +997,7 @@ def setup_page(
 
 
 @router.post("/auth/setup", responses=RESP_403)
-async def setup_post(
+def setup_post(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
@@ -1164,8 +1009,8 @@ async def setup_post(
 ):
     if get_default_idp_realm(db) or has_active_breakglass_account(db):
         raise HTTPException(status_code=403, detail=_MSG_SETUP_LOCKED)
-    if not _is_breakglass_lan_allowed(request, db, settings):
-        _log_breakglass_ip_denied(db, request, actor=username.strip() or "setup", via="setup_post")
+    if not is_breakglass_lan_allowed(request, db, settings):
+        log_breakglass_ip_denied(db, request, actor=username.strip() or "setup", via="setup_post")
         raise HTTPException(status_code=403, detail="Forbidden")
     if not verify_csrf_token(request, portal_signing_secret(settings), csrf_token):
         raise HTTPException(status_code=403, detail=_MSG_CSRF_EXPIRED)
@@ -1214,11 +1059,18 @@ async def setup_post(
 @router.get("/auth/sso-start")
 def sso_start(
     request: Request,
+    db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    realm = request.headers.get("X-Portal-Realm-Slug", settings.sso_portal_default_realm_slug)
-    rd = request.headers.get("X-Portal-OAuth2-Rd", _PATH_APPS)
-    redirect_url = f"/oauth2/{realm}/start?rd={rd}"
+    slug = (request.headers.get("X-Portal-Realm-Slug") or "").strip()
+    known = slug and db.query(RealmConfig.id).filter_by(slug=slug, enabled=True).first()
+    realm = slug if known else settings.sso_portal_default_realm_slug
+    rd = safe_post_login_rd(
+        request.headers.get("X-Portal-OAuth2-Rd"),
+        portal_domain=settings.portal_domain or "",
+        default=_PATH_APPS,
+    )
+    redirect_url = oauth2_start_url(realm, rd)
     return render(
         "auth/sso_redirect.html",
         **_ctx(request, settings, hide_chrome=True, redirect_url=redirect_url),
@@ -1258,7 +1110,7 @@ def sso_failed(
         ip_address=_client_ip(request) or None,
     )
     rd = resolve_rd(request, portal_domain=settings.portal_domain or "")
-    surface = _login_surface_flags(request, db, settings, rd=rd)
+    surface = login_surface_flags(request, db, settings, rd=rd)
     show_breakglass = surface["show_breakglass"]
     login_error = (
         "Connexion SSO échouée. Réessayez ou utilisez le break-glass."
@@ -1593,7 +1445,7 @@ def _forgot_password_page(
     if not slug and realms:
         slug = realms[0].slug
     options = [
-        {"slug": row.slug, "label": _login_audience_label(row)} for row in realms
+        {"slug": row.slug, "label": login_audience_label(row)} for row in realms
     ]
     return render(
         "auth/forgot_password.html",
@@ -1700,7 +1552,6 @@ def health_page():
 def error_403(
     request: Request,
     settings: Settings = Depends(get_settings),
-    db: Session = Depends(get_db),
 ):
     return render(
         "errors/403.html",
@@ -1713,7 +1564,6 @@ def error_403(
 def error_404(
     request: Request,
     settings: Settings = Depends(get_settings),
-    db: Session = Depends(get_db),
 ):
     return render(
         "errors/404.html",
@@ -1726,7 +1576,6 @@ def error_404(
 def error_400(
     request: Request,
     settings: Settings = Depends(get_settings),
-    db: Session = Depends(get_db),
 ):
     return render(
         "errors/400.html",
@@ -1739,7 +1588,6 @@ def error_400(
 def error_500(
     request: Request,
     settings: Settings = Depends(get_settings),
-    db: Session = Depends(get_db),
 ):
     return render(
         "errors/500.html",
@@ -1752,7 +1600,6 @@ def error_500(
 def error_429(
     request: Request,
     settings: Settings = Depends(get_settings),
-    db: Session = Depends(get_db),
 ):
     return render(
         "errors/429.html",
@@ -1765,7 +1612,6 @@ def error_429(
 def error_503(
     request: Request,
     settings: Settings = Depends(get_settings),
-    db: Session = Depends(get_db),
 ):
     return render(
         "errors/503.html",
@@ -2017,7 +1863,7 @@ def admin_pending_hosts_bulk_reject_post(
     user=Depends(require_admin),
     host_ids: list[int] | None = Form(None),
 ):
-    ids = [int(x) for x in (host_ids or []) if x is not None]
+    ids = list(host_ids or [])
     secret = portal_signing_secret(settings)
     if not ids:
         response = RedirectResponse(url="/admin/pending-hosts?status=pending", status_code=302)
@@ -2283,7 +2129,7 @@ def admin_access_requests_bulk_reject_post(
 ):
     from app.rbac.access_request_service import reject_access_requests_bulk
 
-    ids = [int(x) for x in (request_ids or []) if x is not None]
+    ids = list(request_ids or [])
     secret = portal_signing_secret(settings)
     if not ids:
         response = RedirectResponse(url=_PATH_ACCESS_PENDING, status_code=302)
@@ -2299,8 +2145,7 @@ def admin_access_requests_bulk_reject_post(
         request_ids=ids,
         actor=user.email,
         notes=notes,
-        ip_address=request.headers.get("X-Real-IP")
-        or (request.client.host if request.client else None),
+        ip_address=_client_ip(request) or None,
     )
     n = len(rejected)
     response = RedirectResponse(
@@ -2342,7 +2187,7 @@ async def admin_access_requests_bulk_approve_post(
 ):
     from app.rbac.access_request_service import approve_access_requests_bulk
 
-    ids = [int(x) for x in (request_ids or []) if x is not None]
+    ids = list(request_ids or [])
     secret = portal_signing_secret(settings)
     want_email = send_credentials.strip().lower() in ("1", "true", "on", "yes")
     if not ids:
@@ -2372,8 +2217,7 @@ async def admin_access_requests_bulk_approve_post(
         request_ids=ids,
         actor=user.email,
         realm_id=rid,
-        ip_address=request.headers.get("X-Real-IP")
-        or (request.client.host if request.client else None),
+        ip_address=_client_ip(request) or None,
         send_credentials=want_email,
     )
     n = len(approved)
@@ -2436,8 +2280,7 @@ async def admin_access_request_approve_post(
             request_id=request_id,
             actor=user.email,
             realm_id=rid,
-            ip_address=request.headers.get("X-Real-IP")
-            or (request.client.host if request.client else None),
+            ip_address=_client_ip(request) or None,
             send_credentials=want_email,
         )
     except AccessRequestError as exc:
@@ -2483,8 +2326,7 @@ def admin_access_request_reject_post(
             request_id=request_id,
             actor=user.email,
             notes=notes,
-            ip_address=request.headers.get("X-Real-IP")
-            or (request.client.host if request.client else None),
+            ip_address=_client_ip(request) or None,
         )
     except AccessRequestError as exc:
         response = RedirectResponse(
@@ -3359,7 +3201,7 @@ async def admin_app_logo_upload(
     app = db.query(App).filter_by(id=app_id).first()
     if not app:
         raise HTTPException(status_code=404, detail=_MSG_APP_NOT_FOUND)
-    raw = await file.read()
+    raw = await file.read(MAX_LOGO_BYTES + 1)
     try:
         save_app_logo(app, raw)
     except LogoValidationError as exc:
@@ -3450,7 +3292,7 @@ async def admin_rbac_overview(
 
 
 @admin_router.get("/admin/rbac")
-async def admin_rbac(
+def admin_rbac(
     request: Request,
     q: str = Query(""),
     page: int = Query(1, ge=1),
@@ -3681,307 +3523,6 @@ def admin_security(
             client_ip_probe=ip_probe,
             breakglass_ip_allowed=breakglass_ip_ok,
         ),
-    )
-
-
-def _hot_store_flash(response, message: str, level: str, settings: Settings):
-    flash_redirect(
-        response,
-        message,
-        level,
-        portal_signing_secret(settings),
-    )
-    return response
-
-
-@admin_router.post("/admin/configuration/hot-store/config")
-@admin_router.post("/admin/security/hot-store/config")
-def admin_security_hot_store_config(
-    request: Request,
-    host: str = Form(""),
-    port: int = Form(5432),
-    database: str = Form("bastion_hot"),
-    user: str = Form("bastion_hot"),
-    password: str = Form(""),
-    sslmode: str = Form("prefer"),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    admin=Depends(require_admin),
-):
-    from app.db.hot_store import HotStoreError
-    from app.db.hot_store_service import save_hot_store_config
-
-    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
-    try:
-        save_hot_store_config(
-            db,
-            settings,
-            host=host,
-            port=port,
-            database=database,
-            user=user,
-            password=password,
-            sslmode=sslmode,
-            actor=admin.email or admin.username or "admin",
-            ip_address=_client_ip(request),
-        )
-        return _hot_store_flash(response, "Connexion PostgreSQL enregistrée.", "success", settings)
-    except HotStoreError as exc:
-        return _hot_store_flash(response, str(exc), "error", settings)
-
-
-@admin_router.post("/admin/configuration/hot-store/provision")
-@admin_router.post("/admin/security/hot-store/provision")
-def admin_security_hot_store_provision(
-    request: Request,
-    host: str = Form(""),
-    port: int = Form(5432),
-    database: str = Form("bastion_hot"),
-    user: str = Form("bastion_hot"),
-    password: str = Form(""),
-    sslmode: str = Form("prefer"),
-    admin_user: str = Form("postgres"),
-    admin_password: str = Form(""),
-    admin_database: str = Form(""),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    admin=Depends(require_admin),
-):
-    """Create/align PostgreSQL role + database, then save app credentials."""
-    from app.db.hot_store import HotStoreError
-    from app.db.hot_store_service import provision_hot_store
-
-    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
-    try:
-        result = provision_hot_store(
-            db,
-            settings,
-            host=host,
-            port=port,
-            database=database,
-            user=user,
-            password=password,
-            sslmode=sslmode,
-            admin_user=admin_user,
-            admin_password=admin_password,
-            admin_database=admin_database,
-            actor=admin.email or admin.username or "admin",
-            ip_address=_client_ip(request),
-        )
-        parts = []
-        if result.get("role_created"):
-            parts.append("rôle créé")
-        elif result.get("role_password_set"):
-            parts.append("mot de passe rôle aligné")
-        if result.get("database_created"):
-            parts.append("base créée")
-        else:
-            parts.append("base OK")
-        detail = ", ".join(parts) if parts else "OK"
-        return _hot_store_flash(
-            response,
-            f"PostgreSQL provisionné ({detail}). Connexion enregistrée et testée.",
-            "success",
-            settings,
-        )
-    except HotStoreError as exc:
-        return _hot_store_flash(response, str(exc), "error", settings)
-    except Exception as exc:
-        return _hot_store_flash(response, f"Échec provisionnement : {exc}", "error", settings)
-
-
-@admin_router.post("/admin/configuration/hot-store/test")
-@admin_router.post("/admin/security/hot-store/test")
-def admin_security_hot_store_test(
-    request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    admin=Depends(require_admin),
-):
-    from app.db.hot_store import HotStoreError
-    from app.db.hot_store_service import test_hot_store_config
-
-    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
-    actor = admin.email or admin.username or "admin"
-    try:
-        result = test_hot_store_config(
-            db,
-            settings,
-            actor=actor,
-            ip_address=_client_ip(request),
-        )
-        ping = result.get("ping_ms")
-        msg = f"Connexion OK — {result.get('version', '')[:80]}"
-        if ping is not None:
-            msg += f" ({ping} ms)"
-        if result.get("can_create"):
-            msg += " (CREATE OK)"
-        return _hot_store_flash(response, msg, "success", settings)
-    except HotStoreError as exc:
-        return _hot_store_flash(response, str(exc), "error", settings)
-    except Exception as exc:
-        return _hot_store_flash(response, f"Échec : {exc}", "error", settings)
-
-
-@admin_router.post("/admin/configuration/hot-store/prepare")
-@admin_router.post("/admin/security/hot-store/prepare")
-def admin_security_hot_store_prepare(
-    request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    admin=Depends(require_admin),
-):
-    from app.db.hot_store import HotStoreError
-    from app.db.hot_store_service import prepare_hot_store_schema
-
-    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
-    try:
-        prepare_hot_store_schema(
-            db,
-            settings,
-            actor=admin.email or admin.username or "admin",
-            ip_address=_client_ip(request),
-        )
-        return _hot_store_flash(response, "Schéma hot store initialisé.", "success", settings)
-    except HotStoreError as exc:
-        return _hot_store_flash(response, str(exc), "error", settings)
-    except Exception as exc:
-        return _hot_store_flash(response, f"Échec schéma : {exc}", "error", settings)
-
-
-@admin_router.post("/admin/configuration/hot-store/migrate")
-@admin_router.post("/admin/security/hot-store/migrate")
-def admin_security_hot_store_migrate(
-    request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    admin=Depends(require_admin),
-):
-    from app.db.hot_store import HotStoreError
-    from app.db.hot_store_service import run_hot_store_migrate
-
-    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
-    try:
-        counts = run_hot_store_migrate(
-            db,
-            settings,
-            actor=admin.email or admin.username or "admin",
-            ip_address=_client_ip(request),
-        )
-        total = sum(counts.values())
-        return _hot_store_flash(
-            response,
-            f"Migration terminée — {total} ligne(s) copiée(s).",
-            "success",
-            settings,
-        )
-    except HotStoreError as exc:
-        return _hot_store_flash(response, str(exc), "error", settings)
-    except Exception as exc:
-        return _hot_store_flash(response, f"Échec migration : {exc}", "error", settings)
-
-
-@admin_router.post("/admin/configuration/hot-store/skip-migrate")
-@admin_router.post("/admin/security/hot-store/skip-migrate")
-def admin_security_hot_store_skip_migrate(
-    request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    admin=Depends(require_admin),
-):
-    from app.db.hot_store import HotStoreError
-    from app.db.hot_store_service import skip_hot_store_migrate
-
-    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
-    try:
-        skip_hot_store_migrate(
-            db,
-            settings,
-            actor=admin.email or admin.username or "admin",
-            ip_address=_client_ip(request),
-        )
-        return _hot_store_flash(
-            response,
-            "Étape migration passée — vous pouvez activer le hot store à neuf.",
-            "success",
-            settings,
-        )
-    except HotStoreError as exc:
-        return _hot_store_flash(response, str(exc), "error", settings)
-
-
-@admin_router.post("/admin/configuration/hot-store/enable")
-@admin_router.post("/admin/security/hot-store/enable")
-def admin_security_hot_store_enable(
-    request: Request,
-    enabled: str = Form("0"),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    admin=Depends(require_admin),
-):
-    from app.db.hot_store import HotStoreError
-    from app.db.hot_store_service import set_hot_store_enabled
-
-    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
-    want = str(enabled).strip().lower() in ("1", "true", "on", "yes")
-    try:
-        set_hot_store_enabled(
-            db,
-            settings,
-            want,
-            actor=admin.email or admin.username or "admin",
-            ip_address=_client_ip(request),
-        )
-        msg = (
-            "Hot store activé — écritures sessions/audit/anti-bruteforce sur PostgreSQL."
-            if want
-            else "Hot store désactivé — retour sur SQLite."
-        )
-        return _hot_store_flash(response, msg, "success", settings)
-    except HotStoreError as exc:
-        return _hot_store_flash(response, str(exc), "error", settings)
-
-
-@admin_router.post("/admin/configuration/hot-store/realign")
-def admin_hot_store_realign(
-    request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    admin=Depends(require_admin),
-):
-    """Ask the host to recreate the containers so the role password is re-applied.
-
-    The entrypoint only aligns the role when the postgres container is created,
-    and `docker compose restart` does not re-read .env — so a correct .env can
-    sit next to a stale container indefinitely. This reuses the apply-infra
-    signal, whose host script already ends with `docker compose up -d`; nothing
-    new is granted, and no secret leaves the application.
-    """
-    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
-    signal = request_host_apply(settings)
-    if not signal.get("ok"):
-        return _hot_store_flash(
-            response,
-            (
-                f"Signal hôte en échec : {signal.get('message')}. "
-                "Lancez scripts/reset-hot-store-password.sh --keep sur l'hôte."
-            ),
-            "error",
-            settings,
-        )
-    log_action(
-        db,
-        actor=admin.email or admin.username or "admin",
-        action="hot_store.realign_requested",
-        target="postgres",
-        ip_address=_client_ip(request),
-        details={"channel": "apply-infra"},
-    )
-    return host_apply_wait_redirect(
-        next_path=_PATH_HOT_STORE,
-        context_label="Réalignement du mot de passe PostgreSQL",
-        audit_target="postgres",
-        audit_source="hot_store.realign",
     )
 
 
@@ -4455,9 +3996,7 @@ def admin_security_breakglass_jwt_secret_generate(
         )
         return response
     actor = user.email or user.username or "admin"
-    ip = request.headers.get("X-Real-IP") or (
-        request.client.host if request.client else None
-    )
+    ip = _client_ip(request) or None
     try:
         generate_or_rotate_ui_breakglass_secret(
             db, settings, actor=actor, ip_address=ip
@@ -4508,9 +4047,7 @@ def admin_security_vault_key_rotate(
         )
         return response
     actor = user.email or user.username or "admin"
-    ip = request.headers.get("X-Real-IP") or (
-        request.client.host if request.client else None
-    )
+    ip = _client_ip(request) or None
     try:
         report = rotate_application_key(
             db, settings, actor=actor, ip_address=ip
@@ -4549,8 +4086,7 @@ def admin_security_vault_key_cadence(
         settings,
         days,
         actor=user.email or user.username or "admin",
-        ip_address=request.headers.get("X-Real-IP")
-        or (request.client.host if request.client else None),
+        ip_address=_client_ip(request) or None,
     )
     flash_redirect(
         response,
@@ -4563,9 +4099,12 @@ def admin_security_vault_key_cadence(
 
 @admin_router.post("/admin/security/vault-key/export")
 def admin_security_vault_key_export(
+    request: Request,
     passphrase: str = Form(...),
     passphrase_confirm: str = Form(...),
+    db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
 ):
     from fastapi.responses import Response
 
@@ -4596,6 +4135,14 @@ def admin_security_vault_key_export(
         )
         return response
     version = get_active_version() or 0
+    log_action(
+        db,
+        actor=user.email or user.username or "admin",
+        action="key_exported",
+        target="vault:fernet",
+        ip_address=_client_ip(request) or None,
+        details={"version": version},
+    )
     return Response(
         content=payload,
         media_type="application/octet-stream",
@@ -4634,8 +4181,7 @@ def admin_security_subdomain_sso(
         settings,
         want_enabled,
         actor=user.email or user.username or "admin",
-        ip_address=request.headers.get("X-Real-IP")
-        or (request.client.host if request.client else None),
+        ip_address=_client_ip(request) or None,
     )
     response = RedirectResponse(url="/admin/security#subdomain-sso", status_code=302)
     flash_redirect(

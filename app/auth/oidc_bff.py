@@ -103,6 +103,8 @@ class OidcSessionClaims:
     type: str = "oidc"
     groups: tuple[str, ...] = ()
     email: str | None = None
+    # Keycloak user-session id (ID token ``sid``): lets self-service keep this login.
+    kc_sid: str | None = None
 
 
 def _rate_key(ip: str, username: str) -> str:
@@ -141,6 +143,7 @@ def create_oidc_session_token(
     groups: list[str] | tuple[str, ...] | None = None,
     email: str | None = None,
     audience: str | None = None,
+    kc_sid: str | None = None,
 ) -> str:
     """Build a native bastion OIDC session JWT (type=oidc, includes jti + aud)."""
     now = datetime.now(timezone.utc)
@@ -158,6 +161,8 @@ def create_oidc_session_token(
     }
     if email:
         payload["email"] = email
+    if kc_sid:
+        payload["sid"] = kc_sid
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
@@ -196,6 +201,7 @@ def issue_oidc_session(
     groups: list[str] | tuple[str, ...] | None = None,
     email: str | None = None,
     audience: str | None = None,
+    kc_sid: str | None = None,
 ) -> tuple[str, str]:
     """Create JWT + OidcSession row. Returns ``(token, jti)``."""
     jti = str(uuid4())
@@ -209,6 +215,7 @@ def issue_oidc_session(
         groups=groups,
         email=email,
         audience=audience,
+        kc_sid=kc_sid,
     )
     now = datetime.now(timezone.utc)
     register_oidc_session(
@@ -432,6 +439,7 @@ def _oidc_claims_from_payload(payload: dict) -> OidcSessionClaims | None:
         type="oidc",
         groups=_parse_oidc_groups(payload.get("groups")),
         email=email,
+        kc_sid=sid if isinstance(sid := payload.get("sid"), str) and sid else None,
     )
 
 
@@ -528,7 +536,7 @@ class _LoginRejected(Exception):
 def _render_login(ctx: _LoginCtx, **state: Any):
     from app.web.constants import APP_VERSION
     from app.web.flash import base_template_context
-    from app.web.pages import _login_surface_flags
+    from app.web.login_surface import login_surface_flags
 
     page = {"attempt_id": "", "totp_secret_display": "", "qr_data_url": ""}
     page.update({k: v for k, v in state.items() if v is not None})
@@ -542,7 +550,7 @@ def _render_login(ctx: _LoginCtx, **state: Any):
             login_panel="sso",
             form_username=ctx.username,
             **page,
-            **_login_surface_flags(
+            **login_surface_flags(
                 ctx.request, ctx.db, ctx.settings, rd=ctx.safe_rd, preferred_realm=ctx.realm_slug
             ),
         ),
@@ -850,6 +858,7 @@ async def _complete_login(ctx: _LoginCtx, step: LoginStepResult):
         groups=session_groups,
         email=session_email,
         audience=resolve_oidc_session_jwt_audience(ctx.settings),
+        kc_sid=sid if isinstance(sid := tokens.claims.get("sid"), str) and sid else None,
     )
     ctx.db.commit()
     _clear_login_failures(ctx.client_ip, ctx.username)

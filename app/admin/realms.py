@@ -29,6 +29,7 @@ from app.admin.schemas import (
 from app.audit import log_action
 from app.database import get_db
 from app.models import RealmConfig
+from app.request_client_ip import client_ip_from_request
 from app.secret_crypto import (
     decrypt_secret,
     encrypt_secret,
@@ -86,7 +87,7 @@ def _ctx(request: Request, settings: Settings, **extra: Any) -> dict[str, Any]:
 
 
 def _client_ip(request: Request) -> str:
-    return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+    return client_ip_from_request(request)
 
 
 def _wants_json(request: Request) -> bool:

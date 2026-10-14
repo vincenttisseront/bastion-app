@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from app.audit import admin_actor
 from app.database import get_db
 from app.request_client_ip import client_ip_from_request
 from app.siem import syslog_ca as ca
@@ -25,17 +26,11 @@ router = APIRouter(
 )
 
 
-def _actor(user) -> str:
-    return getattr(user, "email", None) or getattr(user, "username", None) or "admin"
-
-
 @router.get("/ca")
 def api_siem_syslog_ca_get(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    user=Depends(require_admin),
 ):
-    del user
     return get_ca_api_status(db, settings)
 
 
@@ -54,7 +49,7 @@ async def api_siem_syslog_ca_upload(
             settings,
             raw=raw,
             filename=file.filename,
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request),
         )
     except ca.SyslogCaError as exc:
@@ -75,7 +70,7 @@ def api_siem_syslog_ca_delete(
     status = delete_syslog_ca(
         db,
         settings,
-        actor=_actor(user),
+        actor=admin_actor(user),
         ip_address=client_ip_from_request(request),
     )
     return {"ok": True, **status}
@@ -91,7 +86,7 @@ def api_siem_syslog_tls_test(
     ok, message, lines = run_syslog_tls_ca_test(
         db,
         settings,
-        actor=_actor(user),
+        actor=admin_actor(user),
         ip_address=client_ip_from_request(request),
     )
     return JSONResponse(

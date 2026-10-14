@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.audit import admin_actor
 from app.database import get_db
 from app.models import (
     ACTIVESYNC_DEVICE_APPROVED,
@@ -26,10 +27,10 @@ from app.sso_settings import Settings, get_settings
 from app.subdomain import activesync_device_service as device_service
 from app.subdomain.activesync_device_service import DeviceDecisionError
 from app.web.constants import APP_VERSION
+from app.web.csrf import portal_signing_secret
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
-from app.web.csrf import portal_signing_secret
 
 logger = logging.getLogger(__name__)
 
@@ -184,10 +185,6 @@ def _safe_redirect_url(raw: str | None, fallback: str) -> str:
     return fallback
 
 
-def _actor(user) -> str:
-    return getattr(user, "email", None) or getattr(user, "username", None) or "admin"
-
-
 def _fmt_short_dt(value) -> str:
     if value is None:
         return "—"
@@ -305,7 +302,7 @@ def admin_activesync_device_block(
     response = RedirectResponse(url=dest, status_code=302)
     label = shorten_device_id(device.device_id)
     try:
-        device_service.admin_block_device(db, device, actor=_actor(user), reason=reason)
+        device_service.admin_block_device(db, device, actor=admin_actor(user), reason=reason)
     except DeviceDecisionError as exc:
         flash_redirect(response, str(exc), "error", secret)
         return response
@@ -334,7 +331,7 @@ def admin_activesync_device_unblock(
     dest = _safe_redirect_url(redirect_url, PENDING_DEVICES_PENDING_HREF)
     response = RedirectResponse(url=dest, status_code=302)
     label = shorten_device_id(device.device_id)
-    device_service.admin_unblock_device(db, device, actor=_actor(user))
+    device_service.admin_unblock_device(db, device, actor=admin_actor(user))
     flash_redirect(response, f"Appareil {label} débloqué (en attente).", "success", secret)
     return response
 
@@ -355,7 +352,7 @@ def admin_activesync_device_approve(
     dest = _safe_redirect_url(redirect_url, PENDING_DEVICES_PENDING_HREF)
     response = RedirectResponse(url=dest, status_code=302)
     label = shorten_device_id(device.device_id)
-    device_service.admin_approve_device(db, device, actor=_actor(user))
+    device_service.admin_approve_device(db, device, actor=admin_actor(user))
     flash_redirect(response, f"Appareil {label} approuvé.", "success", secret)
     return response
 
@@ -457,7 +454,7 @@ def admin_activesync_control_enable(
     dest = f"/admin/apps/{slug}/activesync/devices/preview"
     response = RedirectResponse(url=dest, status_code=302)
     try:
-        result = device_service.enable_device_control(db, app, actor=_actor(user))
+        result = device_service.enable_device_control(db, app, actor=admin_actor(user))
     except DeviceDecisionError as exc:
         flash_redirect(response, str(exc), "error", secret)
         return response
@@ -490,7 +487,7 @@ def admin_activesync_control_disable(
     secret = portal_signing_secret(settings)
     dest = f"/admin/apps/{slug}/activesync/devices/preview"
     response = RedirectResponse(url=dest, status_code=302)
-    device_service.disable_device_control(db, app, actor=_actor(user))
+    device_service.disable_device_control(db, app, actor=admin_actor(user))
     flash_redirect(
         response,
         "Contrôle suspendu — inventaire et décisions conservés.",

@@ -12,6 +12,8 @@ from app.web.container_logs_settings import ContainerLogsConfig
 
 logger = logging.getLogger(__name__)
 
+_MAX_FRAME_BYTES = 256 * 1024
+
 
 def docker_logs_whitelist(cfg: ContainerLogsConfig) -> list[str]:
     return list(cfg.allowed_containers or [])
@@ -41,11 +43,24 @@ def _proxy_base(cfg: ContainerLogsConfig) -> str:
     return base
 
 
+class DockerLogFrameError(ValueError):
+    """Multiplexed frame larger than ``_MAX_FRAME_BYTES``."""
+
+
 def _demux_frames(buffer: bytearray) -> tuple[list[str], bytearray]:
-    """Split Docker multiplexed log frames into text lines; return leftover buffer."""
+    """Split Docker multiplexed log frames into text lines; return leftover buffer.
+
+    TTY containers send a raw stream without frame headers: it is passed through.
+    """
     out: list[str] = []
     while len(buffer) >= 8:
+        if buffer[0] not in (0, 1, 2) or buffer[1:4] != b"\x00\x00\x00":
+            out.append(bytes(buffer).decode("utf-8", errors="replace"))
+            buffer.clear()
+            break
         size = int.from_bytes(buffer[4:8], "big")
+        if size > _MAX_FRAME_BYTES:
+            raise DockerLogFrameError(f"docker log frame of {size} bytes")
         if len(buffer) < 8 + size:
             break
         payload = bytes(buffer[8 : 8 + size])
@@ -90,7 +105,11 @@ async def fetch_container_log_snapshot(
         raise HTTPException(status_code=502, detail="Docker logs proxy error")
 
     buf = bytearray(resp.content)
-    chunks, leftover = _demux_frames(buf)
+    try:
+        chunks, leftover = _demux_frames(buf)
+    except DockerLogFrameError:
+        logger.warning("docker logs oversized frame container=%s", name)
+        raise HTTPException(status_code=502, detail="Docker logs proxy error") from None
     if leftover and not chunks:
         return leftover.decode("utf-8", errors="replace")
     if leftover:
@@ -200,6 +219,8 @@ async def iter_container_log_follow(
                         yield chunk
     except HTTPException:
         raise
+    except DockerLogFrameError:
+        logger.warning("docker logs oversized frame container=%s — follow stopped", name)
     except httpx.HTTPError:
         logger.exception("docker logs follow failed container=%s", name)
         raise HTTPException(status_code=502, detail="Docker logs proxy unavailable") from None

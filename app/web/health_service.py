@@ -14,7 +14,7 @@ from app.health_probe import (
     probe_row_from_app,
 )
 from app.models import App
-from app.sso_settings import Settings, get_settings
+from app.request_client_ip import client_ip_from_request
 from app.testing_framework.throttle import throttle_retry_after
 from app.web.user_context import require_admin
 from app.web.openapi_responses import RESP_404
@@ -22,8 +22,11 @@ from app.web.openapi_responses import RESP_404
 router = APIRouter(tags=["health"], dependencies=[Depends(require_admin)])
 
 
+_PROBE_ALL_INTERVAL_SECONDS = 30
+
+
 def _client_ip(request: Request) -> str:
-    return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+    return client_ip_from_request(request)
 
 
 @router.post("/admin/health/probe/{app_id}", responses=RESP_404)
@@ -31,7 +34,6 @@ async def probe_single_app(
     app_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
     app = db.query(App).filter_by(id=app_id).first()
@@ -60,9 +62,15 @@ async def probe_single_app(
 async def probe_all_apps(
     request: Request,
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
+    if wait := throttle_retry_after(
+        "app_health", "probe_all", min_interval_seconds=_PROBE_ALL_INTERVAL_SECONDS
+    ):
+        return JSONResponse(
+            {"ok": False, "error": f"Trop de tests — réessayez dans {wait:.0f}s"},
+            status_code=429,
+        )
     summary = await probe_all_enabled_apps(db)
     log_action(
         db,

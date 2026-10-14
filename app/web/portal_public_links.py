@@ -120,10 +120,7 @@ def _require_eligible_app(
     application_id: int,
 ) -> App:
     app = db.query(App).filter_by(id=application_id).first()
-    if app is None:
-        raise PublicLinkError("Application introuvable")
-    suffixes = _managed_suffixes(db, settings)
-    if not is_linkable_public_proxy(app, suffixes=suffixes):
+    if app is None or not is_linkable_public_proxy(app, suffixes=_managed_suffixes(db, settings)):
         raise PublicLinkError(
             "Seuls les proxy publics sur un domaine géré peuvent être ajoutés"
         )

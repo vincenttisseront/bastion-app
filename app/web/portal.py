@@ -10,7 +10,7 @@ from app.access_modes import app_launch_url
 from app.admin.activesync_devices import serialize_device
 from app.audit import log_action
 from app.database import get_db
-from app.models import App, RealmConfig
+from app.models import App
 from app.rbac.effective_access_service import get_effective_apps_for_user
 from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
@@ -134,11 +134,9 @@ def _account_console_url(db: Session, user: UserContext, settings: Settings) -> 
     """Keycloak Account Console URL for the user's realm (self-service)."""
     if user.is_breakglass:
         return None
-    realm = (
-        db.query(RealmConfig).filter_by(slug=user.realm_slug).first()
-        or db.query(RealmConfig).filter_by(is_default=True).first()
-        or db.query(RealmConfig).filter_by(slug=settings.sso_portal_default_realm_slug).first()
-    )
+    from app.web.profile_security_service import user_home_realm
+
+    realm = user_home_realm(db, user, settings)
     if realm is None or not realm.issuer_url:
         return None
     return f"{realm.issuer_url.rstrip('/')}/account/"
@@ -158,7 +156,10 @@ def _portal_activesync_context(db: Session, user: UserContext) -> dict:
         keycloak_user_id=user.keycloak_user_id,
         realm_id=None,
     )
-    apps_by_id = {a.id: a for a in db.query(App).all()}
+    app_ids = {d.application_id for d in devices if d.application_id is not None}
+    apps_by_id = (
+        {a.id: a for a in db.query(App).filter(App.id.in_(app_ids))} if app_ids else {}
+    )
     rows = []
     pending_actionable = []
     for device in devices:
@@ -181,7 +182,7 @@ def _portal_activesync_context(db: Session, user: UserContext) -> dict:
 
 
 @router.get("/apps")
-async def apps_portal(
+def apps_portal(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -235,7 +236,7 @@ async def user_profile(
     as_ctx = _portal_activesync_context(db, user)
     from app.web.password_policy import MIN_PASSWORD_LEN, PASSWORD_POLICY_RULES
     from app.web.profile_security_service import (
-        current_native_jti,
+        current_native_session,
         list_user_sso_sessions,
         password_self_service_available,
         self_service_security_available,
@@ -244,14 +245,14 @@ async def user_profile(
 
     password_change_available = password_self_service_available(db, user, settings)
     security_available = self_service_security_available(db, user, settings)
-    current_jti = current_native_jti(request, db, settings)
+    current = current_native_session(request, db, settings)
     sso_sessions: list = []
     if security_available:
         sso_sessions = await list_user_sso_sessions(
             db,
             user=user,
             settings=settings,
-            current_jti=current_jti,
+            current=current,
         )
     max_age = int(getattr(settings, "oidc_session_max_age", 43200) or 43200)
     session_ttl_hours = max(1, round(max_age / 3600))
@@ -309,7 +310,6 @@ def _owned_device_or_404(db: Session, device_id: int, user: UserContext):
 
 
 def _require_portal_csrf(request: Request, settings: Settings, csrf_token: str) -> None:
-    # Must match base_template_context's fallback ("dev-insecure").
     secret = portal_signing_secret(settings)
     if not verify_csrf_token(request, secret, csrf_token):
         raise HTTPException(status_code=403, detail="Jeton CSRF invalide")  # NOSONAR
@@ -319,7 +319,7 @@ def _require_portal_csrf(request: Request, settings: Settings, csrf_token: str) 
     "/profile/activesync/devices/{device_id}/approve",
     responses=RESP_403 | RESP_404,
 )
-async def portal_device_approve(
+def portal_device_approve(
     device_id: int,
     request: Request,
     csrf_token: str = Form(""),
@@ -355,7 +355,7 @@ async def portal_device_approve(
     "/profile/activesync/devices/{device_id}/reject",
     responses=RESP_403 | RESP_404,
 )
-async def portal_device_reject(
+def portal_device_reject(
     device_id: int,
     request: Request,
     csrf_token: str = Form(""),
@@ -387,7 +387,7 @@ async def portal_device_reject(
     "/profile/activesync/devices/{device_id}/revoke",
     responses=RESP_403 | RESP_404,
 )
-async def portal_device_revoke(
+def portal_device_revoke(
     device_id: int,
     request: Request,
     csrf_token: str = Form(""),
@@ -469,7 +469,7 @@ async def profile_revoke_session(
 ):
     from app.web.profile_security_service import (
         ProfileSecurityError,
-        current_native_jti,
+        current_native_session,
         revoke_own_keycloak_session,
         revoke_own_native_session,
         self_service_security_available,
@@ -484,6 +484,7 @@ async def profile_revoke_session(
     actor = user.email or user.username or "user"
     kind = (session_kind or "").strip()
     sid = (session_id or "").strip()
+    current = current_native_session(request, db, settings)
     try:
         if kind == "keycloak":
             await revoke_own_keycloak_session(
@@ -499,7 +500,7 @@ async def profile_revoke_session(
                 db,
                 user=user,
                 jti=sid,
-                current_jti=current_native_jti(request, db, settings),
+                current_jti=current.jti if current else None,
                 actor=actor,
                 ip_address=_client_ip(request),
             )
@@ -522,7 +523,7 @@ async def profile_revoke_other_sessions(
 ):
     from app.web.profile_security_service import (
         ProfileSecurityError,
-        current_native_jti,
+        current_native_session,
         revoke_all_other_sessions,
         self_service_security_available,
     )
@@ -539,7 +540,7 @@ async def profile_revoke_other_sessions(
             db,
             user=user,
             settings=settings,
-            current_jti=current_native_jti(request, db, settings),
+            current=current_native_session(request, db, settings),
             actor=actor,
             ip_address=_client_ip(request),
         )
@@ -556,20 +557,14 @@ async def profile_revoke_other_sessions(
 
 
 @router.post("/api/apps/{app_id}/launch-ping")
-async def app_launch_ping(
+def app_launch_ping(
     app_id: int,
     request: Request,
     db: Session = Depends(get_db),
     user: UserContext = Depends(require_user_enriched),
 ):
     """Fire-and-forget audit when the user clicks Open on a tile."""
-    entries = get_effective_apps_for_user(
-        db,
-        keycloak_user_id=user.keycloak_user_id,
-        group_names=user.groups,
-        realm_slug=user.realm_slug,
-    )
-    match = next((e for e in entries if e.app.id == app_id), None)
+    match = _accessible_app_or_error(db, user, app_id)
     if match is None:
         return JSONResponse({"ok": False, "detail": _MSG_APP_NOT_ACCESSIBLE}, status_code=404)
     if not match.can_launch:
@@ -605,7 +600,7 @@ def _accessible_app_or_error(db: Session, user: UserContext, app_id: int):
 
 
 @router.post("/api/apps/{app_id}/favorite")
-async def app_favorite_add(
+def app_favorite_add(
     app_id: int,
     request: Request,
     db: Session = Depends(get_db),
@@ -631,7 +626,7 @@ async def app_favorite_add(
 
 
 @router.delete("/api/apps/{app_id}/favorite")
-async def app_favorite_remove(
+def app_favorite_remove(
     app_id: int,
     request: Request,
     db: Session = Depends(get_db),
@@ -657,7 +652,7 @@ async def app_favorite_remove(
 
 
 @router.post("/api/apps/{app_id}/public-link")
-async def app_public_link_add(
+def app_public_link_add(
     app_id: int,
     request: Request,
     db: Session = Depends(get_db),
@@ -682,7 +677,7 @@ async def app_public_link_add(
 
 
 @router.delete("/api/apps/{app_id}/public-link")
-async def app_public_link_remove(
+def app_public_link_remove(
     app_id: int,
     request: Request,
     db: Session = Depends(get_db),

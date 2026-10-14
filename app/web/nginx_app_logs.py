@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,8 @@ _LOGGABLE_MODES = frozenset({"public_proxy", "subdomain_proxy"})
 MTA_STS_LOG_SLUG = "mta-sts"
 _DEFAULT_TAIL = 200
 _MAX_TAIL = 5000
+_TAIL_CHUNK = 64 * 1024
+_MAX_TAIL_BYTES = 8 * 1024 * 1024
 
 # Bastion nginx ``log_format app`` (see docker/nginx/nginx.conf).
 # remote_user may contain spaces (ActiveSync: ``A.R. Systems\user@…``).
@@ -559,7 +562,7 @@ def read_access_log_tail(
     if not path.is_file():
         return ""
     try:
-        raw = path.read_bytes()
+        raw = _read_tail_bytes(path, n)
     except OSError:
         logger.exception("nginx access log read failed slug=%s", slug)
         raise HTTPException(status_code=502, detail="Access log unavailable") from None
@@ -568,6 +571,29 @@ def read_access_log_tail(
     if len(parts) <= n:
         return "\n".join(parts) + ("\n" if parts else "")
     return "\n".join(parts[-n:]) + "\n"
+
+
+def _read_tail_bytes(path: Path, lines: int) -> bytes:
+    """Bytes holding at least the last ``lines`` lines, read backwards from EOF."""
+    with path.open("rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        pos = fh.tell()
+        chunks: list[bytes] = []
+        newlines = 0
+        read = 0
+        while pos > 0 and newlines <= lines and read < _MAX_TAIL_BYTES:
+            step = min(_TAIL_CHUNK, pos)
+            pos -= step
+            fh.seek(pos)
+            chunk = fh.read(step)
+            chunks.append(chunk)
+            newlines += chunk.count(b"\n")
+            read += step
+    data = b"".join(reversed(chunks))
+    if pos > 0:
+        # Started mid-line: drop the partial first line.
+        data = data.split(b"\n", 1)[-1]
+    return data
 
 
 async def _access_log_follow_once(
@@ -584,16 +610,16 @@ async def _access_log_follow_once(
             return None, offset, False
         size = path.stat().st_size
         if size < offset:
-            chunk = read_access_log_tail(settings, slug, lines=lines)
+            chunk = await asyncio.to_thread(read_access_log_tail, settings, slug, lines=lines)
             new_offset = path.stat().st_size if path.is_file() else 0
             return (chunk or None), new_offset, False
         if size == offset:
             return None, offset, False
         async with await anyio.open_file(path, "rb") as fh:
             await fh.seek(offset)
-            data = await fh.read()
+            data = await fh.read(_MAX_TAIL_BYTES)
         text = data.decode("utf-8", errors="replace") if data else None
-        return text, size, False
+        return text, offset + len(data), False
     except OSError:
         logger.exception("nginx access log follow failed slug=%s", slug)
         return None, offset, True
@@ -608,7 +634,7 @@ async def iter_access_log_follow(
 ) -> AsyncIterator[str]:
     """Yield new lines appended to the access log (poll-based follow)."""
     path = access_log_path(settings, slug)
-    initial = read_access_log_tail(settings, slug, lines=lines)
+    initial = await asyncio.to_thread(read_access_log_tail, settings, slug, lines=lines)
     if initial:
         yield initial
     offset = 0
