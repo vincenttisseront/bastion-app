@@ -310,6 +310,29 @@ body.app-layout{display:flex;min-height:100vh}
 .main-content{
   flex:1;overflow-y:auto;padding:var(--sp-6);background:var(--bg-base);
   width:100%;min-width:0;box-sizing:border-box;
+  /* Room for the fixed .app-footer so the last block is not clipped. */
+  padding-bottom:calc(var(--sp-6) + 2.5rem);
+}
+
+/* Fixed chrome footer (copyright + admin-only deployed version). */
+.app-footer{
+  position:fixed;bottom:0;left:220px;right:0;z-index:35;
+  display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);
+  min-height:2.25rem;padding:0.35rem var(--sp-6);
+  background:var(--topbar-bg);border-top:1px solid var(--border-muted);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  font-size:var(--fs-xs);color:var(--text-3);line-height:1.3;
+  box-sizing:border-box;
+}
+.app-footer-copy{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.app-footer-version{
+  flex-shrink:0;font-variant-numeric:tabular-nums;font-weight:600;
+  color:var(--text-2);letter-spacing:0.02em;
+}
+@media (max-width:720px){
+  .app-footer{left:0}
 }
 /* Content + topbar type scale aligned with sidebar nav (--nav-fs = fs-xs) */
 .app-body{

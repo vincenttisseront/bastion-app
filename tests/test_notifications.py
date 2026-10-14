@@ -75,7 +75,7 @@ def test_dismiss_hides_until_fingerprint_changes(db_session):
     assert not any(i["id"] == "pending-hosts" for i in feed2["items"])
     assert feed2["count"] == 0
 
-    # New activity → new fingerprint → notification returns
+    # Hit-count / last_seen bumps must NOT revive a dismissed aggregate.
     row = db_session.query(PendingHost).filter_by(hostname="ghost.example.com").one()
     row.hit_count = 99
     from app.models import utcnow
@@ -83,7 +83,71 @@ def test_dismiss_hides_until_fingerprint_changes(db_session):
     row.last_seen_at = utcnow()
     db_session.commit()
     feed3 = build_notification_feed(db_session, user_email="admin@example.com")
-    assert any(i["id"] == "pending-hosts" for i in feed3["items"])
+    assert not any(i["id"] == "pending-hosts" for i in feed3["items"])
+
+    # A new hostname changes the set fingerprint → notification returns.
+    db_session.add(
+        PendingHost(hostname="other.example.com", status="pending", hit_count=1)
+    )
+    db_session.commit()
+    feed4 = build_notification_feed(db_session, user_email="admin@example.com")
+    assert any(i["id"] == "pending-hosts" for i in feed4["items"])
+
+
+def test_denied_summary_watermark_survives_same_window(db_session):
+    """Dismissing the 24h summary stays down until a newer denial appears."""
+    log_action(
+        db_session,
+        actor="anonymous",
+        action="access_denied_unknown_host",
+        target="ghost.example.com",
+        details={"uri": "/"},
+        ip_address="10.0.0.1",
+    )
+    feed = build_notification_feed(db_session, user_email="admin@example.com")
+    summary = next(i for i in feed["items"] if i["id"] == "access-denied-summary")
+    dismiss_notification(
+        db_session,
+        user_email="admin@example.com",
+        item_id=summary["id"],
+        fingerprint=summary["fingerprint"],
+        actor="admin@example.com",
+    )
+    # Also dismiss per-event detail rows so only the summary watermark is under test.
+    for it in feed["items"]:
+        if str(it["id"]).startswith("audit-"):
+            dismiss_notification(
+                db_session,
+                user_email="admin@example.com",
+                item_id=it["id"],
+                fingerprint=it["fingerprint"],
+                actor="admin@example.com",
+            )
+    feed2 = build_notification_feed(db_session, user_email="admin@example.com")
+    assert not any(i["id"] == "access-denied-summary" for i in feed2["items"])
+
+    log_action(
+        db_session,
+        actor="anonymous",
+        action="access_denied_no_app",
+        target="ghost.example.com",
+        details={"uri": "/x"},
+        ip_address="10.0.0.1",
+    )
+    feed3 = build_notification_feed(db_session, user_email="admin@example.com")
+    assert any(i["id"] == "access-denied-summary" for i in feed3["items"])
+
+
+def test_badge_endpoint(client, db_session):
+    db_session.add(
+        PendingHost(hostname="teleport.example.fr", status="pending", hit_count=1)
+    )
+    db_session.commit()
+    r = client.get("/api/admin/notifications/badge", headers=ADMIN_HEADERS)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["count"] >= 1
+    assert "items" not in data
 
 
 def test_denied_detail_href_urlencodes_action(db_session):

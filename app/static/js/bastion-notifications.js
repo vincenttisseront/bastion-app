@@ -2,6 +2,7 @@
   'use strict';
 
   var FETCH_MS = 8000;
+  var POLL_MS = 45000;
 
   function qs(sel, root) {
     return (root || document).querySelector(sel);
@@ -44,6 +45,7 @@
     var cache = null;
     var inflight = null;
     var ignoreDocClickUntil = 0;
+    var pollTimer = null;
 
     function setOpen(next) {
       open = !!next;
@@ -262,6 +264,27 @@
         });
     }
 
+    function pollBadge() {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (open) {
+        loadFeed(true);
+        return;
+      }
+      fetch('/api/admin/notifications/badge', {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function (data) {
+          updateBadge(data.count || 0);
+          if (cache) cache.count = data.count || 0;
+        })
+        .catch(function () {});
+    }
+
     function postDismiss(url, body) {
       return fetch(url, {
         method: 'POST',
@@ -285,6 +308,18 @@
       e.preventDefault();
       e.stopPropagation();
       var fp = t.dataset.notifFp || '';
+      if (cache && cache.items) {
+        var remaining = cache.items.filter(function (it) {
+          return it.id !== id;
+        });
+        applyData({
+          count: remaining.filter(function (it) {
+            return !!it.counts_for_badge;
+          }).length,
+          items: remaining,
+          shortcuts: cache.shortcuts || [],
+        });
+      }
       postDismiss('/api/admin/notifications/dismiss', {
         item_id: id,
         fingerprint: fp,
@@ -294,6 +329,7 @@
         })
         .catch(function () {
           showError('Échec du marquage comme lu.');
+          loadFeed(true);
         });
     });
 
@@ -301,12 +337,18 @@
       dismissAllBtn.addEventListener('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
+        applyData({
+          count: 0,
+          items: [],
+          shortcuts: (cache && cache.shortcuts) || [],
+        });
         postDismiss('/api/admin/notifications/dismiss-all', null)
           .then(function (data) {
             applyData(data);
           })
           .catch(function () {
             showError('Échec du marquage comme lu.');
+            loadFeed(true);
           });
       });
     }
@@ -331,6 +373,10 @@
       }
     });
 
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) pollBadge();
+    });
+
     fetchFeed()
       .then(function (data) {
         cache = data;
@@ -340,6 +386,8 @@
       .catch(function () {
         updateBadge(0);
       });
+
+    pollTimer = setInterval(pollBadge, POLL_MS);
   }
 
   if (document.readyState === 'loading') {
