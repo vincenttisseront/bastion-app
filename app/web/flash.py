@@ -24,6 +24,7 @@ from app.robotic.robotic_session_cookies import (
     INJECTED_COOKIE_SCOPE_LABELS,
     INJECTED_COOKIE_SCOPES,
 )
+from app.web.csrf import csrf_secret, make_csrf_token
 
 FLASH_COOKIE = "portal_flash"
 FLASH_MAX_AGE = 30
@@ -143,24 +144,6 @@ def flash_i18n(
     flash_redirect(response, request_t(request, msgid, **kwargs), category, secret)
 
 
-def make_csrf_token(request: Request, secret: str) -> str:
-    session_key = request.headers.get("X-Email") or request.cookies.get("bg_session", "")[:16]
-    raw = f"csrf:{session_key}"
-    return hmac.new(secret.encode() or b"dev", raw.encode(), hashlib.sha256).hexdigest()[:32]
-
-
-def verify_csrf_token(request: Request, secret: str, csrf_token: str = "") -> bool:
-    """Validate form ``csrf_token`` or ``X-CSRF-Token`` header against ``make_csrf_token``."""
-    expected = make_csrf_token(request, secret)
-    candidates = [
-        (csrf_token or "").strip(),
-        (request.headers.get("X-CSRF-Token") or "").strip(),
-    ]
-    return any(
-        candidate and hmac.compare_digest(candidate, expected) for candidate in candidates
-    )
-
-
 def _resolve_branding_for_template(extra: dict[str, Any], db) -> Any:
     branding = extra.pop("branding", None)
     if branding is not None:
@@ -229,7 +212,7 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         "realm_slug": realm_slug,
         "app_version": app_version,
         "messages": messages,
-        "csrf_token": make_csrf_token(request, secret),
+        "csrf_token": make_csrf_token(request, csrf_secret(settings)),
         "hide_chrome": extra.pop("hide_chrome", False),
         "now": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
         "locale": locale,

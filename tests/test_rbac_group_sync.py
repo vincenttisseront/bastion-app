@@ -181,12 +181,9 @@ def test_realm_list_force_sync_imports_groups(client, db_session):
         [{"id": "g1", "name": "portal-admins", "path": "/portal-admins", "subGroups": []}],
     )
 
-    import hashlib
-    import hmac
+    from tests.conftest import csrf_token_for
 
-    token = hmac.new(
-        b"test-secret", b"csrf:admin@example.com", hashlib.sha256
-    ).hexdigest()[:32]
+    token = csrf_token_for(client)
     resp = client.post(
         f"/admin/realms/{realm.id}/sync",
         headers={

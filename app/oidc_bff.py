@@ -11,7 +11,8 @@ from uuid import uuid4
 
 import jwt
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
@@ -21,55 +22,60 @@ from app.jwt_audience import (
     jwt_audience_matches,
     resolve_oidc_session_jwt_audience,
 )
-from app.web.openapi_responses import (
-    RESP_400,
-    RESP_401,
-    RESP_403,
-    RESP_404,
-    RESP_409,
-    RESP_422,
-    RESP_500,
-    RESP_503,
-)
-from app.models import OidcSession, utcnow
+from app.models import OidcLoginAttempt, OidcSession, RealmConfig, utcnow
 from app.oidc_bff_client import (
     InvalidCredentialsError,
     InvalidOtpError,
+    LoginStepResult,
     OidcBffConfigError,
     OidcBffError,
     UnsupportedAuthFlowError,
+    extract_groups_from_oidc_claims,
     start_headless_login,
     submit_headless_otp,
 )
+from app.oidc_bff_config_service import resolve_oidc_session_jwt_secret
+from app.oidc_native_session import (
+    is_oidc_mfa_enabled_for_realm,
+    is_oidc_native_session_enabled_for_realm,
+)
+from app.pathutil import sanitize_log_value
+from app.realm_lookup import find_realm
 from app.request_client_ip import client_ip_from_request
+from app.secret_crypto import decrypt_secret
 from app.security.banning.engine import (
     clear_failed_login_counters,
     evaluate_login_attempt,
 )
+from app.session_cookies import clear_portal_cookie, set_portal_cookie
 from app.sso_settings import Settings, get_settings
 from app.testing_framework.throttle import (
     clear_failures,
     failure_block_retry_after,
     record_failure,
 )
+from app.web.csrf import csrf_secret, verify_csrf_token
+from app.web.openapi_responses import RESP_401, RESP_403, RESP_503
 from app.web.templates import render
 
-_AUTH_LOGIN_TEMPLATE = 'auth/login.html'
+_AUTH_LOGIN_TEMPLATE = "auth/login.html"
 
 logger = logging.getLogger(__name__)
-
-
-def _coerce_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 router = APIRouter(tags=["oidc-bff"])
 
 _GENERIC_AUTH_FAILURE = "Identifiants invalides."
 _GENERIC_AUTH_BLOCKED = "Compte temporairement bloqué suite à trop de tentatives."
+_TOO_MANY_ATTEMPTS = "Trop de tentatives. Réessayez plus tard."
+_NATIVE_DISABLED = "Authentification native non activée pour ce realm."
+_NATIVE_NOT_CONFIGURED = "OIDC natif non configuré pour ce realm."
+_AUTH_UNAVAILABLE = "Authentification temporairement indisponible."
+_CSRF_EXPIRED = "Session expirée — rechargez la page et réessayez."
+_MFA_DISABLED = (
+    "Configuration OTP demandée par l'IdP, mais le MFA est désactivé "
+    "pour ce realm dans Bastion. Activez le MFA (Admin → Realms) "
+    "ou retirez l'action CONFIGURE_TOTP côté Keycloak."
+)
 _UNSUPPORTED_FLOW_LOGIN_ERROR = (
     "Keycloak exige une action avant de finaliser la connexion "
     "(souvent un mot de passe temporaire à changer, une vérification e-mail "
@@ -97,10 +103,6 @@ class OidcSessionClaims:
     type: str = "oidc"
     groups: tuple[str, ...] = ()
     email: str | None = None
-
-
-def _client_ip(request: Request) -> str:
-    return client_ip_from_request(request)
 
 
 def _rate_key(ip: str, username: str) -> str:
@@ -221,26 +223,27 @@ def issue_oidc_session(
     return token, jti
 
 
+def _revoke_values(*, revoked_by: str, reason: str, now: datetime) -> dict[str, Any]:
+    return {
+        "revoked": True,
+        "revoked_at": now,
+        "revoked_by": revoked_by,
+        "revoked_reason": reason,
+    }
+
+
 def purge_expired_oidc_sessions(db: Session) -> int:
     """Mark expired native sessions as revoked (housekeeping — JWT already invalid)."""
     now = utcnow()
-    rows = (
+    count = (
         db.query(OidcSession)
-        .filter(OidcSession.revoked.is_(False))
-        .all()
+        .filter(OidcSession.revoked.is_(False), OidcSession.expires_at <= now)
+        .update(
+            _revoke_values(revoked_by="system", reason="expired", now=now),
+            synchronize_session="fetch",
+        )
     )
-    purged = 0
-    for row in rows:
-        exp = _coerce_utc(row.expires_at)
-        if exp is not None and exp <= now:
-            row.revoked = True
-            row.revoked_at = now
-            row.revoked_by = "system"
-            row.revoked_reason = "expired"
-            purged += 1
-    if purged:
-        db.flush()
-    return purged
+    return int(count or 0)
 
 
 def is_oidc_jti_revoked(db: Session, jti: str) -> bool:
@@ -253,10 +256,7 @@ def is_oidc_jti_revoked(db: Session, jti: str) -> bool:
         return True
     if row.revoked:
         return True
-    exp = _coerce_utc(row.expires_at)
-    if exp is not None and exp <= utcnow():
-        return True
-    return False
+    return row.expires_at is not None and row.expires_at <= utcnow()
 
 
 def revoke_oidc_jti(
@@ -278,20 +278,9 @@ def revoke_oidc_jti(
     return row
 
 
-def _oidc_row_matches_identity(
-    row: OidcSession,
-    *,
-    emails: set[str],
-    usernames: set[str],
-    subs: set[str],
-) -> bool:
-    uname = (row.username or "").strip().lower()
-    sub = (row.sub or "").strip()
-    if sub and sub in subs:
-        return True
-    if uname and (uname in usernames or uname in emails):
-        return True
-    return False
+def _clean_set(values: set[str] | None, *, lower: bool) -> set[str]:
+    out = {str(v).strip() for v in (values or set()) if v and str(v).strip()}
+    return {v.lower() for v in out} if lower else out
 
 
 def revoke_oidc_sessions_for_identity(
@@ -309,33 +298,25 @@ def revoke_oidc_sessions_for_identity(
     Keycloak Admin logout alone does not invalidate local JWT jtis — without this,
     the portal cookie stays valid until expiry.
     """
-    emails = {e.strip().lower() for e in (emails or set()) if e and str(e).strip()}
-    usernames = {u.strip().lower() for u in (usernames or set()) if u and str(u).strip()}
-    subs = {s.strip() for s in (keycloak_subs or set()) if s and str(s).strip()}
-    if not emails and not usernames and not subs:
+    names = _clean_set(emails, lower=True) | _clean_set(usernames, lower=True)
+    subs = _clean_set(keycloak_subs, lower=False)
+    matches = []
+    if subs:
+        matches.append(func.trim(OidcSession.sub).in_(subs))
+    if names:
+        matches.append(func.lower(func.trim(OidcSession.username)).in_(names))
+    if not matches:
         return 0
 
-    q = db.query(OidcSession).filter(OidcSession.revoked.is_(False))
+    q = db.query(OidcSession).filter(OidcSession.revoked.is_(False), or_(*matches))
     slug = (realm_slug or "").strip()
     if slug:
         q = q.filter(OidcSession.realm == slug)
-
-    rows = q.all()
-    now = utcnow()
-    count = 0
-    for row in rows:
-        if not _oidc_row_matches_identity(
-            row, emails=emails, usernames=usernames, subs=subs
-        ):
-            continue
-        row.revoked = True
-        row.revoked_at = now
-        row.revoked_by = revoked_by
-        row.revoked_reason = reason
-        count += 1
-    if count:
-        db.flush()
-    return count
+    count = q.update(
+        _revoke_values(revoked_by=revoked_by, reason=reason, now=utcnow()),
+        synchronize_session="fetch",
+    )
+    return int(count or 0)
 
 
 def set_oidc_session_cookie(
@@ -343,45 +324,18 @@ def set_oidc_session_cookie(
     token: str,
     settings: Settings,
 ) -> None:
-    """
-    Emit ``bastion_session`` with ``Domain=<portal parent>`` when possible so
-    subdomain auth_request (transfer/webmail/…) receives the same cookie as the
-    portal — mirroring oauth2-proxy ``cookie_domains``.
-    """
-    from app.robotic.robotic_session_cookies import portal_sso_cookie_domain
-
-    kwargs: dict = {
-        "key": settings.oidc_session_cookie_name,
-        "value": token,
-        "max_age": settings.oidc_session_max_age,
-        "httponly": True,
-        "secure": True,
-        "samesite": "lax",
-        "path": "/",
-    }
-    domain = portal_sso_cookie_domain(settings.portal_domain or "")
-    if domain:
-        kwargs["domain"] = domain
-    response.set_cookie(**kwargs)
+    """Emit ``bastion_session`` on the portal parent domain (mirrors oauth2-proxy ``cookie_domains``)."""
+    set_portal_cookie(
+        response,
+        settings.oidc_session_cookie_name,
+        token,
+        max_age=settings.oidc_session_max_age,
+        settings=settings,
+    )
 
 
 def clear_oidc_session_cookie(response: Response, settings: Settings) -> None:
-    """Clear parent-domain cookie and any legacy host-only copy on the portal."""
-    from app.robotic.robotic_session_cookies import portal_sso_cookie_domain
-
-    name = settings.oidc_session_cookie_name
-    domain = portal_sso_cookie_domain(settings.portal_domain or "")
-    clear_kwargs: dict = {
-        "key": name,
-        "path": "/",
-        "httponly": True,
-        "secure": True,
-        "samesite": "lax",
-    }
-    if domain:
-        response.delete_cookie(**clear_kwargs, domain=domain)
-    # Pre-cutover cookies were host-only on the portal FQDN.
-    response.delete_cookie(**clear_kwargs)
+    clear_portal_cookie(response, settings.oidc_session_cookie_name, settings)
 
 
 def revoke_oidc_session_from_request(
@@ -394,17 +348,13 @@ def revoke_oidc_session_from_request(
     Returns the actor string for audit (username/sub or ``unknown``).
     Does not clear the cookie — call ``clear_oidc_session_cookie`` separately.
     """
-    actor = "unknown"
-    cookie_name = settings.oidc_session_cookie_name
-    raw = request.cookies.get(cookie_name)
+    raw = request.cookies.get(settings.oidc_session_cookie_name)
     if not raw:
-        return actor
+        return "unknown"
 
     claims = validate_oidc_session_cookie(raw, db=db, settings=settings)
-    jti: str | None = None
     if claims is not None:
-        actor = claims.username or claims.sub
-        jti = claims.jti
+        actor, jti = claims.username or claims.sub, claims.jti
     else:
         actor, jti = _actor_jti_from_unverified_oidc_cookie(raw, db, settings)
     if jti:
@@ -419,8 +369,7 @@ def revoke_oidc_session_from_request(
 def _actor_jti_from_unverified_oidc_cookie(
     raw: str, db: Session, settings: Settings
 ) -> tuple[str, str | None]:
-    from app.oidc_bff_config_service import resolve_oidc_session_jwt_secret
-
+    """Signature-checked but expiry-agnostic decode, so logout can revoke a stale cookie."""
     secret = resolve_oidc_session_jwt_secret(db, settings)
     if not secret:
         return "unknown", None
@@ -437,8 +386,7 @@ def _actor_jti_from_unverified_oidc_cookie(
         return "unknown", None
     actor = str(payload.get("username") or payload.get("sub") or "unknown")
     jti_val = payload.get("jti")
-    jti = jti_val if isinstance(jti_val, str) else None
-    return actor, jti
+    return actor, jti_val if isinstance(jti_val, str) else None
 
 
 def _parse_oidc_groups(raw_groups) -> tuple[str, ...]:
@@ -502,11 +450,7 @@ def validate_oidc_session_cookie(
     if not cookie_value:
         return None
     settings = settings or get_settings()
-    key = (secret or "").strip()
-    if not key:
-        from app.oidc_bff_config_service import resolve_oidc_session_jwt_secret
-
-        key = resolve_oidc_session_jwt_secret(db, settings)
+    key = (secret or "").strip() or resolve_oidc_session_jwt_secret(db, settings)
     if not key:
         return None
     try:
@@ -520,37 +464,16 @@ def validate_oidc_session_cookie(
         return None
     if payload.get("type") != "oidc":
         return None
-    expected_aud = resolve_oidc_session_jwt_audience(settings)
-    strict_aud = bool(getattr(settings, "oidc_session_jwt_audience_strict", False))
-    if not jwt_audience_matches(payload, expected_aud, strict=strict_aud):
+    if not jwt_audience_matches(
+        payload,
+        resolve_oidc_session_jwt_audience(settings),
+        strict=settings.oidc_session_jwt_audience_strict,
+    ):
         return None
     claims = _oidc_claims_from_payload(payload)
-    if claims is None:
-        return None
-    if is_oidc_jti_revoked(db, claims.jti):
+    if claims is None or is_oidc_jti_revoked(db, claims.jti):
         return None
     return claims
-
-
-def _auth_failure_response(
-    db: Session,
-    *,
-    request: Request,
-    username: str,
-    realm: str,
-    reason: str,
-    detail: str | None = None,
-) -> None:
-    """Record failure + audit, then raise generic 401 (no credential enumeration)."""
-    _record_failed_attempt(
-        db,
-        request=request,
-        username=username,
-        realm=realm,
-        reason=reason,
-        detail=detail,
-    )
-    raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE)  # NOSONAR
 
 
 def _safe_login_rd(rd: str | None, *, portal_domain: str = "") -> str:
@@ -559,167 +482,107 @@ def _safe_login_rd(rd: str | None, *, portal_domain: str = "") -> str:
     return safe_post_login_rd(rd, portal_domain=portal_domain, default="/apps")
 
 
-async def _resolve_session_groups(
-    db: Session,
-    *,
-    settings: Settings,
-    realm_slug: str,
-    sub: str,
-    claim_groups: tuple[str, ...] | list[str] | None,
-) -> tuple[str, ...]:
-    """Prefer OIDC token groups; fall back to Keycloak Admin API (BFF client may lack mapper)."""
-    from app.oidc_bff_client import extract_groups_from_oidc_claims
+@dataclass(slots=True)
+class _LoginCtx:
+    request: Request
+    settings: Settings
+    db: Session
+    username: str
+    realm_slug: str
+    attempt_id: str | None
+    otp_code: str | None
+    client_ip: str
+    html_mode: bool
+    safe_rd: str
+    realm: RealmConfig | None = None
 
-    claimed = extract_groups_from_oidc_claims({"groups": list(claim_groups or ())})
-    if claimed:
-        return claimed
+    @property
+    def otp_step(self) -> bool:
+        return bool(self.attempt_id and self.otp_code)
 
-    from app.models import RealmConfig
-    from app.rbac.keycloak_admin import fetch_user_groups
-
-    realm = (
-        db.query(RealmConfig)
-        .filter_by(slug=realm_slug, enabled=True)
-        .first()
-    )
-    if realm is None or not (sub or "").strip():
-        return ()
-    try:
-        kc_groups = await fetch_user_groups(realm, sub, settings)
-    except Exception:
-        logger.warning(
-            "oidc_login groups Admin API fallback failed realm=%s sub=%s",
-            realm_slug,
-            sub,
-            exc_info=True,
-        )
-        return ()
-
-    names: list[str] = []
-    for entry in kc_groups:
-        if not isinstance(entry, dict):
-            continue
-        raw = entry.get("path") or entry.get("name")
-        if raw is not None and str(raw).strip():
-            names.append(str(raw).strip())
-    return extract_groups_from_oidc_claims({"groups": names})
+    @property
+    def log_user(self) -> str:
+        return sanitize_log_value(self.username)
 
 
-def _html_login_error(
-    request: Request,
-    settings: Settings,
-    db: Session,
-    *,
-    rd: str,
-    username: str,
-    login_error: str,
-    otp_required: bool = False,
-    totp_setup_required: bool = False,
-    attempt_id: str | None = None,
-    totp_secret_display: str | None = None,
-    qr_data_url: str | None = None,
-    realm: str | None = None,
-):
-    """Re-render the public login page with a generic error (HTML form posts)."""
+class _LoginRejected(Exception):
+    """A login refusal, rendered as the login page (HTML) or an HTTP error (API)."""
+
+    def __init__(
+        self,
+        status: int,
+        message: str,
+        *,
+        html_message: str | None = None,
+        headers: dict[str, str] | None = None,
+        **page: Any,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.message = message
+        self.html_message = html_message or message
+        self.headers = headers
+        self.page = page
+
+
+def _render_login(ctx: _LoginCtx, **state: Any):
     from app.web.constants import APP_VERSION
     from app.web.flash import base_template_context
     from app.web.pages import _login_surface_flags
 
+    page = {"attempt_id": "", "totp_secret_display": "", "qr_data_url": ""}
+    page.update({k: v for k, v in state.items() if v is not None})
     return render(
         _AUTH_LOGIN_TEMPLATE,
         **base_template_context(
-            request,
-            settings,
+            ctx.request,
+            ctx.settings,
             APP_VERSION,
             hide_chrome=True,
-            login_error=login_error,
             login_panel="sso",
-            form_username=username,
-            otp_required=otp_required,
-            totp_setup_required=totp_setup_required,
-            attempt_id=attempt_id or "",
-            totp_secret_display=totp_secret_display or "",
-            qr_data_url=qr_data_url or "",
+            form_username=ctx.username,
+            **page,
             **_login_surface_flags(
-                request, db, settings, rd=rd, preferred_realm=realm
+                ctx.request, ctx.db, ctx.settings, rd=ctx.safe_rd, preferred_realm=ctx.realm_slug
             ),
         ),
     )
 
 
-def _html_otp_challenge(
-    request: Request,
-    settings: Settings,
-    db: Session,
+def _rejection_response(ctx: _LoginCtx, exc: _LoginRejected):
+    if ctx.html_mode:
+        return _render_login(ctx, login_error=exc.html_message, **exc.page)
+    raise HTTPException(status_code=exc.status, detail=exc.message, headers=exc.headers)
+
+
+def _audit(ctx: _LoginCtx, action: str, details: dict[str, Any], *, actor: str | None = None) -> None:
+    log_action(
+        ctx.db,
+        actor=actor or ctx.username or "unknown",
+        action=action,
+        details=details,
+        ip_address=ctx.client_ip or None,
+    )
+
+
+def _record_failed_attempt(
+    ctx: _LoginCtx,
     *,
-    rd: str,
-    username: str,
-    attempt_id: str,
-    realm: str | None = None,
-):
-    from app.web.constants import APP_VERSION
-    from app.web.flash import base_template_context
-    from app.web.pages import _login_surface_flags
-
-    return render(
-        _AUTH_LOGIN_TEMPLATE,
-        **base_template_context(
-            request,
-            settings,
-            APP_VERSION,
-            hide_chrome=True,
-            form_username=username,
-            otp_required=True,
-            attempt_id=attempt_id,
-            **_login_surface_flags(
-                request, db, settings, rd=rd, preferred_realm=realm
-            ),
-        ),
-    )
+    reason: str,
+    action: str = "oidc_login_failed",
+    detail: str | None = None,
+) -> None:
+    _record_login_failure(ctx.client_ip, ctx.username)
+    payload: dict[str, Any] = {"realm": ctx.realm_slug, "reason": reason}
+    if detail:
+        payload["detail"] = detail[:300]
+    _audit(ctx, action, payload)
 
 
-def _html_totp_setup_challenge(
-    request: Request,
-    settings: Settings,
-    db: Session,
-    *,
-    rd: str,
-    username: str,
-    attempt_id: str,
-    totp_secret_display: str | None,
-    qr_data_url: str | None,
-    realm: str | None = None,
-    login_error: str | None = None,
-):
-    from app.web.constants import APP_VERSION
-    from app.web.flash import base_template_context
-    from app.web.pages import _login_surface_flags
-
-    return render(
-        _AUTH_LOGIN_TEMPLATE,
-        **base_template_context(
-            request,
-            settings,
-            APP_VERSION,
-            hide_chrome=True,
-            form_username=username,
-            totp_setup_required=True,
-            attempt_id=attempt_id,
-            totp_secret_display=totp_secret_display or "",
-            qr_data_url=qr_data_url or "",
-            login_error=login_error,
-            **_login_surface_flags(
-                request, db, settings, rd=rd, preferred_realm=realm
-            ),
-        ),
-    )
-
-
-def _totp_setup_display_from_attempt(db: Session, attempt_id: str | None, settings: Settings):
+def _totp_setup_display_from_attempt(
+    db: Session, attempt_id: str | None, settings: Settings
+) -> tuple[str, str]:
     """Recover QR/secret display from a stored attempt (for error re-render)."""
-    from app.models import OidcLoginAttempt
-    from app.secret_crypto import decrypt_secret
-
     if not attempt_id:
         return "", ""
     row = db.query(OidcLoginAttempt).filter_by(attempt_id=attempt_id).first()
@@ -727,419 +590,224 @@ def _totp_setup_display_from_attempt(db: Session, attempt_id: str | None, settin
         return "", ""
     try:
         blob = json.loads(decrypt_secret(row.otp_form_encrypted, settings))
-    except Exception:
+    except (ValueError, TypeError):
         return "", ""
     if not isinstance(blob, dict) or blob.get("kind") != "totp_setup":
         return "", ""
     return str(blob.get("secret_display") or ""), str(blob.get("qr_data_url") or "")
 
 
-def _record_failed_attempt(
+def _failure_rejection(ctx: _LoginCtx, *, reason: str, action: str, **page: Any) -> _LoginRejected:
+    ban_eval = evaluate_login_attempt(
+        ctx.db, ip=ctx.client_ip, username=ctx.username, success=False
+    )
+    _record_failed_attempt(ctx, reason=reason, action=action)
+    if ban_eval.ban is not None:
+        return _LoginRejected(403, _GENERIC_AUTH_BLOCKED, **page)
+    return _LoginRejected(401, _GENERIC_AUTH_FAILURE, **page)
+
+
+def _otp_retry_page(ctx: _LoginCtx) -> dict[str, Any]:
+    """Keep the OTP / TOTP-setup form on screen while the attempt is still alive."""
+    if not ctx.attempt_id:
+        return {}
+    still = ctx.db.query(OidcLoginAttempt).filter_by(attempt_id=ctx.attempt_id).first()
+    if still is None:
+        return {}
+    secret_disp, qr = _totp_setup_display_from_attempt(ctx.db, ctx.attempt_id, ctx.settings)
+    if secret_disp or qr:
+        return {
+            "totp_setup_required": True,
+            "attempt_id": ctx.attempt_id,
+            "totp_secret_display": secret_disp,
+            "qr_data_url": qr,
+        }
+    return {"otp_required": True, "attempt_id": ctx.attempt_id}
+
+
+def _login_context(
+    request: Request,
+    settings: Settings,
     db: Session,
     *,
-    request: Request,
     username: str,
-    realm: str,
-    reason: str,
-    action: str = "oidc_login_failed",
-    detail: str | None = None,
-) -> None:
-    ip = _client_ip(request)
-    _record_login_failure(ip, username)
-    payload: dict[str, Any] = {"realm": realm, "reason": reason}
-    if detail:
-        payload["detail"] = (detail or "")[:300]
-    log_action(
-        db,
-        actor=username or "unknown",
-        action=action,
-        details=payload,
-        ip_address=ip or None,
+    realm: str | None,
+    rd: str | None,
+    attempt_id: str | None,
+    otp_code: str | None,
+) -> _LoginCtx:
+    ctx = _LoginCtx(
+        request=request,
+        settings=settings,
+        db=db,
+        username=(username or "").strip(),
+        realm_slug=(realm or "").strip() or settings.sso_portal_default_realm_slug,
+        attempt_id=(attempt_id or "").strip() or None,
+        otp_code=(otp_code or "").strip() or None,
+        client_ip=client_ip_from_request(request),
+        # Presence of ``rd`` marks a classic HTML form submit (vs JSON API clients).
+        html_mode=rd is not None,
+        safe_rd=_safe_login_rd(rd, portal_domain=settings.portal_domain or ""),
     )
-
-
-def _record_unsupported_flow(
-    db: Session,
-    *,
-    request: Request,
-    username: str,
-    realm: str,
-    detail: str,
-) -> None:
-    """Admin-visible audit when Keycloak requires MFA / required-action (not silent 401)."""
-    ip = _client_ip(request)
-    _record_login_failure(ip, username)
-    logger.warning(
-        "oidc_login unsupported flow realm=%s user=%s detail=%s",
-        realm,
-        username,
-        detail[:200],
-    )
-    log_action(
-        db,
-        actor=username or "unknown",
-        action="oidc_login_unsupported_flow",
-        details={
-            "realm": realm,
-            "reason": "unsupported_flow",
-            "detail": (detail or "")[:300],
-        },
-        ip_address=ip or None,
-    )
-
-
-@router.post("/auth/login", responses=RESP_401 | RESP_403 | RESP_503)
-async def oidc_login(
-    request: Request,
-    response: Response,
-    username: str = Form(""),
-    password: str = Form(""),
-    realm: str | None = Form(None),
-    rd: str | None = Form(None),
-    attempt_id: str | None = Form(None),
-    otp_code: str | None = Form(None),
-    settings: Settings = Depends(get_settings),
-    db: Session = Depends(get_db),
-):
-    from app.models import OidcLoginAttempt
-    from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
-
-    username = (username or "").strip()
-    realm_slug = (realm or "").strip() or settings.sso_portal_default_realm_slug
-    attempt_id = (attempt_id or "").strip() or None
-    otp_code = (otp_code or "").strip() or None
-    otp_step = bool(attempt_id and otp_code)
-    client_ip = _client_ip(request)
-    # Presence of ``rd`` marks a classic HTML form submit (vs JSON API clients).
-    html_mode = rd is not None
-    safe_rd = _safe_login_rd(rd, portal_domain=settings.portal_domain or "")
-
-    if otp_step:
+    if ctx.otp_step:
         # Recover username/realm from attempt for rate-limit + gate (no enumeration).
-        row = db.query(OidcLoginAttempt).filter_by(attempt_id=attempt_id).first()
+        row = db.query(OidcLoginAttempt).filter_by(attempt_id=ctx.attempt_id).first()
         if row is not None:
-            username = (row.username or username or "").strip()
-            realm_slug = (row.realm or realm_slug).strip()
+            ctx.username = (row.username or ctx.username).strip()
+            ctx.realm_slug = (row.realm or ctx.realm_slug).strip()
+    return ctx
 
-    if not is_oidc_native_session_enabled_for_realm(db, realm_slug, settings):
-        if html_mode:
-            return _html_login_error(
-                request,
-                settings,
-                db,
-                rd=safe_rd,
-                username=username,
-                login_error="Authentification native non activée pour ce realm.",
-                realm=realm_slug,
-            )
-        raise HTTPException(
-            status_code=403,
-            detail="Authentification native non activée pour ce realm.",
-        )
 
-    # Block user when SecurityBan decided it after too many failures.
-    # This is independent from the HTTP 429 hot-store throttling.
-    pre = evaluate_login_attempt(
-        db,
-        ip=client_ip,
-        username=username or "",
-        success=True,
-    )
+def _resolve_login_realm(ctx: _LoginCtx) -> None:
+    realm = find_realm(ctx.db, ctx.realm_slug)
+    if realm is not None:
+        ctx.realm = realm
+        ctx.realm_slug = realm.slug
+    if not is_oidc_native_session_enabled_for_realm(ctx.db, ctx.realm_slug, ctx.settings):
+        raise _LoginRejected(403, _NATIVE_DISABLED)
+
+
+def _check_login_allowed(ctx: _LoginCtx) -> None:
+    # SecurityBan decision (SQL, cross-worker) — independent from the 429 throttle.
+    pre = evaluate_login_attempt(ctx.db, ip=ctx.client_ip, username=ctx.username, success=True)
     if not pre.allowed and pre.ban is not None:
-        if html_mode:
-            return _html_login_error(
-                request,
-                settings,
-                db,
-                rd=safe_rd,
-                username=username,
-                login_error=_GENERIC_AUTH_BLOCKED,
-                otp_required=otp_step,
-                attempt_id=attempt_id if otp_step else None,
-                realm=realm_slug,
-            )
-        raise HTTPException(status_code=403, detail=_GENERIC_AUTH_BLOCKED)
-
-    wait = _check_login_rate_limit(client_ip, username)
+        raise _LoginRejected(
+            403,
+            _GENERIC_AUTH_BLOCKED,
+            otp_required=ctx.otp_step,
+            attempt_id=ctx.attempt_id if ctx.otp_step else None,
+        )
+    wait = _check_login_rate_limit(ctx.client_ip, ctx.username)
     if wait is not None:
-        if html_mode:
-            return _html_login_error(
-                request,
-                settings,
-                db,
-                rd=safe_rd,
-                username=username,
-                login_error=_GENERIC_AUTH_FAILURE,
-                otp_required=otp_step,
-                attempt_id=attempt_id,
-                realm=realm_slug,
-            )
-        raise HTTPException(
-            status_code=429,
-            detail="Trop de tentatives. Réessayez plus tard.",
+        raise _LoginRejected(
+            429,
+            _TOO_MANY_ATTEMPTS,
+            html_message=_GENERIC_AUTH_FAILURE,
             headers={"Retry-After": str(max(1, int(wait)))},
+            otp_required=ctx.otp_step,
+            attempt_id=ctx.attempt_id,
         )
 
+
+async def _run_login_step(ctx: _LoginCtx, password: str) -> LoginStepResult:
     try:
-        if otp_step:
-            if attempt_id is None or otp_code is None:
-                raise InvalidCredentialsError("Identifiants incomplets")
-            step = await submit_headless_otp(
-                attempt_id, otp_code, settings=settings, db=db
+        if ctx.otp_step:
+            return await submit_headless_otp(
+                ctx.attempt_id or "", ctx.otp_code or "", settings=ctx.settings, db=ctx.db
             )
-        else:
-            if not username or password is None or password == "":
-                raise InvalidCredentialsError("Identifiants incomplets")
-            step = await start_headless_login(
-                realm_slug, username, password, settings=settings, db=db
-            )
+        if not ctx.username or not password:
+            raise InvalidCredentialsError("Identifiants incomplets")
+        return await start_headless_login(
+            ctx.realm_slug, ctx.username, password, settings=ctx.settings, db=ctx.db
+        )
     except InvalidOtpError:
-        ban_eval = evaluate_login_attempt(
-            db,
-            ip=client_ip,
-            username=username or "",
-            success=False,
-        )
-        if html_mode:
-            _record_failed_attempt(
-                db,
-                request=request,
-                username=username,
-                realm=realm_slug,
-                reason="invalid_otp",
-                action="oidc_login_otp_failed",
-            )
-            # Keep OTP / TOTP-setup form if attempt still exists.
-            still = (
-                db.query(OidcLoginAttempt).filter_by(attempt_id=attempt_id).first()
-                if attempt_id
-                else None
-            )
-            if still is not None:
-                secret_disp, qr = _totp_setup_display_from_attempt(
-                    db, attempt_id, settings
-                )
-                if secret_disp or qr:
-                    return _html_totp_setup_challenge(
-                        request,
-                        settings,
-                        db,
-                        rd=safe_rd,
-                        username=username,
-                        attempt_id=attempt_id or "",
-                        totp_secret_display=secret_disp,
-                        qr_data_url=qr,
-                        realm=realm_slug,
-                        login_error=(
-                            _GENERIC_AUTH_BLOCKED
-                            if ban_eval.ban is not None
-                            else _GENERIC_AUTH_FAILURE
-                        ),
-                    )
-            return _html_login_error(
-                request,
-                settings,
-                db,
-                rd=safe_rd,
-                username=username,
-                login_error=(
-                    _GENERIC_AUTH_BLOCKED
-                    if ban_eval.ban is not None
-                    else _GENERIC_AUTH_FAILURE
-                ),
-                otp_required=still is not None,
-                attempt_id=attempt_id if still is not None else None,
-                realm=realm_slug,
-            )
-        _record_failed_attempt(
-            db,
-            request=request,
-            username=username,
-            realm=realm_slug,
-            reason="invalid_otp",
-            action="oidc_login_otp_failed",
-        )
-        if ban_eval.ban is not None:
-            raise HTTPException(status_code=403, detail=_GENERIC_AUTH_BLOCKED) from None
-        raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE) from None
+        page = _otp_retry_page(ctx)
+        raise _failure_rejection(
+            ctx, reason="invalid_otp", action="oidc_login_otp_failed", **page
+        ) from None
     except InvalidCredentialsError:
         logger.warning(
-            "oidc_login invalid_credentials realm=%s user=%s",
-            realm_slug,
-            username,
+            "oidc_login invalid_credentials realm=%s user=%s", ctx.realm_slug, ctx.log_user
         )
-        ban_eval = evaluate_login_attempt(
-            db,
-            ip=client_ip,
-            username=username or "",
-            success=False,
-        )
-        if html_mode:
-            _record_failed_attempt(
-                db,
-                request=request,
-                username=username,
-                realm=realm_slug,
-                reason="invalid_credentials",
-            )
-            return _html_login_error(
-                request,
-                settings,
-                db,
-                rd=safe_rd,
-                username=username,
-                login_error=(
-                    _GENERIC_AUTH_BLOCKED
-                    if ban_eval.ban is not None
-                    else _GENERIC_AUTH_FAILURE
-                ),
-                realm=realm_slug,
-            )
-        _record_failed_attempt(
-            db,
-            request=request,
-            username=username,
-            realm=realm_slug,
-            reason="invalid_credentials",
-        )
-        if ban_eval.ban is not None:
-            raise HTTPException(status_code=403, detail=_GENERIC_AUTH_BLOCKED) from None
-        raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE) from None
+        raise _failure_rejection(
+            ctx, reason="invalid_credentials", action="oidc_login_failed"
+        ) from None
     except UnsupportedAuthFlowError as exc:
         detail = str(exc) or "unsupported_flow"
-        _record_unsupported_flow(
-            db,
-            request=request,
-            username=username,
-            realm=realm_slug,
-            detail=detail,
+        _record_login_failure(ctx.client_ip, ctx.username)
+        logger.warning(
+            "oidc_login unsupported flow realm=%s user=%s detail=%s",
+            ctx.realm_slug,
+            ctx.log_user,
+            detail[:200],
         )
-        if html_mode:
-            return _html_login_error(
-                request,
-                settings,
-                db,
-                rd=safe_rd,
-                username=username,
-                login_error=_UNSUPPORTED_FLOW_LOGIN_ERROR,
-                realm=realm_slug,
-            )
-        raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE) from None
+        _audit(
+            ctx,
+            "oidc_login_unsupported_flow",
+            {"realm": ctx.realm_slug, "reason": "unsupported_flow", "detail": detail[:300]},
+        )
+        raise _LoginRejected(
+            401, _GENERIC_AUTH_FAILURE, html_message=_UNSUPPORTED_FLOW_LOGIN_ERROR
+        ) from None
     except OidcBffConfigError as exc:
         logger.exception(
-            "oidc_login misconfigured realm=%s: %s", realm_slug, type(exc).__name__
+            "oidc_login misconfigured realm=%s: %s", ctx.realm_slug, type(exc).__name__
         )
-        detail = str(exc) or "OIDC natif non configuré pour ce realm."
+        detail = str(exc)
         if "non configuré" not in detail.lower():
-            detail = "OIDC natif non configuré pour ce realm."
-        if html_mode:
-            return _html_login_error(
-                request,
-                settings,
-                db,
-                rd=safe_rd,
-                username=username,
-                login_error=detail,
-                realm=realm_slug,
-            )
-        raise HTTPException(status_code=503, detail=detail) from None
+            detail = _NATIVE_NOT_CONFIGURED
+        raise _LoginRejected(503, detail) from None
     except OidcBffError as exc:
         detail = str(exc) or "bff_error"
         logger.warning(
             "oidc_login BFF error realm=%s user=%s detail=%s",
-            realm_slug,
-            username,
+            ctx.realm_slug,
+            ctx.log_user,
             detail[:200],
         )
-        if html_mode:
-            _record_failed_attempt(
-                db,
-                request=request,
-                username=username,
-                realm=realm_slug,
-                reason="bff_error",
-                detail=detail,
-            )
-            return _html_login_error(
-                request,
-                settings,
-                db,
-                rd=safe_rd,
-                username=username,
-                login_error=_BFF_ERROR_LOGIN_ERROR,
-                realm=realm_slug,
-            )
-        _auth_failure_response(
-            db,
-            request=request,
-            username=username,
-            realm=realm_slug,
-            reason="bff_error",
-            detail=detail,
-        )
+        _record_failed_attempt(ctx, reason="bff_error", detail=detail)
+        raise _LoginRejected(
+            401, _GENERIC_AUTH_FAILURE, html_message=_BFF_ERROR_LOGIN_ERROR
+        ) from None
 
-    if step.status == "otp_required":
-        aid = step.attempt_id or ""
-        db.commit()
-        log_action(
-            db,
-            actor=username or "unknown",
-            action="oidc_login_otp_required",
-            details={"realm": realm_slug, "attempt_id": aid},
-            ip_address=client_ip or None,
-        )
-        if html_mode:
-            return _html_otp_challenge(
-                request,
-                settings,
-                db,
-                rd=safe_rd,
-                username=username,
-                attempt_id=aid,
-                realm=realm_slug,
-            )
-        return {"status": "otp_required", "attempt_id": aid}
 
-    if step.status == "totp_setup_required":
-        from app.oidc_native_session import is_oidc_mfa_enabled_for_realm
+async def _resolve_session_groups(
+    ctx: _LoginCtx,
+    *,
+    sub: str,
+    claim_groups: tuple[str, ...] | list[str] | None,
+) -> tuple[str, ...]:
+    """Prefer OIDC token groups; fall back to Keycloak Admin API (BFF client may lack mapper)."""
+    claimed = extract_groups_from_oidc_claims({"groups": list(claim_groups or ())})
+    if claimed:
+        return claimed
 
-        if not is_oidc_mfa_enabled_for_realm(db, realm_slug):
-            msg = (
-                "Configuration OTP demandée par l'IdP, mais le MFA est désactivé "
-                "pour ce realm dans Bastion. Activez le MFA (Admin → Realms) "
-                "ou retirez l'action CONFIGURE_TOTP côté Keycloak."
-            )
-            if html_mode:
-                return _html_login_error(
-                    request,
-                    settings,
-                    db,
-                    rd=safe_rd,
-                    username=username,
-                    login_error=msg,
-                    realm=realm_slug,
-                )
-            raise HTTPException(status_code=403, detail=msg)
-        aid = step.attempt_id or ""
-        db.commit()
-        log_action(
-            db,
-            actor=username or "unknown",
-            action="oidc_login_totp_setup_required",
-            details={"realm": realm_slug, "attempt_id": aid},
-            ip_address=client_ip or None,
+    from app.rbac.keycloak_admin import fetch_user_groups
+
+    realm = ctx.realm
+    if realm is None or not realm.enabled or not (sub or "").strip():
+        return ()
+    try:
+        kc_groups = await fetch_user_groups(realm, sub, ctx.settings)
+    except Exception:
+        logger.warning(
+            "oidc_login groups Admin API fallback failed realm=%s sub=%s",
+            ctx.realm_slug,
+            sub,
+            exc_info=True,
         )
-        if html_mode:
-            return _html_totp_setup_challenge(
-                request,
-                settings,
-                db,
-                rd=safe_rd,
-                username=username,
+        return ()
+
+    names = [
+        str(raw).strip()
+        for entry in kc_groups
+        if isinstance(entry, dict)
+        and (raw := entry.get("path") or entry.get("name")) is not None
+        and str(raw).strip()
+    ]
+    return extract_groups_from_oidc_claims({"groups": names})
+
+
+def _challenge_response(ctx: _LoginCtx, step: LoginStepResult):
+    """Persist the pending attempt and ask for the OTP (or TOTP enrolment)."""
+    aid = step.attempt_id or ""
+    totp = step.status == "totp_setup_required"
+    if totp and not is_oidc_mfa_enabled_for_realm(ctx.db, ctx.realm_slug, realm=ctx.realm):
+        raise _LoginRejected(403, _MFA_DISABLED)
+    ctx.db.commit()
+    _audit(
+        ctx,
+        "oidc_login_totp_setup_required" if totp else "oidc_login_otp_required",
+        {"realm": ctx.realm_slug, "attempt_id": aid},
+    )
+    if totp:
+        if ctx.html_mode:
+            return _render_login(
+                ctx,
+                totp_setup_required=True,
                 attempt_id=aid,
                 totp_secret_display=step.totp_secret_display,
                 qr_data_url=step.qr_data_url,
-                realm=realm_slug,
             )
         return {
             "status": "totp_setup_required",
@@ -1147,103 +815,110 @@ async def oidc_login(
             "totp_secret_display": step.totp_secret_display or "",
             "qr_data_url": step.qr_data_url or "",
         }
+    if ctx.html_mode:
+        return _render_login(ctx, otp_required=True, attempt_id=aid)
+    return {"status": "otp_required", "attempt_id": aid}
+
+
+async def _complete_login(ctx: _LoginCtx, step: LoginStepResult):
+    if step.status in ("otp_required", "totp_setup_required"):
+        return _challenge_response(ctx, step)
 
     tokens = step.tokens
     if tokens is None:
-        if html_mode:
-            return _html_login_error(
-                request,
-                settings,
-                db,
-                rd=safe_rd,
-                username=username,
-                login_error=_GENERIC_AUTH_FAILURE,
-                realm=realm_slug,
-            )
-        raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE)
+        raise _LoginRejected(401, _GENERIC_AUTH_FAILURE)
 
-    display_username = (tokens.preferred_username or username or "").strip() or None
-    from app.oidc_bff_config_service import resolve_oidc_session_jwt_secret
-
-    secret = resolve_oidc_session_jwt_secret(db, settings)
+    secret = resolve_oidc_session_jwt_secret(ctx.db, ctx.settings)
     if not secret:
-        if html_mode:
-            return _html_login_error(
-                request,
-                settings,
-                db,
-                rd=safe_rd,
-                username=username,
-                login_error="Authentification temporairement indisponible.",
-                realm=realm_slug,
-            )
-        raise HTTPException(
-            status_code=503,
-            detail="Authentification temporairement indisponible.",
-        )
+        raise _LoginRejected(503, _AUTH_UNAVAILABLE)
 
+    display_username = (tokens.preferred_username or ctx.username or "").strip() or None
     session_groups = await _resolve_session_groups(
-        db,
-        settings=settings,
-        realm_slug=realm_slug,
-        sub=tokens.sub,
-        claim_groups=tokens.groups,
+        ctx, sub=tokens.sub, claim_groups=tokens.groups
     )
     session_email = (tokens.email or "").strip() or None
     if not session_email and display_username and "@" in display_username:
         session_email = display_username
 
     token, jti = issue_oidc_session(
-        db,
+        ctx.db,
         sub=tokens.sub,
         username=display_username,
-        realm=realm_slug,
+        realm=ctx.realm_slug,
         secret=secret,
-        max_age=settings.oidc_session_max_age,
+        max_age=ctx.settings.oidc_session_max_age,
         groups=session_groups,
         email=session_email,
-        audience=resolve_oidc_session_jwt_audience(settings),
+        audience=resolve_oidc_session_jwt_audience(ctx.settings),
     )
-    db.commit()
-    _clear_login_failures(client_ip, username)
-    # Also clear SQL sliding-window counters for failed logins.
-    # Otherwise a past sequence of failures can still trigger a re-ban.
+    ctx.db.commit()
+    _clear_login_failures(ctx.client_ip, ctx.username)
+    # Also clear SQL sliding-window counters: past failures must not re-ban.
     try:
         clear_failed_login_counters(
-            db,
-            ips={client_ip} if (client_ip or "").strip() else None,
-            usernames={username} if (username or "").strip() else None,
+            ctx.db,
+            ips={ctx.client_ip} if (ctx.client_ip or "").strip() else None,
+            usernames={ctx.username} if ctx.username else None,
         )
     except Exception:
         logger.exception("oidc_login sql failed-login counters clear failed")
-    success_action = "oidc_login_otp_success" if otp_step else "oidc_login_success"
-    log_action(
-        db,
+    _audit(
+        ctx,
+        "oidc_login_otp_success" if ctx.otp_step else "oidc_login_success",
+        {"realm": ctx.realm_slug, "jti": jti, "sub": tokens.sub},
         actor=display_username or tokens.sub,
-        action=success_action,
-        details={"realm": realm_slug, "jti": jti, "sub": tokens.sub},
-        ip_address=client_ip or None,
     )
-    if html_mode:
+    if ctx.html_mode:
         from app.robotic.session_cookie_hop import redirect_via_subdomain_sso_mirror
 
         final_rd = redirect_via_subdomain_sso_mirror(
-            safe_rd, portal_domain=settings.portal_domain or ""
+            ctx.safe_rd, portal_domain=ctx.settings.portal_domain or ""
         )
-        redirect = RedirectResponse(url=final_rd, status_code=302)
-        set_oidc_session_cookie(redirect, token, settings)
-        return redirect
+        response: Response = RedirectResponse(url=final_rd, status_code=302)
+    else:
+        response = JSONResponse(
+            {"status": "ok", "username": display_username, "realm": ctx.realm_slug}
+        )
+    set_oidc_session_cookie(response, token, ctx.settings)
+    return response
 
-    set_oidc_session_cookie(response, token, settings)
-    return {
-        "status": "ok",
-        "username": display_username,
-        "realm": realm_slug,
-    }
+
+@router.post("/auth/login", responses=RESP_401 | RESP_403 | RESP_503)
+async def oidc_login(
+    request: Request,
+    username: str = Form(""),
+    password: str = Form(""),
+    realm: str | None = Form(None),
+    rd: str | None = Form(None),
+    attempt_id: str | None = Form(None),
+    otp_code: str | None = Form(None),
+    csrf_token: str = Form(""),
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    ctx = _login_context(
+        request,
+        settings,
+        db,
+        username=username,
+        realm=realm,
+        rd=rd,
+        attempt_id=attempt_id,
+        otp_code=otp_code,
+    )
+    try:
+        if ctx.html_mode and not verify_csrf_token(request, csrf_secret(settings), csrf_token):
+            raise _LoginRejected(403, _CSRF_EXPIRED)
+        _resolve_login_realm(ctx)
+        _check_login_allowed(ctx)
+        step = await _run_login_step(ctx, password)
+        return await _complete_login(ctx, step)
+    except _LoginRejected as exc:
+        return _rejection_response(ctx, exc)
 
 
 @router.post("/auth/logout")
-async def oidc_logout(
+def oidc_logout(
     request: Request,
     response: Response,
     settings: Settings = Depends(get_settings),
@@ -1255,6 +930,6 @@ async def oidc_logout(
         db,
         actor=actor,
         action="oidc_logout",
-        ip_address=_client_ip(request) or None,
+        ip_address=client_ip_from_request(request) or None,
     )
     return {"status": "ok"}

@@ -1,7 +1,9 @@
 """Break-glass account password storage (bcrypt)."""
 
+import functools
 import json
 import logging
+import secrets
 from datetime import datetime, timezone
 
 import bcrypt
@@ -138,34 +140,38 @@ def breakglass_account_exists(db: Session, username: str) -> bool:
     )
 
 
+@functools.cache
+def _dummy_hash() -> str:
+    """Hash checked for unknown usernames so both paths cost one bcrypt round."""
+    return bcrypt.hashpw(secrets.token_bytes(16), bcrypt.gensalt()).decode()
+
+
 def verify_breakglass_password(db: Session, username: str, plain_password: str) -> bool:
-    """Verify a break-glass password (new table, with legacy settings fallback)."""
+    """Verify a break-glass password against ``breakglass_accounts``.
+
+    The legacy settings hash is only honoured through the one-time migration:
+    once any account is active, the old ``admin`` hash no longer opens a session.
+    """
     migrate_legacy_breakglass_account(db)
 
     account = db.query(BreakGlassAccount).filter_by(username=username, is_active=True).first()
-    if account:
-        ok = _check_bcrypt_hash(account.hashed_password, plain_password)
-        if ok:
-            # Metadata only — never turn a valid password into a 500 (hot-store
-            # RoutingSession poison / SQLite lock / datetime binding).
-            try:
-                account.last_used_at = datetime.now(timezone.utc)
-                db.commit()
-            except SQLAlchemyError:
-                logger.exception(
-                    "breakglass: last_used_at stamp failed user=%s — login continues",
-                    sanitize_log_value(username),
-                )
-                try:
-                    db.rollback()
-                except SQLAlchemyError:
-                    logger.exception("breakglass: rollback after last_used_at failure")
-        return ok
-
-    if username == LEGACY_BREAKGLASS_USERNAME:
-        legacy_hash = get_legacy_breakglass_password_hash(db)
-        if legacy_hash and _check_bcrypt_hash(legacy_hash, plain_password):
-            migrate_legacy_breakglass_account(db)
-            return True
-
-    return False
+    if account is None:
+        _check_bcrypt_hash(_dummy_hash(), plain_password)
+        return False
+    if not _check_bcrypt_hash(account.hashed_password, plain_password):
+        return False
+    # Metadata only — never turn a valid password into a 500 (hot-store
+    # RoutingSession poison / SQLite lock / datetime binding).
+    try:
+        account.last_used_at = datetime.now(timezone.utc)
+        db.commit()
+    except SQLAlchemyError:
+        logger.exception(
+            "breakglass: last_used_at stamp failed user=%s — login continues",
+            sanitize_log_value(username),
+        )
+        try:
+            db.rollback()
+        except SQLAlchemyError:
+            logger.exception("breakglass: rollback after last_used_at failure")
+    return True

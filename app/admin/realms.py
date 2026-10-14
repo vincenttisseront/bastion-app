@@ -38,7 +38,8 @@ from app.secret_crypto import (
 from app.sso_settings import Settings, get_settings
 from app.testing_framework.throttle import throttle_retry_after
 from app.web.constants import APP_VERSION
-from app.web.flash import base_template_context, flash_redirect, verify_csrf_token
+from app.web.csrf import verify_csrf_token
+from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
 from app.web.openapi_responses import (

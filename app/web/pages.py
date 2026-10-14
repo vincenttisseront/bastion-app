@@ -1,6 +1,5 @@
 """HTML page routes for Bastion Pro portal."""
 
-import hmac
 import logging
 from typing import Any
 
@@ -73,6 +72,7 @@ from app.breakglass_store import (
 from app.database import get_db
 from app.db.hot_store import hot_read
 from app.health_probe import compute_health_score, compute_status_counts, probe_row_from_app
+from app.jwt_audience import resolve_breakglass_jwt_audience
 from app.models import AccessGrant, App, PendingHost, PendingUser, RBACGroup, RealmConfig
 from app.pathutil import sanitize_log_value
 from app.request_client_ip import client_ip_from_request
@@ -108,7 +108,8 @@ from app.web.app_logos import (
     save_app_logo,
 )
 from app.web.constants import APP_VERSION
-from app.web.flash import base_template_context, flash_i18n, flash_redirect, verify_csrf_token
+from app.web.csrf import csrf_secret, verify_csrf_token
+from app.web.flash import base_template_context, flash_i18n, flash_redirect
 from app.web.metrics_service import get_dashboard_metrics
 from app.web.sessions_service import (
     build_session_groups,
@@ -157,6 +158,7 @@ _PATH_VAULT = "/admin/security#vault"
 _MSG_APP_NOT_FOUND = "Application introuvable"
 _MSG_INVALID_CREDS = "Identifiants invalides."
 _MSG_SETUP_LOCKED = "Setup is locked"
+_MSG_CSRF_EXPIRED = "Session de formulaire expirée — rechargez la page."
 
 
 
@@ -499,10 +501,7 @@ def _login_audience_label(realm: RealmConfig) -> str:
     blob = f"{realm.slug or ''} {realm.name or ''}".lower()
     if any(token in blob for token in ("client", "externe", "customer")):
         return "Clients"
-    if any(
-        token in blob
-        for token in ("interne", "internal", "staff", "ar-system", "arsystem")
-    ):
+    if any(token in blob for token in ("interne", "internal", "staff")):
         return "Interne"
     return (realm.name or realm.slug or "Realm").strip()
 
@@ -734,6 +733,7 @@ def _breakglass_login_response(
             username,
             resolve_breakglass_signing_secret(settings, db=db),
             request=request,
+            audience=resolve_breakglass_jwt_audience(settings),
         )
     except Exception as exc:
         # Missing JWT secret / hot-path bugs must not become an opaque 500 —
@@ -1037,6 +1037,7 @@ async def breakglass_login_post(
     username: str = Form(...),
     password: str = Form(...),
     rd: str = Form(_PATH_APPS),
+    csrf_token: str = Form(""),
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
@@ -1048,6 +1049,17 @@ async def breakglass_login_post(
 
     if not has_active_breakglass_account(db):
         raise HTTPException(status_code=403, detail="Initial setup required")
+
+    if not verify_csrf_token(request, csrf_secret(settings), csrf_token):
+        ctx = _ctx(
+            request,
+            settings,
+            hide_chrome=True,
+            login_error=_MSG_CSRF_EXPIRED,
+            login_panel="local",
+            **_login_surface_flags(request, db, settings, rd=safe_rd),
+        )
+        return render(_TMPL_LOGIN, status_code=403, **ctx)
 
     # Defense in depth: Nginx LAN-restricts /breakglass, but this POST lives under
     # public /auth/ — never verify the break-glass password from a non-LAN IP.
@@ -1160,6 +1172,7 @@ async def setup_post(
     password: str = Form(...),
     password_confirm: str = Form(...),
     rd: str = Form(_PATH_DASHBOARD),
+    csrf_token: str = Form(""),
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
@@ -1168,6 +1181,8 @@ async def setup_post(
     if not _is_breakglass_lan_allowed(request, db, settings):
         _log_breakglass_ip_denied(db, request, actor=username.strip() or "setup", via="setup_post")
         raise HTTPException(status_code=403, detail="Forbidden")
+    if not verify_csrf_token(request, csrf_secret(settings), csrf_token):
+        raise HTTPException(status_code=403, detail=_MSG_CSRF_EXPIRED)
 
     # Setup always creates a break-glass admin — land on setup wizard.
     safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else _PATH_SETUP_WIZARD
@@ -1394,8 +1409,6 @@ def access_request_post(
     )
     from app.security.access_request_throttle import check_access_request_post_rate
     from app.security.altcha_service import verify_altcha_payload
-    from app.web.flash import make_csrf_token
-
     form_values = {
         "username": (username or "").strip(),
         "email": (email or "").strip(),
@@ -1423,7 +1436,6 @@ def access_request_post(
         client_ip=client_ip,
         check_rate=check_access_request_post_rate,
         realms_open=realms_advertising_access_requests,
-        make_csrf=make_csrf_token,
         verify_altcha=verify_altcha_payload,
     )
     if blocked is not None:
@@ -1508,7 +1520,6 @@ def _access_request_precheck(
     client_ip: str | None,
     check_rate,
     realms_open,
-    make_csrf,
     verify_altcha,
 ):
     retry = check_rate(client_ip)
@@ -1541,8 +1552,7 @@ def _access_request_precheck(
         )
 
     secret = settings.vault_portal_internal_token or "dev-insecure"
-    expected = make_csrf(request, secret)
-    if not csrf_token or not hmac.compare_digest(csrf_token, expected):
+    if not verify_csrf_token(request, secret, csrf_token):
         return _access_request_page(
             request,
             settings,

@@ -26,10 +26,10 @@ def jwt_audience_matches(
 
 
 def resolve_oidc_session_jwt_audience(settings: Settings) -> str:
-    raw = (getattr(settings, "oidc_session_jwt_audience", None) or "").strip()
+    raw = (settings.oidc_session_jwt_audience or "").strip()
     return raw or DEFAULT_OIDC_SESSION_JWT_AUDIENCE
 
 
 def resolve_breakglass_jwt_audience(settings: Settings) -> str:
-    raw = (getattr(settings, "breakglass_jwt_audience", None) or "").strip()
+    raw = (settings.breakglass_jwt_audience or "").strip()
     return raw or DEFAULT_BREAKGLASS_JWT_AUDIENCE

@@ -383,12 +383,8 @@ def test_oauth2_auth_does_not_rotate_cookie(client: TestClient, db_session):
     assert row.superseded_by is None
 
 
-def test_portal_page_rotates_breakglass_cookie(client: TestClient, db_session):
-    token, jti = issue_breakglass_token(
-        db_session, "admin", "test-bg-jwt-secret", request=_request()
-    )
-    db_session.commit()
-    r = client.get(
+def _get_admin_page(client: TestClient, token: str):
+    return client.get(
         "/admin/apps/create",
         headers={
             "X-Real-IP": "203.0.113.10",
@@ -398,12 +394,38 @@ def test_portal_page_rotates_breakglass_cookie(client: TestClient, db_session):
             "Cookie": f"{COOKIE_NAME}={token}",
         },
     )
+
+
+def test_portal_page_rotates_breakglass_cookie(
+    client: TestClient, db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.breakglass_cookie_middleware.ROTATION_MIN_INTERVAL_SECONDS", 0
+    )
+    token, jti = issue_breakglass_token(
+        db_session, "admin", "test-bg-jwt-secret", request=_request()
+    )
+    db_session.commit()
+    r = _get_admin_page(client, token)
     assert r.status_code == 200
     set_cookie = r.headers.get("set-cookie") or ""
     assert COOKIE_NAME in set_cookie
     db_session.expire_all()
     row = db_session.query(BreakGlassSession).filter_by(jti=jti).first()
     assert row.superseded_by is not None
+
+
+def test_portal_page_skips_rotation_for_fresh_cookie(client: TestClient, db_session):
+    token, jti = issue_breakglass_token(
+        db_session, "admin", "test-bg-jwt-secret", request=_request()
+    )
+    db_session.commit()
+    r = _get_admin_page(client, token)
+    assert r.status_code == 200
+    assert f"{COOKIE_NAME}=" not in (r.headers.get("set-cookie") or "")
+    db_session.expire_all()
+    row = db_session.query(BreakGlassSession).filter_by(jti=jti).first()
+    assert row.superseded_by is None
 
 
 def utcnow_minus(*, seconds: int) -> datetime:

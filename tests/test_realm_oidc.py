@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 
 import httpx
@@ -13,6 +11,7 @@ from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy.orm import Session
 
+from tests.conftest import csrf_token_for
 from app.admin.export import export_realm_files
 from app.admin import oidc_test as oidc_test_module
 from app.admin.schemas import RealmConfigCreate
@@ -27,11 +26,8 @@ ADMIN_HEADERS = {
 }
 
 
-def _csrf_headers(extra: dict | None = None) -> dict:
-    token = hmac.new(
-        b"test-secret", b"csrf:admin@example.com", hashlib.sha256
-    ).hexdigest()[:32]
-    headers = {**ADMIN_HEADERS, "X-CSRF-Token": token}
+def _csrf_headers(client: TestClient, extra: dict | None = None) -> dict:
+    headers = {**ADMIN_HEADERS, "X-CSRF-Token": csrf_token_for(client)}
     if extra:
         headers.update(extra)
     return headers
@@ -232,7 +228,7 @@ def test_enable_blocked_without_successful_test(client: TestClient, db_session: 
 
     response = client.post(
         f"/admin/realms/{realm.id}/enable",
-        headers=_csrf_headers({"Accept": "application/json"}),
+        headers=_csrf_headers(client, {"Accept": "application/json"}),
     )
 
     assert response.status_code == 400
@@ -282,7 +278,7 @@ def test_export_blocked_without_ok_test(client: TestClient, db_session: Session,
 
     response = client.post(
         f"/admin/realms/{realm.id}/export",
-        headers=_csrf_headers({"Accept": "application/json"}),
+        headers=_csrf_headers(client, {"Accept": "application/json"}),
     )
 
     assert response.status_code == 409
@@ -300,7 +296,7 @@ def test_export_generates_expected_files(client: TestClient, db_session: Session
 
     response = client.post(
         f"/admin/realms/{realm.id}/export",
-        headers=_csrf_headers({"Accept": "application/json"}),
+        headers=_csrf_headers(client, {"Accept": "application/json"}),
     )
 
     assert response.status_code == 200

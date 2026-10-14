@@ -18,15 +18,13 @@ from jwt.algorithms import RSAAlgorithm
 from app.oidc_bff_client import (
     InvalidCredentialsError,
     OidcBffConfigError,
-    UnsupportedAuthFlowError,
     _absolute_action_url,
-    extract_groups_from_oidc_claims,
-    perform_headless_login,
+    start_headless_login,
 )
 from app.sso_settings import Settings
 
 KC = "http://keycloak.internal:8080"
-REALM = "ar-systems"
+REALM = "default"
 AUTH = f"{KC}/realms/{REALM}/protocol/openid-connect/auth"
 TOKEN = f"{KC}/realms/{REALM}/protocol/openid-connect/token"
 DISCOVERY = f"{KC}/realms/{REALM}/.well-known/openid-configuration"
@@ -144,6 +142,7 @@ def test_extract_totp_setup_parses_secret_and_qr():
 @respx.mock
 async def test_interpret_follows_configure_totp_required_action():
     import httpx
+
     from app.oidc_bff_client import _interpret_post_password_response
 
     setup_url = (
@@ -190,7 +189,7 @@ def _id_token(*, sub: str = "kc-sub-1", preferred: str = "alice", groups=None) -
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_headless_login_success():
+async def test_headless_login_success(db_session):
     settings = _settings()
     _mock_oidc_discovery()
     auth_route = respx.get(AUTH).mock(
@@ -228,9 +227,11 @@ async def test_headless_login_success():
 
     login_route.side_effect = _login_with_state
 
-    result = await perform_headless_login(
-        REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
-    )
+    result = (
+        await start_headless_login(
+            REALM, "alice", "s3cret", settings=settings, db=db_session, **_bff_kwargs()
+        )
+    ).tokens
 
     assert result.access_token == "access-xyz"
     assert result.refresh_token == "refresh-xyz"
@@ -263,14 +264,14 @@ async def test_headless_login_success():
 @pytest.mark.asyncio
 async def test_headless_login_missing_config_raises():
     with pytest.raises(OidcBffConfigError, match="db session required|non configuré"):
-        await perform_headless_login(
+        await start_headless_login(
             REALM, "alice", "s3cret", settings=_settings(), db=None
         )
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_headless_login_invalid_password():
+async def test_headless_login_invalid_password(db_session):
     settings = _settings()
     respx.get(AUTH).mock(
         return_value=Response(200, text=_login_html(), headers={"content-type": "text/html"})
@@ -284,14 +285,14 @@ async def test_headless_login_invalid_password():
     )
 
     with pytest.raises(InvalidCredentialsError):
-        await perform_headless_login(
-            REALM, "alice", "wrong", settings=settings, **_bff_kwargs()
+        await start_headless_login(
+            REALM, "alice", "wrong", settings=settings, db=db_session, **_bff_kwargs()
         )
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_headless_login_http_400_with_login_form_is_invalid_credentials():
+async def test_headless_login_http_400_with_login_form_is_invalid_credentials(db_session):
     """Keycloak often returns 400 + login theme (not a distinct error page)."""
     settings = _settings()
     respx.get(AUTH).mock(
@@ -309,14 +310,14 @@ async def test_headless_login_http_400_with_login_form_is_invalid_credentials():
     )
 
     with pytest.raises(InvalidCredentialsError):
-        await perform_headless_login(
-            REALM, "alice", "wrong", settings=settings, **_bff_kwargs()
+        await start_headless_login(
+            REALM, "alice", "wrong", settings=settings, db=db_session, **_bff_kwargs()
         )
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_headless_login_mfa_required():
+async def test_headless_login_mfa_required(db_session):
     settings = _settings()
     respx.get(AUTH).mock(
         return_value=Response(200, text=_login_html(), headers={"content-type": "text/html"})
@@ -329,15 +330,16 @@ async def test_headless_login_mfa_required():
         )
     )
 
-    with pytest.raises(UnsupportedAuthFlowError, match="kc-otp-login-form"):
-        await perform_headless_login(
-            REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
-        )
+    result = await start_headless_login(
+        REALM, "alice", "s3cret", settings=settings, db=db_session, **_bff_kwargs()
+    )
+    assert result.status == "otp_required"
+    assert result.attempt_id
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_headless_login_mfa_via_redirect_location():
+async def test_headless_login_mfa_via_redirect_location(db_session):
     settings = _settings()
     respx.get(AUTH).mock(
         return_value=Response(200, text=_login_html(), headers={"content-type": "text/html"})
@@ -353,21 +355,22 @@ async def test_headless_login_mfa_via_redirect_location():
         return_value=Response(200, text=_otp_html(), headers={"content-type": "text/html"})
     )
 
-    with pytest.raises(UnsupportedAuthFlowError, match="kc-otp-login-form"):
-        await perform_headless_login(
-            REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
-        )
+    result = await start_headless_login(
+        REALM, "alice", "s3cret", settings=settings, db=db_session, **_bff_kwargs()
+    )
+    assert result.status == "otp_required"
+    assert result.attempt_id
 
 
 def test_extract_groups_from_oidc_claims_paths_and_csv():
     from app.oidc_bff_client import extract_groups_from_oidc_claims
 
     assert extract_groups_from_oidc_claims(
-        {"groups": ["/ARSYSTEMS-Users", "/portal-admins"]}
-    ) == ("ARSYSTEMS-Users", "portal-admins")
+        {"groups": ["/Example-Users", "/portal-admins"]}
+    ) == ("Example-Users", "portal-admins")
     assert extract_groups_from_oidc_claims(
-        {"groups": "ARSYSTEMS-Users,portal-admins"}
-    ) == ("ARSYSTEMS-Users", "portal-admins")
+        {"groups": "Example-Users,portal-admins"}
+    ) == ("Example-Users", "portal-admins")
     assert extract_groups_from_oidc_claims(
         {"groups": ["/dup"]},
         {"groups": ["dup", "/other"]},
@@ -377,7 +380,7 @@ def test_extract_groups_from_oidc_claims_paths_and_csv():
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_headless_login_extracts_groups_from_id_token():
+async def test_headless_login_extracts_groups_from_id_token(db_session):
     settings = _settings()
     _mock_oidc_discovery()
     respx.get(AUTH).mock(
@@ -400,17 +403,19 @@ async def test_headless_login_extracts_groups_from_id_token():
             200,
             json={
                 "access_token": "access-xyz",
-                "id_token": _id_token(groups=["/ARSYSTEMS-Users"]),
+                "id_token": _id_token(groups=["/Example-Users"]),
                 "expires_in": 300,
                 "token_type": "Bearer",
             },
         )
     )
 
-    result = await perform_headless_login(
-        REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
-    )
-    assert result.groups == ("ARSYSTEMS-Users",)
+    result = (
+        await start_headless_login(
+            REALM, "alice", "s3cret", settings=settings, db=db_session, **_bff_kwargs()
+        )
+    ).tokens
+    assert result.groups == ("Example-Users",)
 
 
 def test_absolute_action_url_rewrites_public_frontend_to_internal_base():
@@ -426,12 +431,12 @@ def test_absolute_action_url_rewrites_public_frontend_to_internal_base():
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_headless_login_posts_to_internal_when_form_action_is_public():
+async def test_headless_login_posts_to_internal_when_form_action_is_public(db_session):
     """Keycloak embeds frontend URL in form action — BFF must POST to internal base."""
     settings = _settings()
     _mock_oidc_discovery()
     public_action = (
-        "https://sso.public.example/realms/ar-systems/login-actions/authenticate"
+        "https://sso.public.example/realms/default/login-actions/authenticate"
         "?session_code=abc&execution=exec1&client_id=bastion-bff&tab_id=tab1"
     )
     html = f"""
@@ -473,9 +478,11 @@ async def test_headless_login_posts_to_internal_when_form_action_is_public():
         )
     )
 
-    result = await perform_headless_login(
-        REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
-    )
+    result = (
+        await start_headless_login(
+            REALM, "alice", "s3cret", settings=settings, db=db_session, **_bff_kwargs()
+        )
+    ).tokens
     assert result.sub == "kc-sub-1"
     assert internal_post.called
     assert not public_post.called
@@ -483,7 +490,7 @@ async def test_headless_login_posts_to_internal_when_form_action_is_public():
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_headless_login_follows_frontend_redirect_host():
+async def test_headless_login_follows_frontend_redirect_host(db_session):
     """Auth 302 to public frontend: keep cookies on that host (do not pin internal)."""
     settings = _settings()
     _mock_oidc_discovery()
@@ -537,9 +544,11 @@ async def test_headless_login_follows_frontend_redirect_host():
         )
     )
 
-    result = await perform_headless_login(
-        REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
-    )
+    result = (
+        await start_headless_login(
+            REALM, "alice", "s3cret", settings=settings, db=db_session, **_bff_kwargs()
+        )
+    ).tokens
     assert result.sub == "kc-sub-1"
     assert public_get.called
     assert public_post.called

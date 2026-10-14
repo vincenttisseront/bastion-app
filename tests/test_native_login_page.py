@@ -35,12 +35,12 @@ def _add_realm(db: Session) -> None:
     )
     db.add(
         RealmConfig(
-            slug="ar-systems",
-            name="AR-SYSTEMS",
-            issuer_url="https://keycloak.example/realms/ar-systems",
+            slug="default",
+            name="Interne",
+            issuer_url="https://keycloak.example/realms/default",
             client_id="portal",
             client_secret_encrypted=encrypt_secret("secret", settings),
-            redirect_uri="https://portal.example/oauth2/ar-systems/callback",
+            redirect_uri="https://portal.example/oauth2/default/callback",
             oauth2_proxy_port=4180,
             is_default=True,
             enabled=True,
@@ -60,11 +60,11 @@ def native_settings(monkeypatch):
         session_hop_secret="test-session-hop-secret-for-pytest",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
-        oidc_native_session_enabled_realms="ar-systems",
+        oidc_native_session_enabled_realms="default",
         oidc_session_jwt_secret=OIDC_SECRET,
         oidc_session_cookie_name=COOKIE,
         oidc_session_max_age=3600,
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="default",
     )
     get_settings.cache_clear()
     monkeypatch.setattr("app.oidc_bff.get_settings", lambda: settings)
@@ -198,11 +198,11 @@ def multi_native_settings(monkeypatch):
         session_hop_secret="test-session-hop-secret-for-pytest",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
-        oidc_native_session_enabled_realms="ar-systems,clients",
+        oidc_native_session_enabled_realms="default,clients",
         oidc_session_jwt_secret=OIDC_SECRET,
         oidc_session_cookie_name=COOKIE,
         oidc_session_max_age=3600,
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="default",
     )
     get_settings.cache_clear()
     monkeypatch.setattr("app.oidc_bff.get_settings", lambda: settings)
@@ -219,7 +219,7 @@ def test_login_audience_labels():
 
     assert (
         _login_audience_label(
-            RealmConfig(slug="ar-systems", name="AR-SYSTEMS")
+            RealmConfig(slug="default", name="Interne")
         )
         == "Interne"
     )
@@ -251,7 +251,7 @@ def test_get_login_hides_realm_when_show_on_login_false(
     response = client.get("/login", headers={"X-Real-IP": "203.0.113.10"})
 
     assert response.status_code == 200
-    assert 'id="login-realm" value="ar-systems"' in response.text
+    assert 'id="login-realm" value="default"' in response.text
     assert 'data-login-realm="clients"' not in response.text
     assert 'class="login-audience"' not in response.text
 
@@ -266,11 +266,11 @@ def test_get_login_shows_interne_clients_chooser(
 
     assert response.status_code == 200
     assert 'class="login-audience"' in response.text
-    assert 'data-login-realm="ar-systems"' in response.text
+    assert 'data-login-realm="default"' in response.text
     assert 'data-login-realm="clients"' in response.text
     assert ">Interne<" in response.text
     assert ">Clients<" in response.text
-    assert 'name="realm" id="login-realm" value="ar-systems"' in response.text
+    assert 'name="realm" id="login-realm" value="default"' in response.text
     assert "Connexion — Interne" not in response.text
 
 
@@ -286,7 +286,7 @@ def test_get_login_realm_query_selects_clients(
 
     assert response.status_code == 200
     assert 'id="login-realm" value="clients"' in response.text
-    assert 'id="login-realm" value="ar-systems"' not in response.text
+    assert 'id="login-realm" value="default"' not in response.text
     assert 'data-login-realm="clients"' in response.text
     assert "Connexion — Clients" not in response.text
     assert 'id="login-audience-clients"' in response.text
@@ -330,7 +330,7 @@ def test_get_login_chooser_includes_proxy_only_realm(
 
     assert response.status_code == 200
     assert 'class="login-audience"' in response.text
-    assert 'data-login-realm="ar-systems"' in response.text
+    assert 'data-login-realm="default"' in response.text
     assert 'data-login-realm="clients"' in response.text
     assert ">Interne<" in response.text
     assert ">Clients<" in response.text
@@ -365,5 +365,5 @@ def test_get_login_single_realm_hides_chooser_and_interne_label(
     assert response.status_code == 200
     assert 'class="login-audience"' not in response.text
     assert "Connexion — Interne" not in response.text
-    assert "Connexion SSO — AR-SYSTEMS" not in response.text
+    assert "Connexion SSO — Interne" not in response.text
     assert 'id="oidc-username"' in response.text

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -53,6 +54,7 @@ from app.web.admin_logs import router as admin_logs_router
 from app.web.admin_setup_wizard import router as admin_setup_wizard_router
 from app.web.audit_service import router as audit_router
 from app.web.constants import APP_VERSION
+from app.web.csrf import CsrfCookieMiddleware
 from app.web.flash import base_template_context, flash_redirect
 from app.web.global_search import router as global_search_router
 from app.web.health_service import router as health_router
@@ -159,9 +161,11 @@ async def lifespan(app: FastAPI):
     from app.siem.worker import start_siem_scheduler, stop_siem_scheduler
 
     start_siem_scheduler(settings)
+    app.state.oauth2_proxy_http = httpx.AsyncClient(timeout=5.0)
     try:
         yield
     finally:
+        await app.state.oauth2_proxy_http.aclose()
         stop_siem_scheduler()
         stop_health_scheduler()
 
@@ -180,6 +184,7 @@ from app.security.banning.middleware import SecurityBanMiddleware  # noqa: E402
 
 app.add_middleware(SecurityBanMiddleware)
 app.add_middleware(LocaleMiddleware)
+app.add_middleware(CsrfCookieMiddleware)
 
 # Neutral public aliases — registered before the /static mount.
 _PORTAL_STATIC_ALIASES = {

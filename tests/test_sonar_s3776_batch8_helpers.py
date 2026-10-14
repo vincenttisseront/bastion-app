@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -14,7 +15,8 @@ from app.bastion.nginx_waf_export import (
     _sanitize_generated_rules,
 )
 from app.db.hot_store import HotStoreEndpoint, HotStoreError
-from app.oidc_bff import _oidc_row_matches_identity
+from app.models import OidcSession
+from app.oidc_bff import register_oidc_session, revoke_oidc_sessions_for_identity
 from app.portal_settings_service import _normalize_smtp_fields
 
 
@@ -146,20 +148,32 @@ def test_analyze_html_password_form():
     assert forms[0]["field_count"] >= 2
 
 
-def test_oidc_row_matches_identity():
-    row = SimpleNamespace(username="Alice", sub="kc-1")
-    assert _oidc_row_matches_identity(
-        row, emails=set(), usernames={"alice"}, subs=set()
+def test_revoke_oidc_sessions_for_identity_matches_sub_username_or_email(db_session):
+    expires = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    def _row(jti: str, *, username: str, sub: str) -> None:
+        register_oidc_session(
+            db_session, jti=jti, sub=sub, username=username, realm="default", expires_at=expires
+        )
+
+    _row("by-name", username="Alice", sub="kc-a")
+    _row("by-email", username="carol@example.com", sub="kc-c")
+    _row("by-sub", username="dave", sub="kc-1")
+    _row("other", username="bob", sub="kc-b")
+    db_session.commit()
+
+    count = revoke_oidc_sessions_for_identity(
+        db_session,
+        realm_slug="default",
+        usernames={"alice"},
+        emails={"CAROL@example.com"},
+        keycloak_subs={"kc-1"},
+        revoked_by="admin",
     )
-    assert _oidc_row_matches_identity(
-        row, emails={"alice"}, usernames=set(), subs=set()
-    )
-    assert _oidc_row_matches_identity(
-        row, emails=set(), usernames=set(), subs={"kc-1"}
-    )
-    assert not _oidc_row_matches_identity(
-        row, emails={"other@example.com"}, usernames={"bob"}, subs={"x"}
-    )
+
+    assert count == 3
+    revoked = {r.jti for r in db_session.query(OidcSession).filter_by(revoked=True)}
+    assert revoked == {"by-name", "by-email", "by-sub"}
 
 
 def test_seed_breakglass_first_sight():

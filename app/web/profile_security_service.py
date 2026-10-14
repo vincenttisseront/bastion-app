@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 from app.audit import log_action
 from app.models import OidcSession, RealmConfig, utcnow
 from app.oidc_bff import (
-    _coerce_utc,
     purge_expired_oidc_sessions,
     revoke_oidc_jti,
     validate_oidc_session_cookie,
@@ -216,7 +215,7 @@ def list_portal_native_sessions(
 
 
 def _native_session_expired(row: OidcSession, *, now) -> bool:
-    exp = _coerce_utc(row.expires_at)
+    exp = row.expires_at
     return exp is not None and exp <= now
 
 
@@ -444,7 +443,7 @@ def revoke_own_native_session(
     row = db.query(OidcSession).filter_by(jti=token, revoked=False).first()
     if row is None:
         raise ProfileSecurityError("Session introuvable ou déjà expirée.")
-    if row.expires_at and _coerce_utc(row.expires_at) <= utcnow():
+    if row.expires_at and row.expires_at <= utcnow():
         raise ProfileSecurityError("Session expirée.")
     if not _native_session_owned_by(row, user):
         raise ProfileSecurityError(_MSG_SESSION_MISSING)
@@ -504,7 +503,7 @@ async def revoke_all_other_sessions(
         for row in q.filter(or_(*clauses)).all():
             if current_jti and row.jti == current_jti:
                 continue
-            exp = _coerce_utc(row.expires_at)
+            exp = row.expires_at
             if exp is not None and exp <= now:
                 continue
             revoke_oidc_jti(db, row.jti, revoked_by=actor, reason="profile_revoke_others")

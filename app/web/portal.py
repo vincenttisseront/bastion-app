@@ -17,7 +17,8 @@ from app.sso_settings import Settings, get_settings
 from app.subdomain import activesync_device_service as device_service
 from app.subdomain.activesync_device_service import DeviceDecisionError
 from app.web.constants import APP_VERSION
-from app.web.flash import base_template_context, flash_redirect, verify_csrf_token
+from app.web.csrf import verify_csrf_token
+from app.web.flash import base_template_context, flash_redirect
 from app.web.sessions_service import touch_app_session, touch_portal_session
 from app.web.templates import render
 from app.web.user_context import UserContext, is_portal_admin, require_user_enriched
