@@ -11,8 +11,9 @@ import hashlib
 import json
 import logging
 import secrets
+import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any, Literal
 from urllib.parse import parse_qs, urljoin, urlparse, urlunparse
 from uuid import uuid4
@@ -20,9 +21,11 @@ from uuid import uuid4
 import httpx
 import jwt
 from bs4 import BeautifulSoup
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import OidcLoginAttempt, utcnow
+from app.pathutil import sanitize_log_value
 from app.secret_crypto import decrypt_secret, encrypt_secret
 from app.sso_settings import Settings, get_settings
 
@@ -45,6 +48,11 @@ _JWT_UNREADABLE = "JWT OIDC illisible"
 
 ATTEMPT_TTL_SECONDS = 300
 MAX_OTP_FAILURES = 3
+_MAX_REDIRECT_HOPS = 8
+# Discovery + JWKS are re-fetched after this delay, or at once when a token
+# fails verification against the cached keys (Keycloak key rotation).
+_JWKS_TTL_SECONDS = 300
+_jwks_cache: dict[tuple[str, str], tuple[float, str, dict[str, Any]]] = {}
 _OTP_FORM_ID = "kc-otp-login-form"
 _TOTP_SETUP_FORM_ID = "kc-totp-settings-form"
 
@@ -336,6 +344,24 @@ async def _load_oidc_verification_material(
     return issuer, jwks
 
 
+async def _verification_material(
+    client: httpx.AsyncClient,
+    *,
+    base: str,
+    keycloak_realm: str,
+    refresh: bool,
+) -> tuple[str, dict[str, Any]]:
+    key = (base.rstrip("/"), keycloak_realm)
+    cached = _jwks_cache.get(key)
+    if not refresh and cached and time.monotonic() - cached[0] < _JWKS_TTL_SECONDS:
+        return cached[1], cached[2]
+    issuer, jwks = await _load_oidc_verification_material(
+        client, base=base, keycloak_realm=keycloak_realm
+    )
+    _jwks_cache[key] = (time.monotonic(), issuer, jwks)
+    return issuer, jwks
+
+
 def _jwk_to_key(jwk: dict[str, Any]) -> Any:
     """Build a PyJWT verification key from a JWK dict (RSA or EC)."""
     raw = json.dumps(jwk)
@@ -496,26 +522,11 @@ def _restore_cookies(client: httpx.AsyncClient, cookies: list[dict[str, str]]) -
         client.cookies.set(name, value, domain=domain, path=path)
 
 
-def _as_utc(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-
 def purge_expired_oidc_login_attempts(db: Session) -> int:
     """Delete expired intermediate login attempts (lazy purge)."""
-    now = utcnow()
-    # SQLite may return naive datetimes — compare in Python for safety.
-    expired_ids = [
-        row.attempt_id
-        for row in db.query(OidcLoginAttempt).all()
-        if _as_utc(row.expires_at) <= now
-    ]
-    if not expired_ids:
-        return 0
     count = (
         db.query(OidcLoginAttempt)
-        .filter(OidcLoginAttempt.attempt_id.in_(expired_ids))
+        .filter(OidcLoginAttempt.expires_at <= utcnow())
         .delete(synchronize_session=False)
     )
     db.flush()
@@ -616,15 +627,21 @@ async def _exchange_code_for_tokens(
     if not access_token or not id_token:
         raise OidcBffError("Réponse token Keycloak incomplète (access_token/id_token)")
 
-    issuer, jwks = await _load_oidc_verification_material(
-        client, base=keycloak_base_url, keycloak_realm=keycloak_realm
-    )
-    claims = _verify_oidc_jwt(
-        str(id_token),
-        jwks=jwks,
-        issuer=issuer,
-        audience=client_id,
-    )
+    for refresh in (False, True):
+        issuer, jwks = await _verification_material(
+            client,
+            base=keycloak_base_url,
+            keycloak_realm=keycloak_realm,
+            refresh=refresh,
+        )
+        try:
+            claims = _verify_oidc_jwt(
+                str(id_token), jwks=jwks, issuer=issuer, audience=client_id
+            )
+            break
+        except OidcBffError:
+            if refresh:
+                raise
     sub = str(claims.get("sub") or "").strip()
     if not sub:
         raise OidcBffError("id_token sans claim sub")
@@ -758,36 +775,28 @@ def _absolute_action_url(action: str, base: str) -> str:
     Keycloak may embed a different hostname in form ``action`` / ``Location``.
     Cookie jars are host-scoped: always POST/GET on the same origin that served
     the login HTML (``session_base``), not necessarily the configured internal
-    ``oidc_keycloak_base_url``.
+    ``oidc_keycloak_base_url``. A foreign URL outside ``/realms/`` is refused:
+    the password and OTP must never leave the Keycloak origin.
     """
     base = (base or "").strip().rstrip("/")
     action = (action or "").strip()
     if not action:
         return action
-    if not action.startswith(("http://", "https://")):
-        abs_action = urljoin(base + "/", action.lstrip("/"))
-    else:
-        abs_action = action
+    abs_action = urljoin(base + "/", action.lstrip("/")) if not action.startswith(
+        ("http://", "https://")
+    ) else action
     if not base:
         return abs_action
     parsed = urlparse(abs_action)
     base_parsed = urlparse(base)
-    if not base_parsed.netloc or "/realms/" not in (parsed.path or ""):
+    if not base_parsed.netloc:
         return abs_action
-    if (
-        parsed.scheme == base_parsed.scheme
-        and parsed.netloc == base_parsed.netloc
-    ):
+    if (parsed.scheme, parsed.netloc) == (base_parsed.scheme, base_parsed.netloc):
         return abs_action
+    if "/realms/" not in (parsed.path or ""):
+        raise OidcBffError("Action Keycloak hors de l'origine de session")
     return urlunparse(
-        (
-            base_parsed.scheme,
-            base_parsed.netloc,
-            parsed.path,
-            "",
-            parsed.query,
-            "",
-        )
+        (base_parsed.scheme, base_parsed.netloc, parsed.path, "", parsed.query, "")
     )
 
 
@@ -848,6 +857,102 @@ def _require_headless_login_inputs(
     return realm_s, username_s
 
 
+@dataclass(frozen=True, slots=True)
+class _PendingLogin:
+    """Password step state persisted when Keycloak asks for a second factor."""
+
+    realm: str
+    username: str
+    code_verifier: str
+    state: str
+    session_base: str
+    keycloak_realm: str
+    client_id: str
+    redirect_uri: str
+
+
+def _form_blob(
+    kind: str,
+    action: str,
+    fields: dict[str, str],
+    setup: _TotpSetupParsed | None = None,
+) -> str:
+    blob: dict[str, Any] = {"kind": kind, "action": action, "fields": fields}
+    if setup is not None:
+        blob["secret_display"] = setup.secret_display
+        blob["qr_data_url"] = setup.qr_data_url
+    return json.dumps(blob, separators=(",", ":"))
+
+
+def _form_from_html(html: str, kind: str) -> str | None:
+    """Re-parse the next OTP / TOTP-setup form Keycloak rendered (new session_code)."""
+    if kind == "totp_setup":
+        setup = _extract_totp_setup(html)
+        if setup is None:
+            return None
+        return _form_blob("totp_setup", setup.action, setup.fields, setup)
+    parsed = _extract_otp_form(html)
+    return None if parsed is None else _form_blob("otp", *parsed)
+
+
+def _cookies_blob(client: httpx.AsyncClient) -> str:
+    return json.dumps(_serialize_cookies(client), separators=(",", ":"))
+
+
+def _store_attempt(
+    db: Session,
+    client: httpx.AsyncClient,
+    settings: Settings,
+    pending: _PendingLogin,
+    form_json: str,
+) -> str:
+    attempt_id = str(uuid4())
+    now = utcnow()
+    db.add(
+        OidcLoginAttempt(
+            attempt_id=attempt_id,
+            realm=pending.realm,
+            username=pending.username,
+            keycloak_cookies_encrypted=encrypt_secret(_cookies_blob(client), settings),
+            otp_form_encrypted=encrypt_secret(form_json, settings),
+            code_verifier=pending.code_verifier,
+            state=pending.state,
+            # Keep session_base so OTP POSTs hit the same host as AUTH cookies.
+            keycloak_base_url=pending.session_base,
+            keycloak_realm=pending.keycloak_realm,
+            client_id=pending.client_id,
+            redirect_uri=pending.redirect_uri,
+            otp_failures=0,
+            created_at=now,
+            expires_at=now + timedelta(seconds=ATTEMPT_TTL_SECONDS),
+        )
+    )
+    db.flush()
+    return attempt_id
+
+
+def _save_attempt_progress(
+    row: OidcLoginAttempt,
+    client: httpx.AsyncClient,
+    form_json: str,
+    settings: Settings,
+) -> None:
+    row.otp_form_encrypted = encrypt_secret(form_json, settings)
+    row.keycloak_cookies_encrypted = encrypt_secret(_cookies_blob(client), settings)
+
+
+def _discard_attempt(db: Session, row: OidcLoginAttempt) -> None:
+    db.delete(row)
+    db.flush()
+
+
+def _after_failed_otp(db: Session, row: OidcLoginAttempt) -> None:
+    """The failure was already counted by ``_claim_otp_attempt``."""
+    if int(row.otp_failures or 0) >= MAX_OTP_FAILURES:
+        db.delete(row)
+    db.flush()
+
+
 async def start_headless_login(
     realm: str,
     username: str,
@@ -865,6 +970,7 @@ async def start_headless_login(
     realm, username = _require_headless_login_inputs(
         realm=realm, username=username, password=password, db=db
     )
+    log_user = sanitize_log_value(username)
 
     purge_expired_oidc_login_attempts(db)
 
@@ -897,7 +1003,7 @@ async def start_headless_login(
         "auth_base=%s redirect_uri=%s",
         realm,
         keycloak_realm,
-        username,
+        log_user,
         _safe_url_for_log(base),
         _safe_url_for_log(redirect_uri),
     )
@@ -944,9 +1050,9 @@ async def start_headless_login(
             logger.warning("oidc_bff login POST failed realm=%s err=%s", realm, type(exc).__name__)
             raise OidcBffError("Impossible de joindre Keycloak (login)") from exc
 
-        _log_keycloak_http("login_post", post_resp, realm=realm, username=username)
+        _log_keycloak_http("login_post", post_resp, realm=realm, username=log_user)
         try:
-            outcome = await _interpret_post_password_response(
+            kind, payload = await _interpret_post_password_response(
                 client, post_resp, expected_state=state, base=session_base
             )
         except InvalidCredentialsError:
@@ -954,22 +1060,20 @@ async def start_headless_login(
                 "oidc_bff headless_login invalid_credentials realm=%s username=%s "
                 "status=%s location=%s html=%s",
                 realm,
-                username,
+                log_user,
                 post_resp.status_code,
                 _safe_url_for_log(post_resp.headers.get("location") or ""),
                 _html_diag_flags(post_resp.text or ""),
             )
             raise
-        if outcome[0] == "code":
+        if kind == "code":
             logger.info(
-                "oidc_bff headless_login got_code realm=%s username=%s",
-                realm,
-                username,
+                "oidc_bff headless_login got_code realm=%s username=%s", realm, log_user
             )
             tokens = await _exchange_code_for_tokens(
                 client,
                 token_url=token_url,
-                code=outcome[1],
+                code=payload,
                 redirect_uri=redirect_uri,
                 code_verifier=code_verifier,
                 client_id=client_id,
@@ -980,50 +1084,35 @@ async def start_headless_login(
             )
             return LoginStepResult(status="success", tokens=tokens)
 
-        # totp_setup or otp_required
-        if outcome[0] == "totp_setup":
-            setup = _extract_totp_setup(outcome[1])
+        pending = _PendingLogin(
+            realm=realm,
+            username=username,
+            code_verifier=code_verifier,
+            state=state,
+            session_base=session_base,
+            keycloak_realm=keycloak_realm,
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+        )
+        if kind == "totp_setup":
+            setup = _extract_totp_setup(payload)
             if setup is None:
                 raise UnsupportedAuthFlowError(
                     "Flux Keycloak non supporté en headless: configuration TOTP attendue "
                     "mais formulaire absent"
                 )
-            attempt_id = str(uuid4())
-            cookies_json = json.dumps(_serialize_cookies(client), separators=(",", ":"))
-            form_json = json.dumps(
-                {
-                    "kind": "totp_setup",
-                    "action": setup.action,
-                    "fields": setup.fields,
-                    "secret_display": setup.secret_display,
-                    "qr_data_url": setup.qr_data_url,
-                },
-                separators=(",", ":"),
+            attempt_id = _store_attempt(
+                db,
+                client,
+                settings,
+                pending,
+                _form_blob("totp_setup", setup.action, setup.fields, setup),
             )
-            now = utcnow()
-            row = OidcLoginAttempt(
-                attempt_id=attempt_id,
-                realm=realm,
-                username=username,
-                keycloak_cookies_encrypted=encrypt_secret(cookies_json, settings),
-                otp_form_encrypted=encrypt_secret(form_json, settings),
-                code_verifier=code_verifier,
-                state=state,
-                keycloak_base_url=session_base,
-                keycloak_realm=keycloak_realm,
-                client_id=client_id,
-                redirect_uri=redirect_uri,
-                otp_failures=0,
-                created_at=now,
-                expires_at=now + timedelta(seconds=ATTEMPT_TTL_SECONDS),
-            )
-            db.add(row)
-            db.flush()
             logger.info(
                 "oidc_bff headless_login totp_setup_required realm=%s username=%s "
                 "attempt_id=%s has_qr=%s",
                 realm,
-                username,
+                log_user,
                 attempt_id,
                 bool(setup.qr_data_url),
             )
@@ -1034,46 +1123,81 @@ async def start_headless_login(
                 qr_data_url=setup.qr_data_url,
             )
 
-        # otp_required — outcome[1] is OTP HTML
-        otp_parsed = _extract_otp_form(outcome[1])
+        otp_parsed = _extract_otp_form(payload)
         if otp_parsed is None:
             raise UnsupportedAuthFlowError(
                 "Flux Keycloak non supporté en headless: OTP attendu mais formulaire absent"
             )
-        otp_action, otp_fields = otp_parsed
-        attempt_id = str(uuid4())
-        cookies_json = json.dumps(_serialize_cookies(client), separators=(",", ":"))
-        form_json = json.dumps(
-            {"kind": "otp", "action": otp_action, "fields": otp_fields},
-            separators=(",", ":"),
+        attempt_id = _store_attempt(
+            db, client, settings, pending, _form_blob("otp", *otp_parsed)
         )
-        now = utcnow()
-        row = OidcLoginAttempt(
-            attempt_id=attempt_id,
-            realm=realm,
-            username=username,
-            keycloak_cookies_encrypted=encrypt_secret(cookies_json, settings),
-            otp_form_encrypted=encrypt_secret(form_json, settings),
-            code_verifier=code_verifier,
-            state=state,
-            # Keep session_base so OTP POSTs hit the same host as AUTH cookies.
-            keycloak_base_url=session_base,
-            keycloak_realm=keycloak_realm,
-            client_id=client_id,
-            redirect_uri=redirect_uri,
-            otp_failures=0,
-            created_at=now,
-            expires_at=now + timedelta(seconds=ATTEMPT_TTL_SECONDS),
-        )
-        db.add(row)
-        db.flush()
         logger.info(
             "oidc_bff headless_login otp_required realm=%s username=%s attempt_id=%s",
             realm,
-            username,
+            log_user,
             attempt_id,
         )
         return LoginStepResult(status="otp_required", attempt_id=attempt_id)
+
+
+def _claim_otp_attempt(db: Session, attempt_id: str) -> OidcLoginAttempt:
+    """Count this submission against the budget in one guarded UPDATE.
+
+    Committed before Keycloak is called so that parallel guesses on the same
+    attempt cannot each read a stale counter and exceed ``MAX_OTP_FAILURES``.
+    """
+    failures = func.coalesce(OidcLoginAttempt.otp_failures, 0)
+    claimed = (
+        db.query(OidcLoginAttempt)
+        .filter(
+            OidcLoginAttempt.attempt_id == attempt_id,
+            OidcLoginAttempt.expires_at > utcnow(),
+            failures < MAX_OTP_FAILURES,
+        )
+        .update({OidcLoginAttempt.otp_failures: failures + 1}, synchronize_session=False)
+    )
+    if not claimed:
+        db.query(OidcLoginAttempt).filter_by(attempt_id=attempt_id).delete(
+            synchronize_session=False
+        )
+    db.commit()
+    if not claimed:
+        # No enumeration: same generic failure as bad password.
+        raise InvalidCredentialsError(_MSG_INVALID_CREDS)
+    return db.query(OidcLoginAttempt).filter_by(attempt_id=attempt_id).one()
+
+
+def _attempt_form(
+    db: Session, row: OidcLoginAttempt, otp_code: str, settings: Settings
+) -> tuple[str, str, dict[str, str], list[Any]]:
+    """Decrypt the stored form; return ``(kind, action, fields, cookies)``."""
+    try:
+        cookies = json.loads(decrypt_secret(row.keycloak_cookies_encrypted, settings))
+        blob = json.loads(decrypt_secret(row.otp_form_encrypted, settings))
+    except (ValueError, TypeError):
+        # JSONDecodeError is a ValueError subclass.
+        cookies, blob = None, None
+    blob = blob if isinstance(blob, dict) else {}
+    action = str(blob.get("action") or "")
+    raw_fields = blob.get("fields")
+    if not isinstance(cookies, list) or not action or not isinstance(raw_fields, dict):
+        _discard_attempt(db, row)
+        raise InvalidCredentialsError(_MSG_INVALID_CREDS)
+
+    kind = str(blob.get("kind") or "otp").strip() or "otp"
+    fields = {str(k): str(v) for k, v in raw_fields.items()}
+    if kind == "totp_setup":
+        if not (fields.get("totpSecret") or "").strip():
+            _discard_attempt(db, row)
+            raise InvalidCredentialsError(_MSG_INVALID_CREDS)
+        fields["totp"] = otp_code
+        fields["userLabel"] = (fields.get("userLabel") or "").strip() or "Bastion"
+    else:
+        # Keycloak TOTP field is usually ``otp``.
+        fields["otp"] = otp_code
+        if "totp" in fields:
+            fields["totp"] = otp_code
+    return kind, action, fields, cookies
 
 
 async def submit_headless_otp(
@@ -1084,6 +1208,8 @@ async def submit_headless_otp(
     db: Session | None = None,
 ) -> LoginStepResult:
     """Complete an OTP step for a stored ``OidcLoginAttempt`` (single-use on success)."""
+    from app.oidc_bff_config_service import get_headless_oidc_config
+
     settings = settings or get_settings()
     if db is None:
         raise OidcBffConfigError("db session required for OTP submit")
@@ -1093,62 +1219,20 @@ async def submit_headless_otp(
         raise InvalidCredentialsError(_MSG_INCOMPLETE_CREDS)
 
     purge_expired_oidc_login_attempts(db)
+    row = _claim_otp_attempt(db, attempt_id)
+    kind, otp_action, fields, cookies = _attempt_form(db, row, otp_code, settings)
 
-    row = db.query(OidcLoginAttempt).filter_by(attempt_id=attempt_id).first()
-    now = utcnow()
-    if row is None or _as_utc(row.expires_at) <= now:
-        if row is not None:
-            db.delete(row)
-            db.flush()
-        # No enumeration: same generic failure as bad password.
-        raise InvalidCredentialsError(_MSG_INVALID_CREDS)
-
-    try:
-        cookies = json.loads(decrypt_secret(row.keycloak_cookies_encrypted, settings))
-        form_blob = json.loads(decrypt_secret(row.otp_form_encrypted, settings))
-    except (ValueError, TypeError):
-        # JSONDecodeError is a ValueError subclass.
-        db.delete(row)
-        db.flush()
-        raise InvalidCredentialsError(_MSG_INVALID_CREDS) from None
-
-    if not isinstance(cookies, list) or not isinstance(form_blob, dict):
-        db.delete(row)
-        db.flush()
-        raise InvalidCredentialsError(_MSG_INVALID_CREDS)
-
-    otp_action = str(form_blob.get("action") or "")
-    otp_fields = form_blob.get("fields")
-    if not otp_action or not isinstance(otp_fields, dict):
-        db.delete(row)
-        db.flush()
-        raise InvalidCredentialsError(_MSG_INVALID_CREDS)
-
-    kind = str(form_blob.get("kind") or "otp").strip() or "otp"
-    fields = {str(k): str(v) for k, v in otp_fields.items()}
-    if kind == "totp_setup":
-        fields["totp"] = otp_code
-        if not (fields.get("totpSecret") or "").strip():
-            db.delete(row)
-            db.flush()
-            raise InvalidCredentialsError(_MSG_INVALID_CREDS)
-        fields["userLabel"] = (fields.get("userLabel") or "").strip() or "Bastion"
-    else:
-        # Keycloak TOTP field is usually ``otp``.
-        fields["otp"] = otp_code
-        if "totp" in fields:
-            fields["totp"] = otp_code
-
-    # Reload client secret from realm config (never stored on the attempt row).
-    from app.oidc_bff_config_service import get_oidc_bff_config
-
-    cfg = get_oidc_bff_config(db, row.realm, settings)
+    # Same resolver as the password step: realms on the portal fallback client
+    # must be able to finish OTP, and the secret must belong to the same client.
+    cfg = get_headless_oidc_config(db, row.realm, settings)
     if cfg is None:
-        db.delete(row)
-        db.flush()
+        _discard_attempt(db, row)
         raise OidcBffConfigError(
             f"OIDC natif non configuré pour le realm '{row.realm}'"
         )
+    if cfg.client_id != row.client_id:
+        _discard_attempt(db, row)
+        raise InvalidCredentialsError(_MSG_INVALID_CREDS)
 
     token_url = f"{row.keycloak_base_url}{_TOKEN_PATH.format(realm=row.keycloak_realm)}"
     action_url = _absolute_action_url(otp_action, row.keycloak_base_url)
@@ -1180,74 +1264,36 @@ async def submit_headless_otp(
             attempt_id=row.attempt_id,
         )
         try:
-            outcome = await _interpret_post_password_response(
+            outcome, payload = await _interpret_post_password_response(
                 client, post_resp, expected_state=row.state, base=row.keycloak_base_url
             )
         except InvalidCredentialsError:
-            row.otp_failures = int(row.otp_failures or 0) + 1
-            if row.otp_failures >= MAX_OTP_FAILURES:
-                db.delete(row)
-                db.flush()
-            else:
-                if post_resp.status_code == 200:
-                    _refresh_attempt_form_from_html(
-                        row, client, post_resp.text or "", settings=settings, kind=kind
-                    )
-                db.flush()
+            if post_resp.status_code == 200:
+                form_json = _form_from_html(post_resp.text or "", kind)
+                if form_json is not None:
+                    _save_attempt_progress(row, client, form_json, settings)
+            _after_failed_otp(db, row)
             raise InvalidOtpError(_MSG_OTP_INVALID) from None
         except UnsupportedAuthFlowError:
-            db.delete(row)
-            db.flush()
+            _discard_attempt(db, row)
             raise
 
-        if outcome[0] == "totp_setup":
-            row.otp_failures = int(row.otp_failures or 0) + 1
-            if row.otp_failures >= MAX_OTP_FAILURES:
-                db.delete(row)
-                db.flush()
-            else:
-                _refresh_attempt_form_from_html(
-                    row, client, outcome[1], settings=settings, kind="totp_setup"
-                )
-                db.flush()
-            raise InvalidOtpError(_MSG_OTP_INVALID)
-
-        if outcome[0] == "otp":
-            otp_parsed = _extract_otp_form(outcome[1])
-            if otp_parsed is None:
-                row.otp_failures = int(row.otp_failures or 0) + 1
-                if row.otp_failures >= MAX_OTP_FAILURES:
-                    db.delete(row)
-                db.flush()
-                raise InvalidOtpError(_MSG_OTP_INVALID)
-            new_action, new_fields = otp_parsed
-            form_json = json.dumps(
-                {"kind": "otp", "action": new_action, "fields": new_fields},
-                separators=(",", ":"),
-            )
-            row.otp_form_encrypted = encrypt_secret(form_json, settings)
-            row.keycloak_cookies_encrypted = encrypt_secret(
-                json.dumps(_serialize_cookies(client), separators=(",", ":")),
-                settings,
-            )
-            if kind == "totp_setup":
+        if outcome in ("otp", "totp_setup"):
+            form_json = _form_from_html(payload, outcome)
+            if form_json is not None:
+                _save_attempt_progress(row, client, form_json, settings)
+            if kind == "totp_setup" and outcome == "otp" and form_json is not None:
+                # Enrollment accepted: Keycloak now asks for the first OTP.
                 row.otp_failures = 0
                 db.flush()
-                return LoginStepResult(
-                    status="otp_required", attempt_id=row.attempt_id
-                )
-            row.otp_failures = int(row.otp_failures or 0) + 1
-            if row.otp_failures >= MAX_OTP_FAILURES:
-                db.delete(row)
-                db.flush()
-            else:
-                db.flush()
+                return LoginStepResult(status="otp_required", attempt_id=row.attempt_id)
+            _after_failed_otp(db, row)
             raise InvalidOtpError(_MSG_OTP_INVALID)
 
         tokens = await _exchange_code_for_tokens(
             client,
             token_url=token_url,
-            code=outcome[1],
+            code=payload,
             redirect_uri=row.redirect_uri,
             code_verifier=row.code_verifier,
             client_id=cfg.client_id,
@@ -1257,180 +1303,8 @@ async def submit_headless_otp(
             keycloak_realm=row.keycloak_realm,
         )
 
-    db.delete(row)
-    db.flush()
+    _discard_attempt(db, row)
     return LoginStepResult(status="success", tokens=tokens)
-
-
-def _refresh_attempt_form_from_html(
-    row: OidcLoginAttempt,
-    client: httpx.AsyncClient,
-    html: str,
-    *,
-    settings: Settings,
-    kind: str,
-) -> None:
-    if kind == "totp_setup":
-        setup = _extract_totp_setup(html)
-        if setup is None:
-            return
-        form_json = json.dumps(
-            {
-                "kind": "totp_setup",
-                "action": setup.action,
-                "fields": setup.fields,
-                "secret_display": setup.secret_display,
-                "qr_data_url": setup.qr_data_url,
-            },
-            separators=(",", ":"),
-        )
-    else:
-        otp_parsed = _extract_otp_form(html)
-        if otp_parsed is None:
-            return
-        new_action, new_fields = otp_parsed
-        form_json = json.dumps(
-            {"kind": "otp", "action": new_action, "fields": new_fields},
-            separators=(",", ":"),
-        )
-    row.otp_form_encrypted = encrypt_secret(form_json, settings)
-    row.keycloak_cookies_encrypted = encrypt_secret(
-        json.dumps(_serialize_cookies(client), separators=(",", ":")),
-        settings,
-    )
-
-
-async def perform_headless_login(
-    realm: str,
-    username: str,
-    password: str,
-    *,
-    settings: Settings | None = None,
-    keycloak_base_url: str | None = None,
-    client_id: str | None = None,
-    client_secret: str | None = None,
-    redirect_uri: str | None = None,
-    db: Any | None = None,
-) -> OidcTokenResult:
-    """Backward-compatible single-shot login (no OTP). Prefer ``start_headless_login``."""
-    # Unit tests pass explicit creds without db — support that path.
-    settings = settings or get_settings()
-    if db is None and all([keycloak_base_url, client_id, client_secret, redirect_uri]):
-        return await _perform_headless_login_no_db(
-            realm,
-            username,
-            password,
-            settings=settings,
-            keycloak_base_url=keycloak_base_url or "",
-            client_id=client_id or "",
-            client_secret=client_secret or "",
-            redirect_uri=redirect_uri or "",
-        )
-    result = await start_headless_login(
-        realm,
-        username,
-        password,
-        settings=settings,
-        keycloak_base_url=keycloak_base_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        redirect_uri=redirect_uri,
-        db=db,
-    )
-    if result.status == "success" and result.tokens is not None:
-        return result.tokens
-    raise UnsupportedAuthFlowError(
-        "Flux Keycloak non supporté en headless: étape interactive Keycloak détectée "
-        f"({result.status})"
-    )
-
-
-async def _perform_headless_login_no_db(
-    realm: str,
-    username: str,
-    password: str,
-    *,
-    settings: Settings,
-    keycloak_base_url: str,
-    client_id: str,
-    client_secret: str,
-    redirect_uri: str,
-) -> OidcTokenResult:
-    """Unit-test helper: password-only flow without persisting OTP attempts."""
-    realm = (realm or "").strip()
-    username = (username or "").strip()
-    if not realm or not username or password is None or password == "":
-        raise InvalidCredentialsError(_MSG_INCOMPLETE_CREDS)
-    base, client_id, client_secret, redirect_uri = _require_bff_config(
-        base=keycloak_base_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        redirect_uri=redirect_uri,
-    )
-    keycloak_realm = realm
-    code_verifier, code_challenge = _pkce_pair()
-    state = secrets.token_urlsafe(24)
-    auth_url = f"{base}{_AUTH_PATH.format(realm=keycloak_realm)}"
-    token_url = f"{base}{_TOKEN_PATH.format(realm=keycloak_realm)}"
-    auth_params = {
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
-        "response_type": "code",
-        "scope": "openid profile email",
-        "state": state,
-        "code_challenge": code_challenge,
-        "code_challenge_method": "S256",
-    }
-    async with httpx.AsyncClient(
-        timeout=_HTTP_TIMEOUT,
-        follow_redirects=False,
-        headers={"User-Agent": _USER_AGENT_OIDC_BFF},
-    ) as client:
-        login_html, session_base = await _fetch_login_html(
-            client, auth_url, auth_params, base=base
-        )
-        unsupported = _html_indicates_unsupported_flow(login_html)
-        if unsupported:
-            raise UnsupportedAuthFlowError(
-                f"Flux Keycloak non supporté en headless: {unsupported}"
-            )
-        if _extract_otp_form(login_html) is not None:
-            raise UnsupportedAuthFlowError(
-                f"Flux Keycloak non supporté en headless: étape interactive Keycloak "
-                f"détectée ({_OTP_FORM_ID})"
-            )
-        action, form_fields = _extract_login_form(login_html)
-        action_url = _absolute_action_url(action, session_base)
-        form_fields["username"] = username
-        form_fields["password"] = password
-        try:
-            post_resp = await client.post(
-                action_url,
-                data=form_fields,
-                headers={"Content-Type": _CONTENT_TYPE_FORM},
-            )
-        except httpx.HTTPError as exc:
-            raise OidcBffError("Impossible de joindre Keycloak (login)") from exc
-        outcome = await _interpret_post_password_response(
-            client, post_resp, expected_state=state, base=session_base
-        )
-        if outcome[0] != "code":
-            raise UnsupportedAuthFlowError(
-                f"Flux Keycloak non supporté en headless: étape interactive Keycloak "
-                f"détectée ({_OTP_FORM_ID})"
-            )
-        return await _exchange_code_for_tokens(
-            client,
-            token_url=token_url,
-            code=outcome[1],
-            redirect_uri=redirect_uri,
-            code_verifier=code_verifier,
-            client_id=client_id,
-            client_secret=client_secret,
-            realm=realm,
-            keycloak_base_url=base,
-            keycloak_realm=keycloak_realm,
-        )
 
 
 async def _fetch_login_html(
@@ -1515,19 +1389,21 @@ async def _interpret_post_password_response(
     *,
     expected_state: str,
     base: str,
+    _hops: int = 0,
 ) -> tuple[Literal["code", "otp", "totp_setup"], str]:
     """Return ``('code', auth_code)``, ``('otp', html)`` or ``('totp_setup', html)``.
 
     ``base`` is the session origin (cookie host), used when following redirects.
     """
+    if _hops >= _MAX_REDIRECT_HOPS:
+        raise OidcBffError("Trop de redirections Keycloak après login")
     if resp.status_code in {301, 302, 303, 307, 308}:
         location = resp.headers.get("location") or ""
         if not location:
             raise OidcBffError("Redirect post-login sans Location")
         code = _location_has_auth_code(location)
         if code:
-            returned_state = _location_state(location)
-            if returned_state is not None and returned_state != expected_state:
+            if _location_state(location) != expected_state:
                 raise OidcBffError("State OIDC mismatch après login Keycloak")
             logger.info(
                 "oidc_bff post_password outcome=code status=%s location=%s",
@@ -1550,7 +1426,11 @@ async def _interpret_post_password_response(
             _log_keycloak_http("login_follow", follow)
             if follow.status_code in {301, 302, 303, 307, 308}:
                 return await _interpret_post_password_response(
-                    client, follow, expected_state=expected_state, base=base
+                    client,
+                    follow,
+                    expected_state=expected_state,
+                    base=base,
+                    _hops=_hops + 1,
                 )
             if follow.status_code == 200:
                 html = follow.text

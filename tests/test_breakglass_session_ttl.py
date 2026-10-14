@@ -11,10 +11,10 @@ from app.breakglass import (
     IDLE_TIMEOUT_SECONDS,
     create_breakglass_token,
     decode_breakglass_token,
-    maybe_refresh_breakglass_cookie,
+    encode_breakglass_claims,
     validate_breakglass_cookie,
 )
-
+from app.breakglass_cookie_middleware import _rotation_due
 
 SECRET = "test-breakglass-secret-for-pytest"
 
@@ -72,38 +72,43 @@ def test_validate_accepts_fresh_token():
     assert validate_breakglass_cookie(token, SECRET) is True
 
 
-def test_refresh_slides_last_without_extending_exp():
+def test_rotation_claims_slide_last_without_extending_exp():
     now = datetime.now(timezone.utc)
     original_exp = now + timedelta(seconds=COOKIE_MAX_AGE)
+    payload = {
+        "sub": "admin",
+        "iat": int((now - timedelta(minutes=10)).timestamp()),
+        "exp": int(original_exp.timestamp()),
+        "last": int((now - timedelta(minutes=2)).timestamp()),
+        "type": "bg",
+        "jti": "old-jti",
+    }
+    rotated = encode_breakglass_claims(payload, SECRET, jti="new-jti")
+    claims = jwt.decode(
+        rotated, SECRET, algorithms=["HS256"], options={"verify_aud": False}
+    )
+    assert claims["sub"] == "admin"
+    assert claims["jti"] == "new-jti"
+    assert abs(claims["exp"] - original_exp.timestamp()) < 2
+    assert claims["last"] >= int((now - timedelta(seconds=5)).timestamp())
+
+
+def test_rotation_skipped_when_recently_touched():
+    assert _rotation_due(create_breakglass_token("admin", SECRET)) is False
+
+
+def test_rotation_due_after_min_interval():
+    now = datetime.now(timezone.utc)
     token = jwt.encode(
         {
             "sub": "admin",
             "iat": now - timedelta(minutes=10),
-            "exp": original_exp,
+            "exp": now + timedelta(hours=1),
             "last": int((now - timedelta(minutes=2)).timestamp()),
             "type": "bg",
-            "jti": "refresh-jti",
+            "jti": "stale-jti",
         },
         SECRET,
         algorithm="HS256",
     )
-    refreshed = maybe_refresh_breakglass_cookie(token, SECRET)
-    assert refreshed is not None
-    payload = jwt.decode(
-        refreshed, SECRET, algorithms=["HS256"], options={"verify_aud": False}
-    )
-    assert payload["sub"] == "admin"
-    assert payload["jti"] == "refresh-jti"
-    # Absolute exp preserved (within 2s)
-    new_exp = payload["exp"]
-    if isinstance(new_exp, datetime):
-        new_exp_ts = new_exp.timestamp()
-    else:
-        new_exp_ts = float(new_exp)
-    assert abs(new_exp_ts - original_exp.timestamp()) < 2
-    assert int(payload["last"]) >= int((now - timedelta(seconds=5)).timestamp())
-
-
-def test_refresh_skipped_when_recently_touched():
-    token = create_breakglass_token("admin", SECRET)
-    assert maybe_refresh_breakglass_cookie(token, SECRET) is None
+    assert _rotation_due(token) is True

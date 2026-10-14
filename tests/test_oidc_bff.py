@@ -51,8 +51,8 @@ def oidc_settings(monkeypatch):
         oidc_session_jwt_secret=OIDC_SECRET,
         oidc_session_cookie_name=COOKIE,
         oidc_session_max_age=3600,
-        sso_portal_default_realm_slug="ar-systems",
-        oidc_native_session_enabled_realms="ar-systems",
+        sso_portal_default_realm_slug="default",
+        oidc_native_session_enabled_realms="default",
     )
     get_settings.cache_clear()
     monkeypatch.setattr("app.oidc_bff.get_settings", lambda: settings)
@@ -100,7 +100,7 @@ def test_oidc_login_success_sets_cookie_and_session(
 
     row = db_session.query(OidcSession).filter_by(sub="kc-sub-1").one()
     assert row.username == "alice"
-    assert row.realm == "ar-systems"
+    assert row.realm == "default"
     assert row.revoked is False
 
     claims = validate_oidc_session_cookie(
@@ -117,7 +117,7 @@ def test_oidc_login_success_sets_cookie_and_session(
         .first()
     )
     assert audit is not None
-    assert audit.details.get("realm") == "ar-systems"
+    assert audit.details.get("realm") == "default"
     assert "password" not in (audit.details or {})
 
 
@@ -162,7 +162,7 @@ def test_oidc_login_mfa_also_generic_401(
         .first()
     )
     assert audit is not None
-    assert audit.details.get("realm") == "ar-systems"
+    assert audit.details.get("realm") == "default"
     assert "MFA" in (audit.details.get("detail") or "")
 
 
@@ -207,7 +207,7 @@ def test_html_bff_error_shows_oidc_message_and_audit_detail(
                 "username": "alice",
                 "password": "secret",
                 "rd": "/apps",
-                "realm": "ar-systems",
+                "realm": "default",
             },
             headers={"X-Real-IP": "10.0.0.24"},
         )
@@ -223,7 +223,7 @@ def test_html_bff_error_shows_oidc_message_and_audit_detail(
         .first()
     )
     assert audit is not None
-    assert audit.details.get("realm") == "ar-systems"
+    assert audit.details.get("realm") == "default"
     assert audit.details.get("reason") == "bff_error"
     assert "JWT" in (audit.details.get("detail") or "")
 
@@ -300,7 +300,7 @@ def test_validate_oidc_session_cookie_rejects_revoked(
         db_session,
         sub="sub-1",
         username="alice",
-        realm="ar-systems",
+        realm="default",
         secret=OIDC_SECRET,
         max_age=3600,
     )
@@ -327,7 +327,7 @@ def test_validate_oidc_session_cookie_rejects_expired(
         {
             "sub": "sub-1",
             "username": "alice",
-            "realm": "ar-systems",
+            "realm": "default",
             "jti": jti,
             "iat": now - timedelta(hours=2),
             "exp": now - timedelta(hours=1),
@@ -341,7 +341,7 @@ def test_validate_oidc_session_cookie_rejects_expired(
             jti=jti,
             sub="sub-1",
             username="alice",
-            realm="ar-systems",
+            realm="default",
             issued_at=now - timedelta(hours=2),
             expires_at=now - timedelta(hours=1),
         )

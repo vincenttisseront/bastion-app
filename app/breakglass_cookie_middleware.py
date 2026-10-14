@@ -5,19 +5,24 @@ subresponse to the client. Rotating on ``/internal/oauth2-auth`` therefore
 advances the DB tip while the browser keeps the old ``jti``, which looks like
 replay after the grace window and cuts the chain (login redirect loops).
 
-Validate-only on auth_request; rotate here after a successful portal response.
+Validate-only on auth_request; rotate here after a successful portal response,
+at most once per ``ROTATION_MIN_INTERVAL_SECONDS``.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 
+import jwt
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
 from app.breakglass import (
     COOKIE_NAME,
+    ROTATION_MIN_INTERVAL_SECONDS,
     process_breakglass_auth_request,
     set_breakglass_cookie,
 )
@@ -35,30 +40,49 @@ _SKIP_PREFIXES = (
 )
 
 
+def _rotation_due(raw: str) -> bool:
+    """Cheap pre-filter on the unverified ``last`` claim; full checks run after.
+
+    Only rotation supersedes a cookie and it requires a stale ``last``, so a
+    superseded cookie inside its grace window is never skipped here.
+    """
+    try:
+        claims = jwt.decode(raw, options={"verify_signature": False})
+    except jwt.PyJWTError:
+        return False
+    try:
+        last = int(claims.get("last") or claims.get("iat"))
+    except (TypeError, ValueError):
+        return True
+    return time.time() - last >= ROTATION_MIN_INTERVAL_SECONDS
+
+
+def _rotate(request: Request, response: Response, raw: str) -> None:
+    db = SessionLocal()
+    try:
+        settings = get_settings()
+        result = process_breakglass_auth_request(
+            db, request, raw, settings, rotate=True
+        )
+        db.commit()
+        if result.ok and result.set_cookie:
+            set_breakglass_cookie(response, result.set_cookie, settings)
+    except Exception:
+        db.rollback()
+        logger.exception("breakglass cookie rotation failed path=%s", request.url.path)
+    finally:
+        db.close()
+
+
 class BreakglassCookieRotationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
-        path = request.url.path
-        if any(path.startswith(p) for p in _SKIP_PREFIXES):
-            return response
         if response.status_code >= 400:
             return response
-        raw = request.cookies.get(COOKIE_NAME)
-        if not raw:
+        if request.url.path.startswith(_SKIP_PREFIXES):
             return response
-
-        db = SessionLocal()
-        try:
-            settings = get_settings()
-            result = process_breakglass_auth_request(
-                db, request, raw, settings, rotate=True
-            )
-            db.commit()
-            if result.ok and result.set_cookie:
-                set_breakglass_cookie(response, result.set_cookie, settings)
-        except Exception:
-            db.rollback()
-            logger.exception("breakglass cookie rotation failed path=%s", path)
-        finally:
-            db.close()
+        raw = request.cookies.get(COOKIE_NAME)
+        if not raw or not _rotation_due(raw):
+            return response
+        await run_in_threadpool(_rotate, request, response, raw)
         return response

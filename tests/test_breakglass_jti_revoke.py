@@ -11,14 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.breakglass import (
     COOKIE_NAME,
-    COOKIE_MAX_AGE,
     IDLE_TIMEOUT_SECONDS,
     create_breakglass_token,
     decode_breakglass_token,
     issue_breakglass_token,
-    maybe_refresh_breakglass_cookie,
     purge_expired_breakglass_sessions,
-    register_breakglass_session,
     revoke_breakglass_jti,
     validate_breakglass_cookie,
 )
@@ -26,7 +23,6 @@ from app.breakglass_store import set_breakglass_password
 from app.models import AuditLog, BreakGlassSession, RealmConfig
 from app.secret_crypto import encrypt_secret
 from app.sso_settings import Settings, get_settings
-
 
 SECRET = "test-breakglass-secret-for-pytest-32b"
 
@@ -71,34 +67,6 @@ def test_revoke_jti_blocks_next_validation(db_session: Session):
     revoke_breakglass_jti(db_session, jti, revoked_by="ops", reason="compromise")
     db_session.commit()
     assert validate_breakglass_cookie(token, SECRET, db=db_session) is False
-
-
-def test_refresh_preserves_jti(db_session: Session):
-    now = datetime.now(timezone.utc)
-    jti = "fixed-jti-for-refresh-test"
-    token = jwt.encode(
-        {
-            "sub": "admin",
-            "iat": now - timedelta(minutes=10),
-            "exp": now + timedelta(seconds=COOKIE_MAX_AGE),
-            "last": int((now - timedelta(minutes=2)).timestamp()),
-            "type": "bg",
-            "jti": jti,
-        },
-        SECRET,
-        algorithm="HS256",
-    )
-    register_breakglass_session(
-        db_session,
-        jti=jti,
-        username="admin",
-        expires_at=now + timedelta(seconds=COOKIE_MAX_AGE),
-    )
-    db_session.commit()
-    refreshed = maybe_refresh_breakglass_cookie(token, SECRET, db=db_session)
-    assert refreshed is not None
-    payload = jwt.decode(refreshed, SECRET, algorithms=["HS256"], options={"verify_aud": False})
-    assert payload["jti"] == jti
 
 
 def test_idle_still_enforced_with_jti():
@@ -169,12 +137,12 @@ def test_api_revoke_then_oauth2_auth_401(client, db_session: Session):
     client.app.dependency_overrides[get_settings] = lambda: settings
     set_breakglass_password(db_session, "bg-admin", "CorrectHorseBattery1")
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="default",
+        name="DEFAULT",
+        issuer_url="https://kc.example.com/realms/DEFAULT",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", settings),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/default/callback",
         oauth2_proxy_port=4180,
         is_default=True,
         enabled=True,

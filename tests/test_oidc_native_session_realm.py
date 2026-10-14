@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -12,6 +10,7 @@ from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy.orm import Session
 
+from tests.conftest import csrf_token_for
 from app.models import AuditLog, RealmConfig
 from app.oidc_bff import issue_oidc_session
 from app.oidc_bff_client import LoginStepResult, OidcTokenResult
@@ -29,13 +28,8 @@ ADMIN = {
 }
 
 
-def _csrf_headers(extra: dict | None = None) -> dict:
-    secret = "test-secret"
-    email = "admin@example.com"
-    token = hmac.new(
-        secret.encode(), f"csrf:{email}".encode(), hashlib.sha256
-    ).hexdigest()[:32]
-    headers = {**ADMIN, "X-CSRF-Token": token}
+def _csrf_headers(client: TestClient, extra: dict | None = None) -> dict:
+    headers = {**ADMIN, "X-CSRF-Token": csrf_token_for(client)}
     if extra:
         headers.update(extra)
     return headers
@@ -54,7 +48,7 @@ def _settings(**extra) -> Settings:
         oidc_session_jwt_secret=OIDC_SECRET,
         oidc_session_cookie_name=COOKIE,
         oidc_session_max_age=3600,
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="default",
         oidc_native_session_enabled_realms="",
     )
     base.update(extra)
@@ -97,11 +91,11 @@ def _add_realm(db: Session, *, slug: str, is_default: bool = False, native: bool
 
 
 def test_helper_db_flag_and_csv(db_session: Session, pilot_settings: Settings):
-    _add_realm(db_session, slug="ar-systems", is_default=True, native=False, port=4180)
+    _add_realm(db_session, slug="default", is_default=True, native=False, port=4180)
     pilot = _add_realm(db_session, slug="pilot-clients", native=True, port=4181)
 
     assert not is_oidc_native_session_enabled_for_realm(
-        db_session, "ar-systems", pilot_settings
+        db_session, "default", pilot_settings
     )
     assert is_oidc_native_session_enabled_for_realm(
         db_session, "pilot-clients", pilot_settings
@@ -115,7 +109,7 @@ def test_helper_db_flag_and_csv(db_session: Session, pilot_settings: Settings):
         db_session, "pilot-clients", csv_settings
     )
     assert not is_oidc_native_session_enabled_for_realm(
-        db_session, "ar-systems", csv_settings
+        db_session, "default", csv_settings
     )
 
 
@@ -123,12 +117,12 @@ def test_helper_db_flag_and_csv(db_session: Session, pilot_settings: Settings):
 def test_oauth2_auth_ignores_bastion_session_for_non_pilot_realm(
     client: TestClient, db_session: Session, pilot_settings: Settings
 ):
-    _add_realm(db_session, slug="ar-systems", is_default=True, native=False, port=4180)
+    _add_realm(db_session, slug="default", is_default=True, native=False, port=4180)
     token, _jti = issue_oidc_session(
         db_session,
         sub="kc-sub",
         username="alice",
-        realm="ar-systems",
+        realm="default",
         secret=OIDC_SECRET,
         max_age=3600,
     )
@@ -147,7 +141,7 @@ def test_oauth2_auth_ignores_bastion_session_for_non_pilot_realm(
 def test_oauth2_auth_accepts_bastion_session_for_pilot_realm(
     client: TestClient, db_session: Session, pilot_settings: Settings
 ):
-    _add_realm(db_session, slug="ar-systems", is_default=True, native=False, port=4180)
+    _add_realm(db_session, slug="default", is_default=True, native=False, port=4180)
     _add_realm(db_session, slug="pilot-clients", native=True, port=4181)
     token, _jti = issue_oidc_session(
         db_session,
@@ -176,7 +170,7 @@ def test_admin_toggle_audits_enable_disable(
 
     on = client.post(
         f"/admin/realms/{realm.id}/oidc-native-session/enable",
-        headers=_csrf_headers(),
+        headers=_csrf_headers(client),
         follow_redirects=False,
     )
     assert on.status_code in (200, 302)
@@ -191,7 +185,7 @@ def test_admin_toggle_audits_enable_disable(
 
     off = client.post(
         f"/admin/realms/{realm.id}/oidc-native-session/disable",
-        headers=_csrf_headers(),
+        headers=_csrf_headers(client),
         follow_redirects=False,
     )
     assert off.status_code in (200, 302)
@@ -208,7 +202,7 @@ def test_admin_toggle_audits_enable_disable(
 def test_login_rejects_non_pilot_realm(
     client: TestClient, db_session: Session, pilot_settings: Settings
 ):
-    _add_realm(db_session, slug="ar-systems", is_default=True, native=False, port=4180)
+    _add_realm(db_session, slug="default", is_default=True, native=False, port=4180)
     with patch(
         "app.oidc_bff.start_headless_login",
         new=AsyncMock(
@@ -228,7 +222,7 @@ def test_login_rejects_non_pilot_realm(
     ) as mocked:
         resp = client.post(
             "/auth/login",
-            data={"username": "u", "password": "p", "realm": "ar-systems"},
+            data={"username": "u", "password": "p", "realm": "default"},
         )
     assert resp.status_code == 403
     mocked.assert_not_called()

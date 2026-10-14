@@ -3,21 +3,18 @@
 from __future__ import annotations
 
 import logging
-import secrets
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
 from app.models import RealmConfig
-from app.portal_settings_service import ensure_portal_settings
+from app.realm_lookup import find_realm
 from app.secret_crypto import decrypt_secret, encrypt_secret, encryption_configured
 from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
 
 AUDIT_BFF_CONFIG_SET = "realm.oidc_bff_config_set"
-AUDIT_SESSION_SECRET_GENERATED = "oidc_session_jwt_secret_generated"
-
 
 @dataclass(frozen=True, slots=True)
 class OidcBffConfig:
@@ -66,12 +63,7 @@ def get_oidc_bff_config(
     Returns None if the realm is missing or BFF fields are incomplete.
     Never logs or returns secrets via side channels.
     """
-    slug = (realm_slug or "").strip()
-    if not slug:
-        return None
-    realm = db.query(RealmConfig).filter_by(slug=slug).first()
-    if realm is None:
-        realm = db.query(RealmConfig).filter(RealmConfig.slug.ilike(slug)).first()
+    realm = find_realm(db, realm_slug)
     if realm is None:
         return None
 
@@ -84,12 +76,9 @@ def get_oidc_bff_config(
     if not encryption_configured(settings):
         logger.warning("oidc_bff config present but encryption not configured")
         return None
-    try:
-        client_secret = decrypt_secret(enc, settings).strip()
-    except ValueError:
-        logger.warning("failed to decrypt oidc_bff client credentials realm=%s", slug)
-        return None
+    client_secret = _decrypt_client_secret(enc, settings)
     if not client_secret:
+        logger.warning("failed to decrypt oidc_bff client credentials realm=%s", realm.slug)
         return None
     kc_realm = keycloak_realm_from_issuer(realm.issuer_url or "") or realm.slug
     return OidcBffConfig(
@@ -193,36 +182,6 @@ def resolve_oidc_session_jwt_secret(
     return ""
 
 
-def generate_oidc_session_jwt_secret(
-    db: Session,
-    settings: Settings,
-    *,
-    realm_slug: str | None = None,
-    actor: str | None = None,
-) -> str:
-    """
-    Generate a new global OIDC session HMAC, store Fernet-encrypted in PortalSettings.
-
-    ``realm_slug`` is accepted for API symmetry with per-realm helpers but ignored:
-    the session JWT secret is portal-global (same design as ``OIDC_SESSION_JWT_SECRET``).
-
-    Returns the plaintext once for the caller to discard after use — never log it.
-    """
-    _ = realm_slug
-    if not encryption_configured(settings):
-        raise ValueError("Chiffrement Fernet non configuré")
-    plain = secrets.token_urlsafe(32)
-    row = ensure_portal_settings(db, settings)
-    row.oidc_session_jwt_secret_encrypted = encrypt_secret(plain, settings)
-    if actor:
-        row.updated_by = actor
-    db.flush()
-    from app.runtime_secrets_service import cache_oidc_session_jwt_secret
-
-    cache_oidc_session_jwt_secret(plain)
-    return plain
-
-
 async def ping_oidc_discovery(base_url: str, keycloak_realm: str) -> dict[str, str | bool]:
     """GET ``{base}/realms/{keycloak_realm}/.well-known/openid-configuration`` (no secrets)."""
     import httpx
@@ -264,7 +223,7 @@ def _portal_oidc_fallback_config(
     realm_slug: str,
     settings: Settings,
 ) -> OidcBffConfig | None:
-    realm = _lookup_realm_by_slug(db, realm_slug)
+    realm = find_realm(db, realm_slug)
     if realm is None:
         return None
     client_id = (realm.client_id or "").strip()
@@ -287,16 +246,6 @@ def _portal_oidc_fallback_config(
         client_secret=client_secret,
         redirect_uri=redirect_uri,
     )
-
-
-def _lookup_realm_by_slug(db: Session, realm_slug: str) -> RealmConfig | None:
-    slug = (realm_slug or "").strip()
-    if not slug:
-        return None
-    realm = db.query(RealmConfig).filter_by(slug=slug).first()
-    if realm is None:
-        realm = db.query(RealmConfig).filter(RealmConfig.slug.ilike(slug)).first()
-    return realm
 
 
 def _decrypt_client_secret(enc: str, settings: Settings) -> str | None:

@@ -18,6 +18,29 @@ from app.breakglass import reset_breakglass_ephemeral_secret_for_tests
 # Injected by TrustedHeadersTestClient so forged X-Email/X-Groups in tests still
 # satisfy SDD-001 (identity headers require X-Portal-Internal-Token).
 TEST_PORTAL_INTERNAL_TOKEN = "test-secret"
+TEST_CSRF_NONCE = "test-csrf-nonce"
+
+# Login forms posted by a browser that already loaded the page; tests post them
+# directly, so the client plays the browser and submits the matching token.
+_CSRF_FORM_PATHS = frozenset({"/auth/login", "/auth/breakglass", "/auth/setup"})
+
+
+def csrf_token_for(client: TestClient) -> str:
+    """Seed the CSRF nonce cookie and return the token the app expects."""
+    from starlette.requests import Request as StarletteRequest
+
+    from app.web.csrf import CSRF_COOKIE, csrf_secret, make_csrf_token
+
+    nonce = client.cookies.get(CSRF_COOKIE)
+    if not nonce:
+        nonce = TEST_CSRF_NONCE
+        client.cookies.set(CSRF_COOKIE, nonce)
+    settings = client.app.dependency_overrides.get(get_settings, get_settings)()
+    scope = {
+        "type": "http",
+        "headers": [(b"cookie", f"{CSRF_COOKIE}={nonce}".encode())],
+    }
+    return make_csrf_token(StarletteRequest(scope), csrf_secret(settings))
 
 
 class TrustedHeadersTestClient(TestClient):
@@ -30,14 +53,27 @@ class TrustedHeadersTestClient(TestClient):
             merged.update({str(k): str(v) for k, v in dict(headers).items()})
         # Opt-out for negative tests (spoof without token).
         omit = False
+        omit_csrf = False
         for key in list(merged):
             if key.lower() == "x-test-omit-internal-token":
                 omit = True
+                merged.pop(key)
+            elif key.lower() == "x-test-omit-csrf":
+                omit_csrf = True
                 merged.pop(key)
         lower = {k.lower(): k for k in merged}
         if not omit and "x-portal-internal-token" not in lower:
             merged["X-Portal-Internal-Token"] = TEST_PORTAL_INTERNAL_TOKEN
         kwargs["headers"] = merged
+        data = kwargs.get("data")
+        if (
+            not omit_csrf
+            and str(method).upper() == "POST"
+            and str(url).split("?", 1)[0] in _CSRF_FORM_PATHS
+            and isinstance(data, dict)
+            and "csrf_token" not in data
+        ):
+            kwargs["data"] = {**data, "csrf_token": csrf_token_for(self)}
         return super().request(method, url, **kwargs)
 
 

@@ -14,7 +14,7 @@ def _settings() -> Settings:
         vault_portal_internal_token="test-secret",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
-        portal_domain="portal.ar-systems.fr",
+        portal_domain="portal.example.com",
         oidc_session_cookie_name="bastion_session",
         oidc_session_max_age=3600,
         oidc_session_jwt_secret="oidc-cookie-domain-hmac-key-32b!!",
@@ -28,7 +28,7 @@ def test_bastion_session_cookie_uses_parent_domain():
     assert headers
     joined = " ".join(headers)
     assert "bastion_session=jwt-token-value" in joined
-    assert "Domain=ar-systems.fr" in joined or "domain=ar-systems.fr" in joined
+    assert "Domain=example.com" in joined or "domain=example.com" in joined
 
 
 def test_clear_bastion_session_clears_parent_and_host_only():
@@ -37,4 +37,4 @@ def test_clear_bastion_session_clears_parent_and_host_only():
     headers = response.headers.getlist("set-cookie")
     # Parent Domain clear + host-only clear
     assert len(headers) >= 2
-    assert any("Domain=ar-systems.fr" in h or "domain=ar-systems.fr" in h for h in headers)
+    assert any("Domain=example.com" in h or "domain=example.com" in h for h in headers)

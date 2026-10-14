@@ -1,10 +1,12 @@
 """Nginx auth_request handler — RFC1918 bypass, break-glass, OIDC proxy."""
 
 import ipaddress
+import logging
 from typing import Mapping, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Request, Response
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.admin.export import realm_oauth2_proxy_url
@@ -18,6 +20,8 @@ from app.models import RealmConfig
 from app.request_client_ip import client_ip_from_request
 from app.security.session_binding_service import evaluate_sso_binding
 from app.sso_settings import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -68,12 +72,8 @@ def get_realm_proxy_url(realm_slug: Optional[str], settings: Settings, db: Sessi
     return settings.oauth2_proxy_default_url
 
 
-def _client_ip(request: Request) -> str:
-    return client_ip_from_request(request)
-
-
 def _rfc1918_response(request: Request, settings: Settings) -> Response | None:
-    client_ip = _client_ip(request)
+    client_ip = client_ip_from_request(request)
     if settings.rfc1918_bypass_enabled and is_rfc1918(client_ip, settings.rfc1918_cidrs):
         return Response(status_code=200, headers={"X-Auth-Source": "rfc1918-bypass"})
     return None
@@ -117,14 +117,8 @@ def iter_oidc_session_cookie_candidates(
 
     # Explicit nginx headers first — CrushFTP Cookie filters can starve the
     # auth subrequest Cookie jar; prefer X-Bastion-Session-* over $http_cookie.
-    _add(
-        request.headers.get("X-Bastion-Session-Cookie")
-        or request.headers.get("x-bastion-session-cookie")
-    )
-    _add(
-        request.headers.get("X-Bastion-Session-From-Jar")
-        or request.headers.get("x-bastion-session-from-jar")
-    )
+    _add(request.headers.get("X-Bastion-Session-Cookie"))
+    _add(request.headers.get("X-Bastion-Session-From-Jar"))
     _add(request.cookies.get(cookie_name))
     _add(_cookie_value_from_header(request.headers.get("Cookie") or "", cookie_name))
     return ordered
@@ -190,6 +184,19 @@ def _native_oidc_auth_response(
     return Response(status_code=200, headers=headers)
 
 
+async def _get_oauth2_auth(
+    request: Request, url: str, cookie_header: str
+) -> httpx.Response:
+    """Reuse the lifespan client (keep-alive to oauth2-proxy on every auth_request)."""
+    headers = {"Cookie": cookie_header}
+    shared = getattr(request.app.state, "oauth2_proxy_http", None)
+    if shared is not None:
+        return await shared.get(url, headers=headers)
+    # Lifespan not started (bare TestClient): no pool bound to another loop.
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        return await client.get(url, headers=headers)
+
+
 async def _oauth2_proxy_auth_response(
     request: Request,
     settings: Settings,
@@ -208,11 +215,7 @@ async def _oauth2_proxy_auth_response(
     # Portal auth_request is hot — release pool slot before outbound HTTP.
     release_db_connection(db)
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"{proxy_url}/oauth2/auth",
-                headers={"Cookie": cookie_header},
-            )
+        resp = await _get_oauth2_auth(request, f"{proxy_url}/oauth2/auth", cookie_header)
         # Preserve oauth2-proxy status (often 202 Accepted on success with set_xauthrequest).
         # Forward identity headers so Nginx auth_request_set can inject X-User / X-Email / …
         headers = _forward_auth_request_headers(resp.headers)
@@ -252,6 +255,8 @@ def _apply_oauth2_sso_binding(
         )
         db.commit()
     except Exception:
+        # Binding is a hardening signal: a bug here must not fail auth_request.
+        logger.exception("auth_request: SSO binding evaluation failed")
         db.rollback()
 
 
@@ -267,7 +272,8 @@ def _breakglass_auth_response(
     )
     try:
         db.commit()
-    except Exception:
+    except SQLAlchemyError:
+        logger.exception("auth_request: break-glass registry commit failed")
         db.rollback()
     if not result.ok:
         return Response(status_code=401)
