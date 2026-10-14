@@ -29,7 +29,7 @@ ADMIN_HEADERS = {"X-Email": "admin@example.com", "X-Groups": "portal-admins"}
 USER_HEADERS = {"X-Email": "user@example.com", "X-Groups": "transfer-users"}
 
 EAS_HOST = "webmail.example.fr"
-EAS_USER = "herve@example.fr"
+EAS_USER = "bob@example.fr"
 
 
 @pytest.fixture(autouse=True)
@@ -307,14 +307,14 @@ def test_unidentified_log_captures_the_query_and_the_reason(client, db_session, 
 
 def test_client_sending_no_device_is_flagged_as_such(client, db_session, eas_app):
     """The family that lot 2 will cut off, distinguished from a decoder bug."""
-    _sync(client, uri="/Microsoft-Server-ActiveSync?Cmd=Ping&User=herve@example.fr")
+    _sync(client, uri="/Microsoft-Server-ActiveSync?Cmd=Ping&User=bob@example.fr")
     detail = _audit(db_session, "activesync.device_unidentified")[-1].details
     assert detail["miss_reason"] == "named_query_without_device_id"
     assert detail["miss_family"] == "no_device_sent"
 
 
 def test_unidentified_log_never_carries_credentials(client, db_session, eas_app):
-    _sync(client, uri="/Microsoft-Server-ActiveSync?Cmd=Ping", user="herve@example.fr")
+    _sync(client, uri="/Microsoft-Server-ActiveSync?Cmd=Ping", user="bob@example.fr")
     detail = _audit(db_session, "activesync.device_unidentified")[-1].details
     # Credentials travel in Authorization; the sample must not leak them back in.
     assert "secret" not in str(detail)
@@ -448,8 +448,8 @@ def test_admin_can_block_from_the_fiche(client, db_session, eas_app):
 # --- admin fiche -------------------------------------------------------------
 
 KC_BASE = "https://kc.example.com"
-KC_ADMIN = f"{KC_BASE}/admin/realms/AR-SYSTEMS"
-TOKEN_URL = f"{KC_BASE}/realms/AR-SYSTEMS/protocol/openid-connect/token"
+KC_ADMIN = f"{KC_BASE}/admin/realms/EXAMPLE-CORP"
+TOKEN_URL = f"{KC_BASE}/realms/EXAMPLE-CORP/protocol/openid-connect/token"
 
 
 def _realm(db_session: Session) -> RealmConfig:
@@ -460,12 +460,12 @@ def _realm(db_session: Session) -> RealmConfig:
         database_url="sqlite://",
     )
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url=f"{KC_BASE}/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url=f"{KC_BASE}/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", s),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         enabled=True,
         keycloak_admin_client_id="bastion-admin-sync",
@@ -521,12 +521,12 @@ def test_fiche_lists_devices_and_backfills_keycloak_id(client, db_session, eas_a
 
 def test_normalize_user_key_strips_windows_domain_prefix():
     assert device_service.normalize_user_key(
-        r"AR-SYSTEMS\herve@example.fr"
-    ) == "herve@example.fr"
+        r"EXAMPLE-CORP\bob@example.fr"
+    ) == "bob@example.fr"
     assert device_service.normalize_user_key(
-        r"a.r. systems\herve@example.fr"
-    ) == "herve@example.fr"
-    assert device_service.normalize_user_key("herve@example.fr") == "herve@example.fr"
+        r"a.r. systems\bob@example.fr"
+    ) == "bob@example.fr"
+    assert device_service.normalize_user_key("bob@example.fr") == "bob@example.fr"
     assert device_service.normalize_user_key(r"DOMAIN\sam") == "sam"
 
 
@@ -537,7 +537,7 @@ def test_fiche_finds_device_stored_under_domain_prefix(client, db_session, eas_a
     _mock_keycloak_user()
     dirty = ActiveSyncDevice(
         application_id=eas_app.id,
-        user_key=r"ar-systems.fr\herve@example.fr",
+        user_key=r"example.com\bob@example.fr",
         device_id="ApplC39ZH2VJJCM3",
         device_type="iPhone",
         status="pending",
@@ -554,7 +554,7 @@ def test_fiche_finds_device_stored_under_domain_prefix(client, db_session, eas_a
 
     db_session.expire_all()
     device = _devices(db_session)[0]
-    assert device.user_key == "herve@example.fr"
+    assert device.user_key == "bob@example.fr"
     assert device.keycloak_user_id == "kc-eas-1"
 
 
@@ -562,7 +562,7 @@ def test_fiche_finds_device_stored_under_domain_prefix(client, db_session, eas_a
 def test_sighting_with_domain_prefix_rewrites_legacy_row(client, db_session, eas_app):
     dirty = ActiveSyncDevice(
         application_id=eas_app.id,
-        user_key=r"AR-SYSTEMS\herve@example.fr",
+        user_key=r"EXAMPLE-CORP\bob@example.fr",
         device_id="ApplC39ZH2VJJCM3",
         status="pending",
         source="observed",
@@ -571,12 +571,12 @@ def test_sighting_with_domain_prefix_rewrites_legacy_row(client, db_session, eas
     db_session.add(dirty)
     db_session.commit()
 
-    resp = _sync(client, user=r"AR-SYSTEMS\herve@example.fr")
+    resp = _sync(client, user=r"EXAMPLE-CORP\bob@example.fr")
     assert resp.status_code == 200
 
     devices = _devices(db_session)
     assert len(devices) == 1
-    assert devices[0].user_key == "herve@example.fr"
+    assert devices[0].user_key == "bob@example.fr"
     assert devices[0].request_count >= 2
 
 
@@ -587,7 +587,7 @@ def test_fiche_merges_duplicate_device_id_rows(client, db_session, eas_app):
     _mock_keycloak_user()
     approved = ActiveSyncDevice(
         application_id=eas_app.id,
-        user_key="herve@example.fr",
+        user_key="bob@example.fr",
         device_id="FBJV9GQUIC5K",
         device_type="iPhone",
         status="approved",
@@ -597,7 +597,7 @@ def test_fiche_merges_duplicate_device_id_rows(client, db_session, eas_app):
     )
     pending_twin = ActiveSyncDevice(
         application_id=eas_app.id,
-        user_key=r"ar-systems.fr\herve@example.fr",
+        user_key=r"example.com\bob@example.fr",
         device_id="FBJV9GQUIC5K",
         device_type="iPhone",
         status="pending",
@@ -616,7 +616,7 @@ def test_fiche_merges_duplicate_device_id_rows(client, db_session, eas_app):
 
     devices = _devices(db_session)
     assert len(devices) == 1
-    assert devices[0].user_key == "herve@example.fr"
+    assert devices[0].user_key == "bob@example.fr"
     assert devices[0].status == "approved"
     assert devices[0].request_count == 12
 
@@ -624,7 +624,7 @@ def test_fiche_merges_duplicate_device_id_rows(client, db_session, eas_app):
 def test_merge_prefers_blocked_over_approved(db_session, eas_app):
     blocked = ActiveSyncDevice(
         application_id=eas_app.id,
-        user_key="herve@example.fr",
+        user_key="bob@example.fr",
         device_id="DEVBLOCK1",
         status="blocked",
         source="admin",
@@ -633,7 +633,7 @@ def test_merge_prefers_blocked_over_approved(db_session, eas_app):
     )
     approved = ActiveSyncDevice(
         application_id=eas_app.id,
-        user_key=r"DOMAIN\herve@example.fr",
+        user_key=r"DOMAIN\bob@example.fr",
         device_id="DEVBLOCK1",
         status="approved",
         source="admin",
@@ -648,7 +648,7 @@ def test_merge_prefers_blocked_over_approved(db_session, eas_app):
     assert len(survivors) == 1
     assert survivors[0].status == "blocked"
     assert survivors[0].blocked_by_admin is True
-    assert survivors[0].user_key == "herve@example.fr"
+    assert survivors[0].user_key == "bob@example.fr"
     assert survivors[0].request_count == 6
     assert len(_devices(db_session)) == 1
 
@@ -658,7 +658,7 @@ def test_sighting_does_not_create_twin_when_sibling_exists(client, db_session, e
     db_session.add(
         ActiveSyncDevice(
             application_id=eas_app.id,
-            user_key=r"AR-SYSTEMS\herve@example.fr",
+            user_key=r"EXAMPLE-CORP\bob@example.fr",
             device_id="ApplTWIN001",
             status="approved",
             source="admin",
@@ -669,7 +669,7 @@ def test_sighting_does_not_create_twin_when_sibling_exists(client, db_session, e
 
     resp = _sync(
         client,
-        user="herve@example.fr",
+        user="bob@example.fr",
         uri=(
             f"/Microsoft-Server-ActiveSync?Cmd=Ping&User={EAS_USER}"
             "&DeviceId=ApplTWIN001&DeviceType=iPhone"
@@ -679,7 +679,7 @@ def test_sighting_does_not_create_twin_when_sibling_exists(client, db_session, e
 
     devices = _devices(db_session)
     assert len(devices) == 1
-    assert devices[0].user_key == "herve@example.fr"
+    assert devices[0].user_key == "bob@example.fr"
     assert devices[0].status == "approved"
     assert devices[0].request_count >= 4
 
@@ -1040,7 +1040,7 @@ def test_device_control_preview_is_app_scoped_and_lists_inventory(
     )
     approved = ActiveSyncDevice(
         application_id=eas_app.id,
-        user_key="vincent@example.fr",
+        user_key="alice@example.fr",
         device_id="PREVIEWIPHONE2",
         device_type="iPhone",
         status="approved",
@@ -1058,7 +1058,7 @@ def test_device_control_preview_is_app_scoped_and_lists_inventory(
     assert 'class="page"' in page.text
     assert "data-table" in page.text
     assert EAS_USER in page.text
-    assert "vincent@example.fr" in page.text
+    assert "alice@example.fr" in page.text
     assert "sera approuvé" in page.text
     assert "Contrôle inactif" in page.text
 

@@ -35,12 +35,12 @@ def _realm(db: Session) -> RealmConfig:
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
     )
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", settings),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         is_default=True,
         enabled=True,
@@ -61,7 +61,7 @@ def _user() -> UserContext:
         email="alice@example.com",
         username="alice",
         keycloak_user_id="kc-user-alice",
-        realm_slug="ar-systems",
+        realm_slug="example-corp",
         groups=["team-ops"],
         auth_source="sso",
         is_admin=False,
@@ -156,7 +156,7 @@ def test_profile_expired_native_sessions_hidden(client: TestClient, db_session: 
         jti="expired-jti",
         sub="kc-user-alice",
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         expires_at=datetime.now(timezone.utc) - timedelta(hours=2),
         revoked=False,
     )
@@ -164,7 +164,7 @@ def test_profile_expired_native_sessions_hidden(client: TestClient, db_session: 
         jti="active-jti",
         sub="kc-user-alice",
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=2),
         revoked=False,
     )
@@ -184,7 +184,7 @@ def test_profile_revoke_native_session(client: TestClient, db_session: Session):
         jti="other-jti",
         sub="kc-user-alice",
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         revoked=False,
     )
@@ -221,7 +221,7 @@ async def test_forgot_password_always_generic(db_session: Session):
         msg = await request_forgot_password(
             db_session,
             settings=settings,
-            realm_slug="ar-systems",
+            realm_slug="example-corp",
             identity="unknown@example.com",
             ip_address="127.0.0.1",
         )
@@ -245,7 +245,7 @@ def test_forgot_password_page_and_post(client: TestClient, db_session: Session):
             data={
                 "csrf_token": csrf.group(1),
                 "identity": "alice@example.com",
-                "realm": "ar-systems",
+                "realm": "example-corp",
             },
             follow_redirects=False,
         )
@@ -262,7 +262,7 @@ def test_login_page_has_forgot_password_link(
     settings = Settings(
         vault_portal_internal_token="test-secret",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
-        oidc_native_session_enabled_realms="ar-systems",
+        oidc_native_session_enabled_realms="example-corp",
     )
     get_settings.cache_clear()
     monkeypatch.setattr("app.auth.oidc_bff.get_settings", lambda: settings)

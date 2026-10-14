@@ -49,9 +49,9 @@ def test_realm_oauth2_proxy_url_docker_core_uses_oauth2_proxy_core(db_session: S
         database_url="sqlite://",
         oauth2_proxy_network_mode="docker",
         oauth2_core_static_enabled=True,
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
     )
-    realm = _realm(db_session, settings, slug="ar-systems", port=4180)
+    realm = _realm(db_session, settings, slug="example-corp", port=4180)
     assert realm_oauth2_proxy_url(realm, settings) == "http://oauth2-proxy-core:4180"
 
 
@@ -60,7 +60,7 @@ def test_generate_oauth2_proxy_config_includes_pkce(db_session: Session):
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
         oauth2_proxy_network_mode="docker",
-        portal_domain="portal.ar-systems.fr",
+        portal_domain="portal.example.com",
     )
     realm = _realm(db_session, settings)
     cfg = generate_oauth2_proxy_config(realm, settings)
@@ -72,9 +72,9 @@ def test_generate_oauth2_proxy_config_includes_pkce(db_session: Session):
     assert 'cookie_samesite = "lax"' in cfg
     assert "cookie_secure = true" in cfg
     assert "cookie_httponly = true" in cfg
-    # portal.ar-systems.fr → parent domain for subdomain SSO cookies
-    assert 'cookie_domains = [ ".ar-systems.fr" ]' in cfg
-    assert 'whitelist_domains = [ ".ar-systems.fr" ]' in cfg
+    # portal.example.com → parent domain for subdomain SSO cookies
+    assert 'cookie_domains = [ ".example.com" ]' in cfg
+    assert 'whitelist_domains = [ ".example.com" ]' in cfg
 
 
 def test_generate_oauth2_proxy_config_skips_cookie_domains_for_short_portal(
@@ -98,7 +98,7 @@ def test_nginx_realms_conf_uses_docker_dns(db_session: Session):
         database_url="sqlite://",
         oauth2_proxy_network_mode="docker",
         oauth2_core_static_enabled=True,
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
     )
     _realm(db_session, settings)
     conf = generate_nginx_realms_conf(db_session, settings)

@@ -668,8 +668,8 @@ def sync_local_to_db(
 def _lookup_latest_for_row(
     row: DependencySnapshot,
     http: httpx.Client,
-) -> tuple[str, str | None, str | None]:
-    """Return (name, latest_or_none, error_or_none)."""
+) -> tuple[tuple[str, str], str | None, str | None]:
+    """Return ((ecosystem, name), latest_or_none, error_or_none)."""
     try:
         if row.ecosystem == "python":
             latest = fetch_pypi_latest(row.name, client=http)
@@ -677,9 +677,9 @@ def _lookup_latest_for_row(
             latest = fetch_npm_latest(row.name, client=http)
         else:
             raise ValueError(f"unknown ecosystem: {row.ecosystem}")
-        return row.name, latest, None
+        return (row.ecosystem, row.name), latest, None
     except Exception as exc:  # noqa: BLE001 — per-package isolation
-        return row.name, None, str(exc)[:500]
+        return (row.ecosystem, row.name), None, str(exc)[:500]
 
 
 def refresh_latest_versions(
@@ -718,18 +718,19 @@ def refresh_latest_versions(
     checked = 0
     errors = 0
     now = utcnow()
-    results: dict[str, tuple[str | None, str | None]] = {}
+    # Same package name can exist in both ecosystems (e.g. python and npm "semver").
+    results: dict[tuple[str, str], tuple[str | None, str | None]] = {}
 
     try:
         workers = min(LOOKUP_MAX_WORKERS, max(1, len(rows)))
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [pool.submit(_lookup_latest_for_row, row, http) for row in rows]
             for fut in as_completed(futures):
-                name, latest, err = fut.result()
-                results[name] = (latest, err)
+                key, latest, err = fut.result()
+                results[key] = (latest, err)
 
         for row in rows:
-            latest, err = results.get(row.name, (None, "lookup missing"))
+            latest, err = results.get((row.ecosystem, row.name), (None, "lookup missing"))
             if latest and not err:
                 row.latest_version = latest
                 row.status = compute_status(row.current_version, latest)

@@ -24,12 +24,12 @@ def _settings() -> Settings:
 def _realm(db) -> RealmConfig:
     s = _settings()
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url=f"{KC_BASE}/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url=f"{KC_BASE}/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", s),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         enabled=True,
         groups_sync_enabled=True,

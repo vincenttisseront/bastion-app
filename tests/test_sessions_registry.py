@@ -14,7 +14,7 @@ USER_HEADERS = {
     "X-Preferred-Username": "alice",
     "X-User-Id": "kc-user-alice",
     "X-Groups": "team-ops",
-    "X-Portal-Realm-Slug": "ar-systems",
+    "X-Portal-Realm-Slug": "example-corp",
 }
 
 OTHER_HEADERS = {
@@ -22,14 +22,14 @@ OTHER_HEADERS = {
     "X-Preferred-Username": "bob",
     "X-User-Id": "kc-user-bob",
     "X-Groups": "",
-    "X-Portal-Realm-Slug": "ar-systems",
+    "X-Portal-Realm-Slug": "example-corp",
 }
 
 ADMIN_HEADERS = {
     "X-Email": "admin@example.com",
     "X-Preferred-Username": "admin",
     "X-Groups": "portal-admins",
-    "X-Portal-Realm-Slug": "ar-systems",
+    "X-Portal-Realm-Slug": "example-corp",
 }
 
 
@@ -168,11 +168,11 @@ def test_group_sessions_merges_short_and_full_email():
 
     sessions = [
         {
-            "id": "portal:vincent.tisseront@ar-systems.fr:ar-systems",
+            "id": "portal:alice.martin@example.com:example-corp",
             "kind": "user",
-            "user": "vincent.tisseront",
-            "user_email": "vincent.tisseront@ar-systems.fr",
-            "realm": "ar-systems",
+            "user": "alice.martin",
+            "user_email": "alice.martin@example.com",
+            "realm": "example-corp",
             "target": "portal",
             "auth_family": "oidc",
             "source_ip": "192.168.1.1",
@@ -180,11 +180,11 @@ def test_group_sessions_merges_short_and_full_email():
             "duration": "5m",
         },
         {
-            "id": "app:vincent.tisseront@ar-systems.fr:dolibarr",
+            "id": "app:alice.martin@example.com:dolibarr",
             "kind": "app",
-            "user": "vincent.tisseront",
-            "user_email": "vincent.tisseront@ar-systems.fr",
-            "realm": "ar-systems",
+            "user": "alice.martin",
+            "user_email": "alice.martin@example.com",
+            "realm": "example-corp",
             "target": "dolibarr",
             "auth_family": "app",
             "source_ip": "192.168.1.1",
@@ -192,11 +192,11 @@ def test_group_sessions_merges_short_and_full_email():
             "duration": "1m",
         },
         {
-            "id": "app:vincent.tisseront:dolibarr",
+            "id": "app:alice.martin:dolibarr",
             "kind": "app",
-            "user": "vincent.tisseront",
-            "user_email": "vincent.tisseront",
-            "realm": "ar-systems",
+            "user": "alice.martin",
+            "user_email": "alice.martin",
+            "realm": "example-corp",
             "target": "dolibarr",
             "auth_family": "app",
             "source_ip": "192.168.1.1",
@@ -209,7 +209,7 @@ def test_group_sessions_merges_short_and_full_email():
     groups = group_sessions_by_user(sessions)
     assert len(groups) == 1
     g = groups[0]
-    assert g["user_email"] == "vincent.tisseront@ar-systems.fr"
+    assert g["user_email"] == "alice.martin@example.com"
     assert g["session_count"] == 2
     targets = {s["target"] for s in g["sessions"]}
     assert targets == {"portal", "dolibarr"}
@@ -234,25 +234,25 @@ def test_session_stores_x_real_ip_not_tcp_peer(client: TestClient, db_session: S
 
 def test_infra_ip_hidden_in_api_display(client: TestClient, db_session: Session):
     """Reverse01 alone must not be stored as the end-user client IP."""
-    client.get("/apps", headers={**USER_HEADERS, "X-Real-IP": "172.24.0.108"})
+    client.get("/apps", headers={**USER_HEADERS, "X-Real-IP": "10.20.0.108"})
     api = client.get("/api/sessions", headers=USER_HEADERS).json()
     portal = next(s for s in api["sessions"] if s["kind"] == "user")
     assert portal["client_ip"] == "—"
     assert portal["client_ip_is_infra"] is True
     assert portal["client_ip_raw"] in (None, "")
-    assert portal["client_ip_raw"] != "172.24.0.108"
+    assert portal["client_ip_raw"] != "10.20.0.108"
 
 
 def test_admin_sessions_include_ip_probe(client: TestClient, db_session: Session):
     client.get("/apps", headers=ADMIN_HEADERS)
     api = client.get(
         "/api/sessions",
-        headers={**ADMIN_HEADERS, "X-Real-IP": "203.0.113.9", "X-Forwarded-For": "203.0.113.9, 172.24.0.108"},
+        headers={**ADMIN_HEADERS, "X-Real-IP": "203.0.113.9", "X-Forwarded-For": "203.0.113.9, 10.20.0.108"},
     )
     assert api.status_code == 200
     probe = api.json()["ip_probe"]
     assert probe["x_real_ip"] == "203.0.113.9"
-    assert "172.24.0.108" in (probe["x_forwarded_for"] or "")
+    assert "10.20.0.108" in (probe["x_forwarded_for"] or "")
     assert probe["resolved"] == "203.0.113.9"
     assert probe["resolved_is_infra"] is False
 

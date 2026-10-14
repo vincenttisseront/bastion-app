@@ -77,7 +77,7 @@ def test_subdomain_and_public_proxy_exports_are_not_default_server():
         ),
         Settings(
             portal_domain="portal.example.fr",
-            sso_portal_default_realm_slug="ar-systems",
+            sso_portal_default_realm_slug="example-corp",
             exports_dir="data/x",
         ),  # type: ignore[arg-type]
     )
@@ -259,7 +259,7 @@ def test_docker_nginx_real_ip_does_not_trust_client_x_real_ip():
 
     nginx_conf = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
     assert "include /etc/nginx/includes/cloudflare-ips.conf;" in nginx_conf
-    assert "set_real_ip_from 172.24.0.108" not in nginx_conf
+    assert "set_real_ip_from 10.20.0.108" not in nginx_conf
     assert "set_real_ip_from 10.5.0.0/16" in nginx_conf
     assert "real_ip_header CF-Connecting-IP;" in nginx_conf
     assert "real_ip_recursive on" in nginx_conf
@@ -275,7 +275,7 @@ def test_docker_nginx_real_ip_does_not_trust_client_x_real_ip():
     assert real_ip_from_lines
     joined = "\n".join(real_ip_from_lines)
     assert "0.0.0.0/0" not in joined
-    assert "172.24.0.0/16" not in joined
+    assert "10.20.0.0/16" not in joined
     forwarded = (ROOT / "docker/nginx/snippets/proxy_portal_forwarded.conf").read_text(
         encoding="utf-8"
     )

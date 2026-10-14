@@ -64,6 +64,7 @@ from app.web.nginx_app_logs import (
 )
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.csrf import portal_signing_secret
 
 logger = logging.getLogger(__name__)
 
@@ -737,7 +738,7 @@ def admin_logs_save_columns(
         response,
         "Colonnes enregistrées.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -791,7 +792,7 @@ def admin_logs_save_view(
         response,
         f"Vue « {view_name} » enregistrée.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -816,7 +817,7 @@ def admin_logs_delete_view(
             response,
             "La vue système ne peut pas être supprimée.",
             "error",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
         return response
     if row:
@@ -827,7 +828,7 @@ def admin_logs_delete_view(
         response,
         "Vue supprimée.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 

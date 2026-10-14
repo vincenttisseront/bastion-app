@@ -23,6 +23,7 @@ from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.csrf import portal_signing_secret
 
 router = APIRouter(tags=["admin-acme"], dependencies=[Depends(require_admin)])
 
@@ -103,14 +104,14 @@ def admin_acme_settings_post(
             response,
             "Configuration ACME enregistrée (runtime env exporté pour le sidecar).",
             "success",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
     except ValueError as exc:
         flash_redirect(
             response,
             str(exc),
             "error",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
     return response
 
@@ -128,6 +129,6 @@ def admin_acme_reconcile_post(
         response,
         message,
         "success" if ok else "error",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response

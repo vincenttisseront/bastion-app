@@ -40,7 +40,7 @@ def test_skips_infra_xff_hops_for_real_client():
     ip = client_ip_from_request(
         _req(
             headers={
-                "X-Forwarded-For": "172.24.0.108, 10.5.0.12",
+                "X-Forwarded-For": "10.20.0.108, 10.5.0.12",
                 "X-Real-IP": "192.168.2.167",
             },
             host="10.5.0.1",
@@ -56,13 +56,13 @@ def test_client_ip_probe_exposes_sources():
         _req(
             headers={
                 "X-Real-IP": "203.0.113.1",
-                "X-Forwarded-For": "203.0.113.1, 172.24.0.108",
+                "X-Forwarded-For": "203.0.113.1, 10.20.0.108",
             },
             host="10.5.0.9",
         )
     )
     assert probe["x_real_ip"] == "203.0.113.1"
-    assert probe["x_forwarded_for"] == "203.0.113.1, 172.24.0.108"
+    assert probe["x_forwarded_for"] == "203.0.113.1, 10.20.0.108"
     assert probe["request_client_host"] == "10.5.0.9"
     assert probe["peer_is_trusted_proxy"] is True
     assert probe["resolved"] == "203.0.113.1"
@@ -106,19 +106,19 @@ def test_x_real_ip_preferred_over_tcp_peer_when_trusted():
 
 def test_legacy_dmz_host_ip_is_not_hardcoded_infra():
     """Customer/DMZ host IPs must not be baked in — only docker/loopback infra."""
-    assert not is_infra_hop("172.24.0.108")
-    assert not is_infra_hop("172.24.0.50")
+    assert not is_infra_hop("10.20.0.108")
+    assert not is_infra_hop("10.20.0.50")
     assert is_infra_hop("10.5.0.12")
     ip = client_ip_from_request(
         _req(
             headers={
-                "X-Real-IP": "172.24.0.50",
-                "X-Forwarded-For": "172.24.0.50",
+                "X-Real-IP": "10.20.0.50",
+                "X-Forwarded-For": "10.20.0.50",
             },
             host="10.5.0.2",
         )
     )
-    assert ip == "172.24.0.50"
+    assert ip == "10.20.0.50"
 
 
 def test_portal_client_ip_header_survives_when_xff_is_private():
@@ -128,12 +128,12 @@ def test_portal_client_ip_header_survives_when_xff_is_private():
             headers={
                 "X-Real-IP": "10.5.0.1",
                 "X-Forwarded-For": "10.5.0.1",
-                "X-Portal-Client-IP": "172.24.0.50",
+                "X-Portal-Client-IP": "10.20.0.50",
             },
             host="10.5.0.2",
         )
     )
-    assert ip == "172.24.0.50"
+    assert ip == "10.20.0.50"
 
 
 def test_cf_connecting_ip_ignored_app_uses_nginx_x_real_ip():
@@ -177,13 +177,13 @@ def test_ignores_cdn_spoof_headers_even_from_trusted_peer():
 
 
 def test_corp_lan_172_24_workstation_is_not_infra():
-    """Entire 172.24.0.0/16 is client LAN — never baked as infra hop."""
-    assert not is_infra_hop("172.24.0.50")
-    assert not is_infra_hop("172.24.0.108")
+    """Entire 10.20.0.0/16 is client LAN — never baked as infra hop."""
+    assert not is_infra_hop("10.20.0.50")
+    assert not is_infra_hop("10.20.0.108")
     ip = client_ip_from_request(
-        _req(headers={"X-Real-IP": "172.24.0.50"}, host="10.5.0.2")
+        _req(headers={"X-Real-IP": "10.20.0.50"}, host="10.5.0.2")
     )
-    assert ip == "172.24.0.50"
+    assert ip == "10.20.0.50"
 
 
 def test_prefer_client_ip_upgrades_infra():
@@ -191,7 +191,7 @@ def test_prefer_client_ip_upgrades_infra():
     assert prefer_client_ip("192.168.2.10", "10.5.0.1") == "192.168.2.10"
     assert is_infra_hop("10.5.0.1")
     assert not is_infra_hop("192.168.2.10")
-    assert not is_infra_hop("172.24.0.42")
+    assert not is_infra_hop("10.20.0.42")
     assert is_trusted_proxy_peer("10.5.0.1")
     assert not is_trusted_proxy_peer("203.0.113.1")
 
@@ -199,7 +199,7 @@ def test_prefer_client_ip_upgrades_infra():
 def test_app_trusts_only_docker_peer_not_external_lan_as_proxy():
     """FastAPI must not treat arbitrary LAN hosts as TCP trusted proxies."""
     assert is_trusted_proxy_peer("10.5.0.8")
-    assert not is_trusted_proxy_peer("172.24.0.108")
+    assert not is_trusted_proxy_peer("10.20.0.108")
     # Spoofed public client via headers from an untrusted peer is ignored.
     ip = client_ip_from_request(
         _req(
@@ -207,10 +207,10 @@ def test_app_trusts_only_docker_peer_not_external_lan_as_proxy():
                 "X-Real-IP": "203.0.113.77",
                 "X-Forwarded-For": "203.0.113.77",
             },
-            host="172.24.0.108",
+            host="10.20.0.108",
         )
     )
-    assert ip == "172.24.0.108"
+    assert ip == "10.20.0.108"
 
 
 def test_trusted_nginx_bastion_with_public_xff_resolves_client():

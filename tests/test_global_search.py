@@ -105,7 +105,7 @@ def test_global_search_user_only_applications(client, db_session):
         RealmConfig(
             slug="portal",
             name="Portal Realm",
-            issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+            issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
             client_id="c",
             client_secret_encrypted="x",
             redirect_uri="https://portal.example.com/oauth2/callback",
@@ -156,7 +156,7 @@ def test_global_search_admin_categories(client, db_session):
         RealmConfig(
             slug="acme-systems",
             name="Acme Systems",
-            issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+            issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
             client_id="c",
             client_secret_encrypted="x",
             redirect_uri="https://portal.example.com/oauth2/callback",
@@ -229,33 +229,33 @@ def test_global_search_admin_users_fuzzy(client, db_session):
     token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
     respx.post(token_url).respond(200, json={"access_token": "t"})
     respx.get(
-        "https://kc.example.com/admin/realms/AR-SYSTEMS/users?search=vincnet&max=20"
+        "https://kc.example.com/admin/realms/EXAMPLE-CORP/users?search=alicr&max=20"
     ).respond(200, json=[])
     respx.get(
-        "https://kc.example.com/admin/realms/AR-SYSTEMS/users?search=vi&max=100"
+        "https://kc.example.com/admin/realms/EXAMPLE-CORP/users?search=al&max=100"
     ).respond(
         200,
         json=[
             {
                 "id": "user-1",
-                "username": "vincent.tisseront",
-                "email": "vincent@example.com",
+                "username": "alice.martin",
+                "email": "alice@example.com",
             }
         ],
     )
 
     resp = client.get(
-        "/api/search?q=vincnet",
+        "/api/search?q=alicr",
         headers={**ADMIN_HEADERS, "Accept": "application/json"},
     )
     assert resp.status_code == 200
     data = resp.json()
     assert "users" in data["results"]
-    assert data["results"]["users"][0]["label"] == "vincent.tisseront"
+    assert data["results"]["users"][0]["label"] == "alice.martin"
 
     # Same typo must not expose users to a standard account.
     resp_user = client.get(
-        "/api/search?q=vincnet",
+        "/api/search?q=alicr",
         headers={**USER_HEADERS, "Accept": "application/json"},
     )
     assert "users" not in resp_user.json()["results"]

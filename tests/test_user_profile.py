@@ -52,12 +52,12 @@ def _default_realm(db: Session, *, with_provisioning: bool = False) -> RealmConf
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
     )
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", settings),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         is_default=True,
         enabled=True,
@@ -141,7 +141,7 @@ def test_user_profile_security_links_keycloak_account_fallback(
     _default_realm(db_session)
     resp = client.get("/profile", headers=USER_HEADERS)
     assert resp.status_code == 200
-    assert 'href="https://kc.example.com/realms/AR-SYSTEMS/account/"' in resp.text
+    assert 'href="https://kc.example.com/realms/EXAMPLE-CORP/account/"' in resp.text
     assert 'action="/profile/password"' in resp.text
     assert "Ouvrir la console identité" in resp.text
 
@@ -205,12 +205,12 @@ def test_user_profile_identity_from_oidc_headers(client: TestClient, db_session:
     _default_realm(db_session)
     headers = {
         **USER_HEADERS,
-        "X-Given-Name": "Vincent",
-        "X-Family-Name": "Tisseront",
+        "X-Given-Name": "Alice",
+        "X-Family-Name": "Martin",
     }
     resp = client.get("/profile", headers=headers)
     assert resp.status_code == 200
-    assert "Vincent TISSERONT" in resp.text
+    assert "Alice MARTIN" in resp.text
 
 
 def test_user_profile_given_name_greeting_on_apps(

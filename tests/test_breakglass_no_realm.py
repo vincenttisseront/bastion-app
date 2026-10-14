@@ -23,7 +23,7 @@ def _settings() -> Settings:
         portal_domain="portal.test",
         database_url="sqlite://",
         breakglass_jwt_secret=SECRET,
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
         portal_admin_groups=["portal-admins"],
     )
 
@@ -31,7 +31,7 @@ def _settings() -> Settings:
 def test_is_breakglass_email():
     assert is_breakglass_email("admin@breakglass.local")
     assert is_breakglass_email("Admin@Breakglass.Local")
-    assert not is_breakglass_email("admin@ar-systems.fr")
+    assert not is_breakglass_email("admin@example.com")
     assert not is_breakglass_email(None)
 
 
@@ -61,7 +61,7 @@ def test_get_user_context_breakglass_header_clears_default_realm():
             "x-email": "admin@breakglass.local",
             "x-preferred-username": "admin",
             "x-portal-auth-source": "breakglass",
-            "x-portal-realm-slug": "ar-systems",
+            "x-portal-realm-slug": "example-corp",
             "x-groups": "portal-admins",
             "x-portal-internal-token": "test-secret",
         }
@@ -89,11 +89,11 @@ def test_touch_portal_session_breakglass_no_realm_no_pending(db_session: Session
     # Legacy wrongly-attributed row (pre-fix production state)
     db_session.add(
         ActiveSession(
-            id="portal:admin@breakglass.local:ar-systems",
+            id="portal:admin@breakglass.local:example-corp",
             kind="user",
             user_email="admin@breakglass.local",
             username="admin",
-            realm="ar-systems",
+            realm="example-corp",
             protocol="BREAKGLASS",
             target="portal",
             status="active",
@@ -108,7 +108,7 @@ def test_touch_portal_session_breakglass_no_realm_no_pending(db_session: Session
     assert row.protocol == "BREAKGLASS"
     assert (
         db_session.query(ActiveSession)
-        .filter_by(id="portal:admin@breakglass.local:ar-systems")
+        .filter_by(id="portal:admin@breakglass.local:example-corp")
         .first()
         is None
     )

@@ -88,8 +88,8 @@ def test_rbac_groups_search_includes_empty_ldap_groups(client, db_session):
     db_session.add_all(
         [
             RBACGroup(
-                name="28RT",
-                path="/CLIENTS/28RT",
+                name="ACME01",
+                path="/CLIENTS/ACME01",
                 member_count=0,
             ),
             RBACGroup(name="ops", path="/ops", member_count=4),
@@ -99,12 +99,12 @@ def test_rbac_groups_search_includes_empty_ldap_groups(client, db_session):
 
     hidden = client.get("/admin/rbac", headers=ADMIN_HEADERS)
     assert hidden.status_code == 200
-    assert "28RT" not in hidden.text
+    assert "ACME01" not in hidden.text
     assert "ops" in hidden.text
 
-    found = client.get("/admin/rbac?q=28RT", headers=ADMIN_HEADERS)
+    found = client.get("/admin/rbac?q=ACME01", headers=ADMIN_HEADERS)
     assert found.status_code == 200
-    assert "28RT" in found.text
-    assert "/CLIENTS/28RT" in found.text
+    assert "ACME01" in found.text
+    assert "/CLIENTS/ACME01" in found.text
     assert "ops" not in found.text
     assert "groupes vides correspondant à la recherche" in found.text

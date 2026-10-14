@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import tempfile
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -12,15 +15,39 @@ from app.robotic.robotic_session_cookies import portal_sso_cookie_domain
 from app.secret_crypto import decrypt_secret, encrypt_secret, generate_cookie_secret
 from app.sso_settings import Settings
 
+logger = logging.getLogger(__name__)
+
 
 def compute_redirect_uri(slug: str, settings: Settings) -> str:
     return f"https://{settings.portal_domain}/oauth2/{slug}/callback"
 
 
-def _exports_path(settings: Settings) -> Path:
+def exports_path(settings: Settings) -> Path:
     path = Path(settings.exports_dir)
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _toml_str(value: object) -> str:
+    """Quoted TOML basic string: realm fields must never inject oauth2-proxy directives."""
+    return json.dumps("" if value is None else str(value), ensure_ascii=False)
+
+
+def _one_line(value: object) -> str:
+    return " ".join(str(value or "").split())
+
+
+def write_private_file(path: Path, content: str) -> None:
+    """Atomic 0600 write: readers never see a partial file holding secrets."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(content)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def _ensure_cookie_secret(realm: RealmConfig, settings: Settings) -> str:
@@ -53,21 +80,21 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
     else:
         http_address = f"127.0.0.1:{realm.oauth2_proxy_port}"
     lines = [
-        f"# Generated for realm: {realm.slug} — source of truth: DB RealmConfig (do not edit)",
-        f'http_address = "{http_address}"',
+        f"# Generated for realm: {_one_line(realm.slug)} — source of truth: DB RealmConfig (do not edit)",
+        f"http_address = {_toml_str(http_address)}",
         # auth_request-only: no reverse proxy to FastAPI (Nginx handles app traffic)
         'upstreams = [ "file:///dev/null" ]',
         "reverse_proxy = true",
         "skip_provider_button = true",
         'provider = "oidc"',
-        f'oidc_issuer_url = "{realm.issuer_url}"',
-        f'client_id = "{realm.client_id}"',
-        f'client_secret = "{client_secret}"',
-        f'redirect_url = "{realm.redirect_uri}"',
-        f'cookie_secret = "{cookie_secret}"',
+        f"oidc_issuer_url = {_toml_str(realm.issuer_url)}",
+        f"client_id = {_toml_str(realm.client_id)}",
+        f"client_secret = {_toml_str(client_secret)}",
+        f"redirect_url = {_toml_str(realm.redirect_uri)}",
+        f"cookie_secret = {_toml_str(cookie_secret)}",
         # Keycloak PKCE — required when client enforces code_challenge_method
         'code_challenge_method = "S256"',
-        f'scope = "{realm.scopes}"',
+        f"scope = {_toml_str(realm.scopes)}",
         "email_domains = [\"*\"]",
         # Keycloak/AD may expose an email claim with email_verified=false.
         # Without this, oauth2-proxy can omit/refuse the email for some users,
@@ -98,9 +125,9 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
     sso_domain = portal_sso_cookie_domain(settings.portal_domain or "")
     if sso_domain:
         dotted = sso_domain if sso_domain.startswith(".") else f".{sso_domain}"
-        lines.append(f'cookie_domains = [ "{dotted}" ]')
+        lines.append(f"cookie_domains = [ {_toml_str(dotted)} ]")
         # Allow absolute rd=https://webmail…/ after 401 on subdomain vhosts.
-        lines.append(f'whitelist_domains = [ "{dotted}" ]')
+        lines.append(f"whitelist_domains = [ {_toml_str(dotted)} ]")
     lines.extend(
         [
         "set_xauthrequest = true",
@@ -159,7 +186,7 @@ def generate_nginx_realms_conf(
 
     for realm in realms:
         proxy_base = realm_oauth2_proxy_url(realm, settings)
-        lines.append(f"# Realm: {realm.slug} ({realm.name})")
+        lines.append(f"# Realm: {_one_line(realm.slug)} ({_one_line(realm.name)})")
         if docker:
             # oauth2-proxy-clients:4180 → host:port for set $var (strip any scheme)
             _http = "http" + "://"
@@ -228,8 +255,8 @@ def export_app_catalogue_files(db: Session, settings: Settings) -> dict[str, str
     from app.bastion.nginx_public_proxy_export import write_public_proxy_apps_exports
     from app.bastion.nginx_subdomain_export import write_subdomain_apps_exports
 
-    exports_path = _exports_path(settings)
-    apps_path = exports_path / "nginx-portal-apps.conf"
+    root = exports_path(settings)
+    apps_path = root / "nginx-portal-apps.conf"
     apps_path.write_text(generate_nginx_apps_conf(db), encoding="utf-8")
     paths = {"nginx_apps_conf": str(apps_path)}
     paths.update(write_subdomain_apps_exports(db, settings))
@@ -239,40 +266,39 @@ def export_app_catalogue_files(db: Session, settings: Settings) -> dict[str, str
 
         paths["nginx_mta_sts_conf"] = str(write_mta_sts_nginx_export(db, settings))
     except Exception:
-        pass
+        logger.warning("MTA-STS nginx export skipped", exc_info=True)
     paths["nginx_known_hosts_map"] = str(write_known_hosts_map(db, settings))
     paths["acme_domains_json"] = str(write_acme_domains_export(db, settings))
     try:
         paths["acme_runtime_env"] = str(write_acme_runtime_env(db, settings))
     except Exception:
         # Table may not exist until alembic 039 — catalogue export must not fail.
-        pass
+        logger.warning("ACME runtime env export skipped", exc_info=True)
     try:
         from app.bastion.nginx_waf_export import write_waf_exports
 
         paths.update(write_waf_exports(db, settings))
     except Exception:
         # waf_profiles may be missing until alembic 066
-        pass
+        logger.warning("WAF export skipped", exc_info=True)
     return paths
 
 
 def write_oauth2_proxy_export(realm: RealmConfig, settings: Settings) -> Path:
     """Write flat + nested oauth2 configs (bare-metal apply + docker apply-infra)."""
-    exports_path = _exports_path(settings)
+    root = exports_path(settings)
     content = generate_oauth2_proxy_config(realm, settings)
-    flat_path = exports_path / f"oauth2-proxy-{realm.slug}.conf"
-    flat_path.write_text(content, encoding="utf-8")
-    nested_dir = exports_path / "oauth2" / realm.slug
+    flat_path = root / f"oauth2-proxy-{realm.slug}.conf"
+    write_private_file(flat_path, content)
+    nested_dir = root / "oauth2" / realm.slug
     nested_dir.mkdir(parents=True, exist_ok=True)
-    (nested_dir / "oauth2-proxy.cfg").write_text(content, encoding="utf-8")
+    write_private_file(nested_dir / "oauth2-proxy.cfg", content)
     return flat_path
 
 
 def write_nginx_realms_conf(db: Session, settings: Settings) -> Path:
     """Rewrite nginx-portal-realms.conf from current enabled realms in DB."""
-    exports_path = _exports_path(settings)
-    nginx_path = exports_path / "nginx-portal-realms.conf"
+    nginx_path = exports_path(settings) / "nginx-portal-realms.conf"
     nginx_path.write_text(
         generate_nginx_realms_conf(
             db, settings, exclude_slugs=core_static_realm_slugs(settings)
@@ -306,8 +332,7 @@ def record_systemd_unit_purge(slug: str, settings: Settings) -> Path:
     there is no reverse format yet, so we write an explicit purge-units.list marker
     (unit basenames) rather than inventing a fake .service file.
     """
-    exports_path = _exports_path(settings)
-    systemd_dir = exports_path / "systemd"
+    systemd_dir = exports_path(settings) / "systemd"
     systemd_dir.mkdir(parents=True, exist_ok=True)
 
     unit_name = oauth2_proxy_systemd_unit_name(slug)
@@ -369,10 +394,10 @@ def prune_deleted_realm_exports(db: Session, settings: Settings) -> dict[str, li
     This enables "purge on delete" without directly touching systemd/nginx. Apply infra
     can reconcile based on export dir contents.
     """
-    exports_path = _exports_path(settings)
+    root = exports_path(settings)
     existing_slugs = {slug for (slug,) in db.query(RealmConfig.slug).all() if slug}
-    removed = _prune_stale_oauth2_conf(exports_path, existing_slugs)
-    removed.extend(_prune_stale_oauth2_dirs(exports_path, existing_slugs))
+    removed = _prune_stale_oauth2_conf(root, existing_slugs)
+    removed.extend(_prune_stale_oauth2_dirs(root, existing_slugs))
     return {"removed": removed}
 
 

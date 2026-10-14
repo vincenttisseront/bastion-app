@@ -1,5 +1,7 @@
 """Shared pytest fixtures."""
 
+import os
+
 import pytest
 import respx
 from fastapi.testclient import TestClient
@@ -8,12 +10,21 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.database import get_db
-from app.main import app
-from app.models import Base
 from app.sso_settings import Settings, get_settings
-from app.vault.encryption_key_store import reset_active_cache_for_tests
-from app.auth.breakglass import reset_breakglass_ephemeral_secret_for_tests
+
+# Before any app import builds Settings: a developer's local .env (realm slug,
+# portal domain, bypass flags) must never change test outcomes.
+Settings.model_config["env_file"] = None
+# Placeholder portal domain: host-only cookies on ``testserver`` and no
+# managed-suffix filter on host discovery (fresh-install semantics).
+os.environ["PORTAL_DOMAIN"] = "localhost"
+get_settings.cache_clear()
+
+from app.database import get_db  # noqa: E402
+from app.main import app  # noqa: E402
+from app.models import Base  # noqa: E402
+from app.vault.encryption_key_store import reset_active_cache_for_tests  # noqa: E402
+from app.auth.breakglass import reset_breakglass_ephemeral_secret_for_tests  # noqa: E402
 
 # Injected by TrustedHeadersTestClient so forged X-Email/X-Groups in tests still
 # satisfy SDD-001 (identity headers require X-Portal-Internal-Token).
@@ -29,7 +40,7 @@ def csrf_token_for(client: TestClient) -> str:
     """Seed the CSRF nonce cookie and return the token the app expects."""
     from starlette.requests import Request as StarletteRequest
 
-    from app.web.csrf import CSRF_COOKIE, csrf_secret, make_csrf_token
+    from app.web.csrf import CSRF_COOKIE, make_csrf_token, portal_signing_secret
 
     nonce = client.cookies.get(CSRF_COOKIE)
     if not nonce:
@@ -40,7 +51,7 @@ def csrf_token_for(client: TestClient) -> str:
         "type": "http",
         "headers": [(b"cookie", f"{CSRF_COOKIE}={nonce}".encode())],
     }
-    return make_csrf_token(StarletteRequest(scope), csrf_secret(settings))
+    return make_csrf_token(StarletteRequest(scope), portal_signing_secret(settings))
 
 
 class TrustedHeadersTestClient(TestClient):

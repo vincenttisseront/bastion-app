@@ -198,7 +198,7 @@ def test_logs_combined_filters_status_ip_dates(client: TestClient, db_session: S
         actor="admin@example.com",
         action="breakglass.login_denied_non_lan",
         details={"status": "error", "reason": "breakglass_ip_not_allowed"},
-        ip_address="172.24.0.108",
+        ip_address="10.20.0.108",
         created_at=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
     )
     other_ip = AuditLog(
@@ -212,14 +212,14 @@ def test_logs_combined_filters_status_ip_dates(client: TestClient, db_session: S
         actor="admin@example.com",
         action="realm.test",
         details={"status": "ok"},
-        ip_address="172.24.0.108",
+        ip_address="10.20.0.108",
         created_at=datetime(2026, 3, 10, 12, 10, tzinfo=timezone.utc),
     )
     other_date = AuditLog(
         actor="admin@example.com",
         action="breakglass.login_denied_non_lan",
         details={"status": "error"},
-        ip_address="172.24.0.108",
+        ip_address="10.20.0.108",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
     db_session.add_all([match, other_ip, other_status, other_date])
@@ -228,7 +228,7 @@ def test_logs_combined_filters_status_ip_dates(client: TestClient, db_session: S
     qs = urlencode(
         [
             ("status", "error"),
-            ("ip", "172.24.0.108"),
+            ("ip", "10.20.0.108"),
             ("date_from", "2026-03-01"),
             ("date_to", "2026-03-31"),
         ]
@@ -239,7 +239,7 @@ def test_logs_combined_filters_status_ip_dates(client: TestClient, db_session: S
     assert f'data-audit-id="{other_ip.id}"' not in resp.text
     assert "logs-chip" in resp.text
     assert "Résultat: error" in resp.text
-    assert "IP: 172.24.0.108" in resp.text
+    assert "IP: 10.20.0.108" in resp.text
 
 
 def test_logs_fulltext_search_in_detail_json(client: TestClient, db_session: Session):
@@ -276,8 +276,8 @@ def test_logs_detail_drawer_replaces_voir_plus(client: TestClient, db_session: S
         details={
             "reason": "breakglass_ip_not_allowed",
             "resolved": None,
-            "x_real_ip": "172.24.0.108",
-            "x_forwarded_for": "172.24.0.108, 192.168.2.50",
+            "x_real_ip": "10.20.0.108",
+            "x_forwarded_for": "10.20.0.108, 192.168.2.50",
             "peer": "10.5.0.2",
             "note": "long-" + ("n" * 100),
         },
@@ -315,7 +315,7 @@ def test_logs_saved_view_roundtrip(client: TestClient, db_session: Session):
         actor="alice@ex.com",
         action="realm.test",
         details={"status": "error", "reason": "boom"},
-        ip_address="172.24.0.50",
+        ip_address="10.20.0.50",
     )
     log_action(
         db_session,
@@ -330,7 +330,7 @@ def test_logs_saved_view_roundtrip(client: TestClient, db_session: Session):
         "actor": "alice",
         "date_from": "",
         "date_to": "",
-        "ip": "172.24.0.50",
+        "ip": "10.20.0.50",
         "q": "",
         "detail": "boom",
         "status": ["error"],
@@ -353,7 +353,7 @@ def test_logs_saved_view_roundtrip(client: TestClient, db_session: Session):
         .filter_by(user_email="admin@example.com", name="Erreurs Alice")
         .one()
     )
-    assert view.filters_json["ip"] == "172.24.0.50"
+    assert view.filters_json["ip"] == "10.20.0.50"
     assert view.filters_json["status"] == ["error"]
     assert "reason" in view.columns_json
 
@@ -437,8 +437,8 @@ def test_format_details_expand_shows_more_than_preview():
     details = {
         "reason": "breakglass_ip_not_allowed",
         "resolved": None,
-        "x_real_ip": "172.24.0.108",
-        "x_forwarded_for": "172.24.0.108, 10.5.0.12",
+        "x_real_ip": "10.20.0.108",
+        "x_forwarded_for": "10.20.0.108, 10.5.0.12",
         "peer": "10.5.0.2",
         "extra": "padding-" + ("x" * 80),
     }

@@ -12,8 +12,8 @@ from app.sso_settings import Settings
 
 def _settings(**kwargs) -> Settings:
     base = {
-        "portal_domain": "portal.ar-systems.fr",
-        "sso_portal_default_realm_slug": "ar-systems",
+        "portal_domain": "portal.example.com",
+        "sso_portal_default_realm_slug": "example-corp",
         "exports_dir": "data/test-exports",
         "vault_portal_internal_token": "test-secret",
     }

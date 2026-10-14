@@ -29,6 +29,7 @@ from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.csrf import portal_signing_secret
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,14 @@ def activesync_enabled_apps(db: Session) -> list[App]:
         .order_by(App.label.asc())
         .all()
     )
+
+
+def _apps_by_id(db: Session, devices) -> dict[int, App]:
+    ids = {d.application_id for d in devices if d.application_id}
+    if not ids:
+        return {}
+    return {a.id: a for a in db.query(App).filter(App.id.in_(ids))}
+
 
 
 def serialize_device(device: ActiveSyncDevice, app: App | None) -> dict:
@@ -151,7 +160,7 @@ def build_user_devices_context(
     device_service.link_devices_to_keycloak_user(
         db, devices=devices, keycloak_user_id=keycloak_user_id, realm_id=realm_id
     )
-    apps_by_id = {a.id: a for a in db.query(App).all()}
+    apps_by_id = _apps_by_id(db, devices)
     return {
         "activesync_available": True,
         "activesync_devices": [
@@ -250,7 +259,7 @@ def admin_pending_devices_list(
     if status_filter != "all":
         query = query.filter(ActiveSyncDevice.status == status_filter)
     devices = query.order_by(ActiveSyncDevice.last_seen_at.desc()).limit(500).all()
-    apps_by_id = {a.id: a for a in db.query(App).all()}
+    apps_by_id = _apps_by_id(db, devices)
     rows = []
     for device in devices:
         row = serialize_device(device, apps_by_id.get(device.application_id))
@@ -291,7 +300,7 @@ def admin_activesync_device_block(
     user=Depends(require_admin),
 ):
     device = _device_or_404(db, device_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     dest = _safe_redirect_url(redirect_url, PENDING_DEVICES_PENDING_HREF)
     response = RedirectResponse(url=dest, status_code=302)
     label = shorten_device_id(device.device_id)
@@ -321,7 +330,7 @@ def admin_activesync_device_unblock(
     user=Depends(require_admin),
 ):
     device = _device_or_404(db, device_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     dest = _safe_redirect_url(redirect_url, PENDING_DEVICES_PENDING_HREF)
     response = RedirectResponse(url=dest, status_code=302)
     label = shorten_device_id(device.device_id)
@@ -342,7 +351,7 @@ def admin_activesync_device_approve(
     user=Depends(require_admin),
 ):
     device = _device_or_404(db, device_id)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     dest = _safe_redirect_url(redirect_url, PENDING_DEVICES_PENDING_HREF)
     response = RedirectResponse(url=dest, status_code=302)
     label = shorten_device_id(device.device_id)
@@ -368,7 +377,7 @@ def _redirect_unless_activesync(app: App, settings: Settings) -> RedirectRespons
         response,
         "Le contrôle des appareils n’est disponible que si ActiveSync est activé sur cette application.",
         "error",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -444,7 +453,7 @@ def admin_activesync_control_enable(
     blocked = _redirect_unless_activesync(app, settings)
     if blocked is not None:
         return blocked
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     dest = f"/admin/apps/{slug}/activesync/devices/preview"
     response = RedirectResponse(url=dest, status_code=302)
     try:
@@ -478,7 +487,7 @@ def admin_activesync_control_disable(
     blocked = _redirect_unless_activesync(app, settings)
     if blocked is not None:
         return blocked
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     dest = f"/admin/apps/{slug}/activesync/devices/preview"
     response = RedirectResponse(url=dest, status_code=302)
     device_service.disable_device_control(db, app, actor=_actor(user))

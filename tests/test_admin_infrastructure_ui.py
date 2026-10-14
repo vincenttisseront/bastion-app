@@ -24,7 +24,7 @@ def _test_settings(tmp_path) -> Settings:
         exports_dir=str(exports),
         portal_data_dir=str(data),
         portal_domain="portal.example.test",
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
         oauth2_core_static_enabled=True,
     )
 
@@ -42,7 +42,7 @@ def _make_realm(db: Session, *, slug: str, port: int) -> RealmConfig:
         client_secret_encrypted=encrypt_secret("secret", settings),
         redirect_uri=f"https://portal.example.test/oauth2/{slug}/callback",
         oauth2_proxy_port=port,
-        is_default=slug == "ar-systems",
+        is_default=slug == "example-corp",
         enabled=True,
         last_test_status="ok",
     )
@@ -61,7 +61,7 @@ def test_infrastructure_page_renders_for_admin(
     client: TestClient, db_session: Session, tmp_path
 ):
     settings = _test_settings(tmp_path)
-    _make_realm(db_session, slug="ar-systems", port=4180)
+    _make_realm(db_session, slug="example-corp", port=4180)
     _make_realm(db_session, slug="clients", port=4182)
 
     get_settings.cache_clear()

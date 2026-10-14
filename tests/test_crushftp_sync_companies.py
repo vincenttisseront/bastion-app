@@ -54,8 +54,8 @@ def test_parse_crushftp_directory_names_xml():
 
 
 def test_normalize_crushftp_listing_path():
-    assert normalize_crushftp_listing_path("crush_data/AR-SYSTEMS") == "/crush_data/AR-SYSTEMS/"
-    assert normalize_crushftp_listing_path("/crush_data/AR-SYSTEMS/") == "/crush_data/AR-SYSTEMS/"
+    assert normalize_crushftp_listing_path("crush_data/EXAMPLE-CORP") == "/crush_data/EXAMPLE-CORP/"
+    assert normalize_crushftp_listing_path("/crush_data/EXAMPLE-CORP/") == "/crush_data/EXAMPLE-CORP/"
 
 
 @pytest.mark.asyncio
@@ -71,7 +71,7 @@ async def test_list_company_folders_calls_get_xml_listing(db_session):
         crushftp_admin_base_url="https://crush.internal/",
         crushftp_admin_username="crushadmin",
         crushftp_admin_password_encrypted=encrypt_secret("secret", s),
-        crushftp_vfs_base_path="/crush_data/AR-SYSTEMS",
+        crushftp_vfs_base_path="/crush_data/EXAMPLE-CORP",
     )
     db_session.add(app)
     db_session.commit()
@@ -90,7 +90,7 @@ async def test_list_company_folders_calls_get_xml_listing(db_session):
     assert route.called
     sent = route.calls.last.request
     assert b"getXMLListing" in sent.content
-    assert b"crush_data%2FAR-SYSTEMS" in sent.content or b"/crush_data/AR-SYSTEMS/" in sent.content
+    assert b"crush_data%2FEXAMPLE-CORP" in sent.content or b"/crush_data/EXAMPLE-CORP/" in sent.content
 
 
 @respx.mock
@@ -120,7 +120,7 @@ def test_sync_companies_endpoint_creates_groups(client, db_session):
         crushftp_admin_base_url="https://crush.internal/",
         crushftp_admin_username="crushadmin",
         crushftp_admin_password_encrypted=encrypt_secret("secret", s),
-        crushftp_vfs_base_path="/crush_data/AR-SYSTEMS",
+        crushftp_vfs_base_path="/crush_data/EXAMPLE-CORP",
     )
     db_session.add_all([realm, app])
     db_session.commit()
@@ -189,7 +189,7 @@ def test_sync_companies_endpoint_missing_provision_token_returns_json_error(clie
         crushftp_admin_base_url="https://crush.internal/",
         crushftp_admin_username="crushadmin",
         crushftp_admin_password_encrypted=encrypt_secret("secret", s),
-        crushftp_vfs_base_path="/crush_data/AR-SYSTEMS",
+        crushftp_vfs_base_path="/crush_data/EXAMPLE-CORP",
     )
     db_session.add_all([realm, app])
     db_session.commit()

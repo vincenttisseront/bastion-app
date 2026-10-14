@@ -28,7 +28,7 @@ def _settings(tmp_path: Path) -> Settings:
     get_settings.cache_clear()
     return Settings(
         portal_domain="portal.example.fr",
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
         exports_dir=str(tmp_path / "exports"),
         portal_data_dir=str(tmp_path / "data"),
         vault_portal_internal_token="test-secret",

@@ -39,9 +39,9 @@ def _settings() -> Settings:
 def _seed(db, *, with_account: bool = True):
     s = _settings()
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", s),
         redirect_uri="https://portal.test/cb",
@@ -61,7 +61,7 @@ def _seed(db, *, with_account: bool = True):
         crushftp_admin_server_group="MainUsers",
         crushftp_admin_username="crushadmin",
         crushftp_admin_password_encrypted=encrypt_secret("admin-pass", s),
-        crushftp_vfs_base_path="/crush_data/AR-SYSTEMS",
+        crushftp_vfs_base_path="/crush_data/EXAMPLE-CORP",
     )
     db.add_all([realm, app])
     db.commit()

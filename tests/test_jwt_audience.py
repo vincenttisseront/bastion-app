@@ -55,7 +55,7 @@ def test_create_oidc_session_token_includes_aud():
     token = create_oidc_session_token(
         sub="sub-1",
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         jti="jti-1",
         secret=OIDC_SECRET,
         max_age=3600,
@@ -76,7 +76,7 @@ def test_validate_oidc_session_rejects_wrong_aud(db_session: Session):
         {
             "sub": "sub-1",
             "username": "alice",
-            "realm": "ar-systems",
+            "realm": "example-corp",
             "jti": jti,
             "iat": now,
             "exp": now + timedelta(hours=1),
@@ -91,7 +91,7 @@ def test_validate_oidc_session_rejects_wrong_aud(db_session: Session):
             jti=jti,
             sub="sub-1",
             username="alice",
-            realm="ar-systems",
+            realm="example-corp",
             issued_at=now,
             expires_at=now + timedelta(hours=1),
         )
@@ -108,7 +108,7 @@ def test_validate_oidc_session_accepts_legacy_without_aud(db_session: Session):
         {
             "sub": "sub-1",
             "username": "alice",
-            "realm": "ar-systems",
+            "realm": "example-corp",
             "jti": jti,
             "iat": now,
             "exp": now + timedelta(hours=1),
@@ -122,7 +122,7 @@ def test_validate_oidc_session_accepts_legacy_without_aud(db_session: Session):
             jti=jti,
             sub="sub-1",
             username="alice",
-            realm="ar-systems",
+            realm="example-corp",
             issued_at=now,
             expires_at=now + timedelta(hours=1),
         )
@@ -139,7 +139,7 @@ def test_validate_oidc_session_strict_rejects_legacy_without_aud(db_session: Ses
         {
             "sub": "sub-1",
             "username": "alice",
-            "realm": "ar-systems",
+            "realm": "example-corp",
             "jti": jti,
             "iat": now,
             "exp": now + timedelta(hours=1),
@@ -153,7 +153,7 @@ def test_validate_oidc_session_strict_rejects_legacy_without_aud(db_session: Ses
             jti=jti,
             sub="sub-1",
             username="alice",
-            realm="ar-systems",
+            realm="example-corp",
             issued_at=now,
             expires_at=now + timedelta(hours=1),
         )
@@ -169,7 +169,7 @@ def test_issue_oidc_session_emits_matching_aud(db_session: Session):
         db_session,
         sub="sub-1",
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
         audience=settings.oidc_session_jwt_audience,

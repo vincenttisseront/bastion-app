@@ -17,7 +17,7 @@ from app.sso_settings import Settings, get_settings
 from app.subdomain import activesync_device_service as device_service
 from app.subdomain.activesync_device_service import DeviceDecisionError
 from app.web.constants import APP_VERSION
-from app.web.csrf import verify_csrf_token
+from app.web.csrf import portal_signing_secret, verify_csrf_token
 from app.web.flash import base_template_context, flash_redirect
 from app.web.sessions_service import touch_app_session, touch_portal_session
 from app.web.templates import render
@@ -310,7 +310,7 @@ def _owned_device_or_404(db: Session, device_id: int, user: UserContext):
 
 def _require_portal_csrf(request: Request, settings: Settings, csrf_token: str) -> None:
     # Must match base_template_context's fallback ("dev-insecure").
-    secret = settings.vault_portal_internal_token or "dev-insecure"
+    secret = portal_signing_secret(settings)
     if not verify_csrf_token(request, secret, csrf_token):
         raise HTTPException(status_code=403, detail="Jeton CSRF invalide")  # NOSONAR
 
@@ -330,7 +330,7 @@ async def portal_device_approve(
 ):
     _require_portal_csrf(request, settings, csrf_token)
     device = _owned_device_or_404(db, device_id, user)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     response = RedirectResponse(url=_PATH_PROFILE_DEVICES, status_code=302)
     try:
         device_service.user_approve_device(
@@ -365,7 +365,7 @@ async def portal_device_reject(
 ):
     _require_portal_csrf(request, settings, csrf_token)
     device = _owned_device_or_404(db, device_id, user)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     response = RedirectResponse(url=_PATH_PROFILE_DEVICES, status_code=302)
     try:
         device_service.user_reject_device(
@@ -397,7 +397,7 @@ async def portal_device_revoke(
 ):
     _require_portal_csrf(request, settings, csrf_token)
     device = _owned_device_or_404(db, device_id, user)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     response = RedirectResponse(url=_PATH_PROFILE_DEVICES, status_code=302)
     try:
         device_service.user_revoke_device(
@@ -433,7 +433,7 @@ async def profile_change_password(
     )
 
     _require_portal_csrf(request, settings, csrf_token)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     response = RedirectResponse(url=_PATH_PROFILE_SECURITY, status_code=302)
     if not password_self_service_available(db, user, settings):
         flash_redirect(response, "Changement de mot de passe indisponible.", "error", secret)
@@ -476,7 +476,7 @@ async def profile_revoke_session(
     )
 
     _require_portal_csrf(request, settings, csrf_token)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     response = RedirectResponse(url=_PATH_PROFILE_SECURITY, status_code=302)
     if not self_service_security_available(db, user, settings):
         flash_redirect(response, "Révocation indisponible.", "error", secret)
@@ -528,7 +528,7 @@ async def profile_revoke_other_sessions(
     )
 
     _require_portal_csrf(request, settings, csrf_token)
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     response = RedirectResponse(url=_PATH_PROFILE_SECURITY, status_code=302)
     if not self_service_security_available(db, user, settings):
         flash_redirect(response, "Révocation indisponible.", "error", secret)

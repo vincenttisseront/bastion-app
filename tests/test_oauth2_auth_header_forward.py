@@ -30,12 +30,12 @@ def _override_settings(client, settings: Settings) -> None:
 def _add_default_realm(db) -> RealmConfig:
     settings = _settings()
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", settings),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         is_default=True,
         enabled=True,
@@ -57,10 +57,10 @@ def test_oauth2_auth_header_forward_propagates_202_identity_headers(client, db_s
         return_value=Response(
             202,
             headers={
-                "X-Auth-Request-User": "v.tisseront",
-                "X-Auth-Request-Email": "vincent.tisseront@ar-systems.fr",
+                "X-Auth-Request-User": "a.martin",
+                "X-Auth-Request-Email": "alice.martin@example.com",
                 "X-Auth-Request-Groups": "portal-admins,ARSYSTEMS-Users",
-                "X-Auth-Request-Preferred-Username": "vincent.tisseront",
+                "X-Auth-Request-Preferred-Username": "alice.martin",
                 "Set-Cookie": "_kc_portal_ar=should-not-leak; Path=/",
             },
         )
@@ -72,10 +72,10 @@ def test_oauth2_auth_header_forward_propagates_202_identity_headers(client, db_s
     )
 
     assert resp.status_code == 202
-    assert resp.headers.get("x-auth-request-user") == "v.tisseront"
-    assert resp.headers.get("x-auth-request-email") == "vincent.tisseront@ar-systems.fr"
+    assert resp.headers.get("x-auth-request-user") == "a.martin"
+    assert resp.headers.get("x-auth-request-email") == "alice.martin@example.com"
     assert resp.headers.get("x-auth-request-groups") == "portal-admins,ARSYSTEMS-Users"
-    assert resp.headers.get("x-auth-request-preferred-username") == "vincent.tisseront"
+    assert resp.headers.get("x-auth-request-preferred-username") == "alice.martin"
     assert "set-cookie" not in {k.lower() for k in resp.headers.keys()}
 
 
@@ -123,10 +123,10 @@ def test_oauth2_auth_prefers_sso_over_breakglass_cookie(client, db_session):
         return_value=Response(
             202,
             headers={
-                "X-Auth-Request-User": "v.tisseront",
-                "X-Auth-Request-Email": "vincent.tisseront@ar-systems.fr",
+                "X-Auth-Request-User": "a.martin",
+                "X-Auth-Request-Email": "alice.martin@example.com",
                 "X-Auth-Request-Groups": "ARSYSTEMS-Users",
-                "X-Auth-Request-Preferred-Username": "vincent.tisseront",
+                "X-Auth-Request-Preferred-Username": "alice.martin",
             },
         )
     )
@@ -137,7 +137,7 @@ def test_oauth2_auth_prefers_sso_over_breakglass_cookie(client, db_session):
     )
 
     assert resp.status_code == 202
-    assert resp.headers.get("x-auth-request-email") == "vincent.tisseront@ar-systems.fr"
+    assert resp.headers.get("x-auth-request-email") == "alice.martin@example.com"
     assert resp.headers.get("x-auth-source") is None
 
 
@@ -177,7 +177,7 @@ def test_oauth2_auth_ignores_rfc1918_bypass_even_when_enabled(client, db_session
     route = respx.get("http://127.0.0.1:4180/oauth2/auth").mock(
         return_value=Response(
             202,
-            headers={"X-Auth-Request-Email": "user@ar-systems.fr"},
+            headers={"X-Auth-Request-Email": "user@example.com"},
         )
     )
 
@@ -191,7 +191,7 @@ def test_oauth2_auth_ignores_rfc1918_bypass_even_when_enabled(client, db_session
 
     assert route.called
     assert resp.status_code == 202
-    assert resp.headers.get("x-auth-request-email") == "user@ar-systems.fr"
+    assert resp.headers.get("x-auth-request-email") == "user@example.com"
 
 
 OIDC_SECRET = "oidc-session-hmac-key-32bytes-min!!"
@@ -207,7 +207,7 @@ def _settings_native_enabled() -> Settings:
         database_url="sqlite://",
         oauth2_proxy_default_url="http://127.0.0.1:4180",
         rfc1918_bypass_enabled=False,
-        oidc_native_session_enabled_realms="ar-systems",
+        oidc_native_session_enabled_realms="example-corp",
         oidc_session_jwt_secret=OIDC_SECRET,
         oidc_session_cookie_name="bastion_session",
         oidc_session_max_age=3600,
@@ -253,7 +253,7 @@ def test_oauth2_auth_bastion_session_alone_valid(client, db_session):
         db_session,
         sub="kc-sub-native",
         username="alice@example.com",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
         groups=["ARSYSTEMS-Users", "portal-admins"],
@@ -276,7 +276,7 @@ def test_oauth2_auth_bastion_session_alone_valid(client, db_session):
     assert resp.headers.get("x-auth-request-preferred-username") == "alice@example.com"
     assert resp.headers.get("x-auth-request-email") == "alice@example.com"
     assert resp.headers.get("x-auth-request-groups") == "ARSYSTEMS-Users,portal-admins"
-    assert resp.headers.get("x-auth-request-realm") == "ar-systems"
+    assert resp.headers.get("x-auth-request-realm") == "example-corp"
 
 
 @respx.mock
@@ -292,7 +292,7 @@ def test_oauth2_auth_bastion_session_without_groups_omits_groups_header(client, 
         db_session,
         sub="kc-sub-legacy",
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
     )
@@ -321,7 +321,7 @@ def test_oauth2_auth_bastion_session_revoked_falls_back_then_401(client, db_sess
         db_session,
         sub="kc-sub-revoked",
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
     )
@@ -369,7 +369,7 @@ def test_oauth2_auth_native_disabled_ignores_bastion_session(client, db_session)
         db_session,
         sub="kc-sub-ignored",
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
     )

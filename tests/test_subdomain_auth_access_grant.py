@@ -42,8 +42,8 @@ def _app(db: Session, *, slug: str = "transfer") -> App:
         upstream_url=f"https://{slug}.internal/",
         enabled=True,
         access_mode="subdomain_proxy",
-        public_fqdn=f"{slug}.ar-systems.fr",
-        realm_slug="ar-systems",
+        public_fqdn=f"{slug}.example.com",
+        realm_slug="example-corp",
     )
     db.add(app)
     db.commit()
@@ -54,12 +54,12 @@ def _app(db: Session, *, slug: str = "transfer") -> App:
 def _realm(db: Session) -> RealmConfig:
     settings = _settings()
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", settings),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         is_default=True,
         enabled=True,
@@ -83,7 +83,7 @@ def _oidc_ok(**extra_headers: str) -> Response:
 
 
 def _auth_headers(
-    host: str = "transfer.ar-systems.fr",
+    host: str = "transfer.example.com",
     *,
     uri: str = "/web/",
 ) -> dict[str, str]:
@@ -271,7 +271,7 @@ def test_subdomain_auth_no_grant_returns_401(client, db_session):
     assert entry.target == "transfer"
     assert entry.actor == "alice@example.com"
     assert (entry.details or {}).get("uri") == "/web/"
-    assert (entry.details or {}).get("host") == "transfer.ar-systems.fr"
+    assert (entry.details or {}).get("host") == "transfer.example.com"
 
 
 @respx.mock
@@ -283,14 +283,14 @@ def test_subdomain_auth_no_app_for_host_is_audited(client, db_session):
     resp = client.get(
         "/internal/subdomain-auth",
         headers={
-            "X-Original-Host": "ghost.ar-systems.fr",
+            "X-Original-Host": "ghost.example.com",
             "X-Original-URI": "/secret/",
             "X-Real-IP": "10.0.0.9",
             "Cookie": "ignored=1",
         },
     )
     assert resp.status_code == 401
-    assert resp.headers.get("x-auth-error") == "no-app-for-host:ghost.ar-systems.fr"
+    assert resp.headers.get("x-auth-error") == "no-app-for-host:ghost.example.com"
 
     entry = (
         db_session.query(AuditLog)
@@ -299,7 +299,7 @@ def test_subdomain_auth_no_app_for_host_is_audited(client, db_session):
         .first()
     )
     assert entry is not None
-    assert entry.target == "ghost.ar-systems.fr"
+    assert entry.target == "ghost.example.com"
     assert (entry.details or {}).get("uri") == "/secret/"
 
 
@@ -371,7 +371,7 @@ def test_breakglass_access_grant_without_grant_returns_200(client, db_session):
     resp = client.get(
         "/internal/subdomain-auth",
         headers={
-            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-Host": "transfer.example.com",
             "X-Real-IP": "8.8.8.8",
             "Cookie": f"{COOKIE_NAME}={token}",
         },
@@ -405,14 +405,14 @@ def _native_settings() -> Settings:
         breakglass_jwt_secret="test-bg-jwt-secret",
         breakglass_jwt_secret_fallback_enabled=True,
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
-        portal_domain="portal.ar-systems.fr",
+        portal_domain="portal.example.com",
         database_url="sqlite://",
         oauth2_proxy_default_url="http://127.0.0.1:4180",
         rfc1918_bypass_enabled=False,
         oidc_session_jwt_secret=OIDC_SECRET,
         oidc_session_cookie_name=COOKIE,
         oidc_session_max_age=3600,
-        oidc_native_session_enabled_realms="ar-systems",
+        oidc_native_session_enabled_realms="example-corp",
     )
 
 
@@ -442,7 +442,7 @@ def test_subdomain_auth_accepts_native_bastion_session(client, db_session):
         db_session,
         sub=KC_USER,
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
         email="alice@example.com",
@@ -454,7 +454,7 @@ def test_subdomain_auth_accepts_native_bastion_session(client, db_session):
     resp = client.get(
         "/internal/subdomain-auth",
         headers={
-            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-Host": "transfer.example.com",
             "X-Original-URI": "/WebInterface/new-ui/index.html",
             "X-Real-IP": "8.8.8.8",
             "Cookie": f"{COOKIE}={token}",
@@ -480,7 +480,7 @@ def test_subdomain_auth_native_without_grant_returns_403(client, db_session):
         db_session,
         sub=KC_USER,
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
     )
@@ -490,7 +490,7 @@ def test_subdomain_auth_native_without_grant_returns_403(client, db_session):
     resp = client.get(
         "/internal/subdomain-auth",
         headers={
-            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-Host": "transfer.example.com",
             "X-Original-URI": "/",
             "X-Real-IP": "8.8.8.8",
             "Cookie": f"{COOKIE}={token}",
@@ -526,7 +526,7 @@ def test_subdomain_auth_accepts_native_via_x_bastion_session_header(client, db_s
         db_session,
         sub=KC_USER,
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
         groups=("ARSYSTEMS-Users",),
@@ -537,7 +537,7 @@ def test_subdomain_auth_accepts_native_via_x_bastion_session_header(client, db_s
     resp = client.get(
         "/internal/subdomain-auth",
         headers={
-            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-Host": "transfer.example.com",
             "X-Original-URI": "/WebInterface/new-ui/index.html",
             "X-Real-IP": "8.8.8.8",
             # Simulate auth_request with only CrushAuth in Cookie + explicit header.
@@ -575,7 +575,7 @@ def test_subdomain_auth_resolves_app_from_host_header_fallback(client, db_sessio
         db_session,
         sub=KC_USER,
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
     )
@@ -586,7 +586,7 @@ def test_subdomain_auth_resolves_app_from_host_header_fallback(client, db_sessio
         "/internal/subdomain-auth",
         headers={
             # No X-Original-Host — edge misconfig; Host is the vhost FQDN.
-            "Host": "transfer.ar-systems.fr",
+            "Host": "transfer.example.com",
             "X-Original-URI": "/",
             "X-Real-IP": "8.8.8.8",
             "Cookie": f"{COOKIE}={token}",
@@ -606,7 +606,7 @@ def test_subdomain_auth_unauthenticated_sets_no_session_error(client, db_session
     resp = client.get(
         "/internal/subdomain-auth",
         headers={
-            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-Host": "transfer.example.com",
             "X-Original-URI": "/",
             "X-Real-IP": "8.8.8.8",
         },
@@ -651,7 +651,7 @@ def test_har_transfer_loop_crushauth_cookie_x_bastion_session_accepts(
         db_session,
         sub=KC_USER,
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
         groups=("ARSYSTEMS-Users",),
@@ -663,7 +663,7 @@ def test_har_transfer_loop_crushauth_cookie_x_bastion_session_accepts(
     resp = client.get(
         "/internal/subdomain-auth",
         headers={
-            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-Host": "transfer.example.com",
             "X-Original-URI": "/WebInterface/new-ui/index.html",
             "X-Real-IP": "8.8.8.8",
             "Cookie": "CrushAuth=abc123; currentAuth=def456",
@@ -706,7 +706,7 @@ def test_har_transfer_loop_accepts_session_from_jar_header(client, db_session):
         db_session,
         sub=KC_USER,
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
         groups=("ARSYSTEMS-Users",),
@@ -717,7 +717,7 @@ def test_har_transfer_loop_accepts_session_from_jar_header(client, db_session):
     resp = client.get(
         "/internal/subdomain-auth",
         headers={
-            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-Host": "transfer.example.com",
             "X-Original-URI": "/WebInterface/new-ui/index.html",
             "X-Real-IP": "8.8.8.8",
             "Cookie": "CrushAuth=abc123; currentAuth=def456",
@@ -757,7 +757,7 @@ def test_har_garbled_starlette_cookie_falls_back_to_x_bastion_header(
         db_session,
         sub=KC_USER,
         username="alice",
-        realm="ar-systems",
+        realm="example-corp",
         secret=OIDC_SECRET,
         max_age=3600,
     )
@@ -767,7 +767,7 @@ def test_har_garbled_starlette_cookie_falls_back_to_x_bastion_header(
     resp = client.get(
         "/internal/subdomain-auth",
         headers={
-            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-Host": "transfer.example.com",
             "X-Original-URI": "/index.html",
             "X-Real-IP": "8.8.8.8",
             # Bad explicit header first in candidate order; Cookie still has the JWT.
@@ -815,7 +815,7 @@ def test_subdomain_auth_teleport_agent_webapi_find_bypasses_sso(
     resp = client.get(
         "/internal/subdomain-auth",
         headers={
-            **_auth_headers("teleport.ar-systems.fr"),
+            **_auth_headers("teleport.example.com"),
             "X-Original-URI": "/webapi/find",
         },
     )
@@ -839,7 +839,7 @@ def test_subdomain_auth_m2m_basic_same_url(client, db_session):
     resp = client.get(
         "/internal/subdomain-auth",
         headers={
-            **_auth_headers("wiki.ar-systems.fr"),
+            **_auth_headers("wiki.example.com"),
             "X-Original-URI": "/page",
             "Authorization": "Basic dXNlcjpwYXNz",
         },
@@ -860,7 +860,7 @@ def test_subdomain_auth_m2m_basic_rejected_when_flag_off(client, db_session):
     resp = client.get(
         "/internal/subdomain-auth",
         headers={
-            **_auth_headers("wiki.ar-systems.fr"),
+            **_auth_headers("wiki.example.com"),
             "X-Original-URI": "/page",
             "Authorization": "Basic dXNlcjpwYXNz",
         },
@@ -893,7 +893,7 @@ def test_subdomain_auth_teleport_without_app_session_returns_no_app_session(
 
     resp = client.get(
         "/internal/subdomain-auth",
-        headers=_auth_headers(host="teleport.ar-systems.fr", uri="/web/"),
+        headers=_auth_headers(host="teleport.example.com", uri="/web/"),
     )
 
     assert resp.status_code == 401
@@ -928,7 +928,7 @@ def test_subdomain_auth_teleport_with_host_session_allows(client, db_session):
     session_val = binascii.hexlify(
         json.dumps({"user": "admin", "sid": "sess-browser"}).encode()
     ).decode()
-    headers = _auth_headers(host="teleport.ar-systems.fr", uri="/web/")
+    headers = _auth_headers(host="teleport.example.com", uri="/web/")
     headers["Cookie"] = f"_oauth2_proxy=valid; __Host-session={session_val}"
 
     resp = client.get("/internal/subdomain-auth", headers=headers)

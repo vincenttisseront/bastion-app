@@ -156,23 +156,23 @@ async def test_grommunio_api_401_is_auth_rejected():
 def test_public_host_binding_headers_for_upstream_ip():
     app = _generic_app(
         access_mode="subdomain_proxy",
-        public_fqdn="grommunio.ar-systems.fr",
+        public_fqdn="grommunio.example.com",
         upstream_url="https://172.24.10.104/",
-        login_form_url="https://grommunio.ar-systems.fr/web/?logon",
+        login_form_url="https://grommunio.example.com/web/?logon",
     )
     headers = public_host_binding_headers(app, "https://172.24.10.104/web/?logon")
-    assert headers["Host"] == "grommunio.ar-systems.fr"
-    assert headers["Origin"] == "https://grommunio.ar-systems.fr"
-    assert headers["Referer"] == "https://grommunio.ar-systems.fr/"
+    assert headers["Host"] == "grommunio.example.com"
+    assert headers["Origin"] == "https://grommunio.example.com"
+    assert headers["Referer"] == "https://grommunio.example.com/"
 
 
 def test_public_host_binding_headers_noop_when_already_public():
     app = _generic_app(
         access_mode="subdomain_proxy",
-        public_fqdn="grommunio.ar-systems.fr",
-        login_form_url="https://grommunio.ar-systems.fr/web/?logon",
+        public_fqdn="grommunio.example.com",
+        login_form_url="https://grommunio.example.com/web/?logon",
     )
-    assert public_host_binding_headers(app, "https://grommunio.ar-systems.fr/web/?logon") == {}
+    assert public_host_binding_headers(app, "https://grommunio.example.com/web/?logon") == {}
 
 
 @respx.mock
@@ -201,7 +201,7 @@ async def test_grommunio_web_get_then_post_success_303():
             headers=[
                 ("location", "https://webmail.example/web/"),
                 ("set-cookie", "__Secure-GROMMUNIO_WEB=sess-after-login; Path=/; Secure"),
-                ("set-cookie", "domainname=ar-systems.fr; Path=/; Secure"),
+                ("set-cookie", "domainname=example.com; Path=/; Secure"),
             ],
         )
     )
@@ -230,7 +230,7 @@ async def test_grommunio_web_get_then_post_success_303():
     assert b"csrf=tok-csrf-9" in body
     assert result.cookies["__Secure-GROMMUNIO_WEB"] == "sess-after-login"
     assert result.cookies["__Secure-encryption-store-key"] == "enc-key"
-    assert result.cookies["domainname"] == "ar-systems.fr"
+    assert result.cookies["domainname"] == "example.com"
 
 
 @respx.mock

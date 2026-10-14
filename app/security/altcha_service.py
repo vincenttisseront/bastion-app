@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from altcha import create_challenge_v1, solve_challenge_v1, verify_solution_v1
 
 from app.sso_settings import Settings
+from app.web.csrf import portal_signing_secret
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ def altcha_hmac_key(settings: Settings) -> str:
     configured = (getattr(settings, "altcha_hmac_key", None) or "").strip()
     if configured:
         return configured
-    base = (settings.vault_portal_internal_token or "dev-insecure").encode("utf-8")
+    base = portal_signing_secret(settings).encode("utf-8")
     return hmac.new(base, b"altcha-hmac-v1", hashlib.sha256).hexdigest()
 
 

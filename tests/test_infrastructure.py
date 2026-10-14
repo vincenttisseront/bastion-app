@@ -21,7 +21,7 @@ def _test_settings(tmp_path) -> Settings:
         database_url="sqlite://",
         exports_dir=str(tmp_path),
         portal_domain="portal.example.test",
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
         oauth2_core_static_enabled=True,
     )
 
@@ -59,7 +59,7 @@ def _make_realm(
 
 def test_build_manifest_uses_app_not_application_name(db_session: Session, tmp_path):
     settings = _test_settings(tmp_path)
-    _make_realm(db_session, slug="ar-systems", port=4180, is_default=True)
+    _make_realm(db_session, slug="example-corp", port=4180, is_default=True)
     _make_realm(db_session, slug="clients", port=4182)
     db_session.add(
         App(
@@ -86,7 +86,7 @@ def test_apply_infrastructure_exports_core_oauth2_cfg_not_nginx(
 ):
     """Core realm: oauth2 cfg from DB (for oauth2-proxy-core); no nginx duplicate location."""
     settings = _test_settings(tmp_path)
-    _make_realm(db_session, slug="ar-systems", port=4180, is_default=True)
+    _make_realm(db_session, slug="example-corp", port=4180, is_default=True)
     _make_realm(db_session, slug="clients", port=4182)
 
     manifest = apply_infrastructure(db_session, settings)
@@ -95,8 +95,8 @@ def test_apply_infrastructure_exports_core_oauth2_cfg_not_nginx(
     assert (tmp_path / "oauth2-proxy-clients.conf").is_file()
     assert (tmp_path / "oauth2" / "clients" / "oauth2-proxy.cfg").is_file()
     # Core oauth2 cfg IS exported (source of truth = DB)
-    assert (tmp_path / "oauth2-proxy-ar-systems.conf").is_file()
-    core_cfg = (tmp_path / "oauth2" / "ar-systems" / "oauth2-proxy.cfg").read_text(
+    assert (tmp_path / "oauth2-proxy-example-corp.conf").is_file()
+    core_cfg = (tmp_path / "oauth2" / "example-corp" / "oauth2-proxy.cfg").read_text(
         encoding="utf-8"
     )
     assert 'code_challenge_method = "S256"' in core_cfg
@@ -104,7 +104,7 @@ def test_apply_infrastructure_exports_core_oauth2_cfg_not_nginx(
 
     nginx_conf = (tmp_path / "nginx-portal-realms.conf").read_text(encoding="utf-8")
     assert "/oauth2/clients/" in nginx_conf
-    assert "/oauth2/ar-systems/" not in nginx_conf
+    assert "/oauth2/example-corp/" not in nginx_conf
 
     assert (tmp_path / "nginx-subdomain-apps.conf").is_file()
     assert (tmp_path / "subdomain-apps-inventory.json").is_file()

@@ -1,6 +1,6 @@
 """Light, non-destructive active probes against staging.
 
-Target: https://portal.ar-systems.fr (IP confirmed by Vincent before each audit).
+Target: https://portal.example.com (IP confirmed by Vincent before each audit).
 No credentials, no writes, no fuzzing / bruteforce.
 """
 

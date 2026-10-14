@@ -16,12 +16,12 @@ def _add_default_idp(db: Session) -> RealmConfig:
         database_url="sqlite://",
     )
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://keycloak.example/realms/ar-systems",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://keycloak.example/realms/example-corp",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", settings),
-        redirect_uri="https://portal.example/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.example/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         is_default=True,
         enabled=True,
@@ -46,7 +46,7 @@ def test_login_shows_sso_and_local_when_default_realm_configured(
 
     assert response.status_code == 200
     assert "Se connecter via SSO / Identifiant Unique" in response.text
-    assert "/oauth2/ar-systems/start?rd=%2Fcatalogue" in response.text
+    assert "/oauth2/example-corp/start?rd=%2Fcatalogue" in response.text
     assert "Connexion locale (Administration / Secours)" in response.text
     assert 'name="username"' in response.text
     assert 'name="password"' in response.text
@@ -59,7 +59,7 @@ def test_login_remaps_dashboard_rd_to_apps(client: TestClient, db_session: Sessi
     response = client.get("/auth/login?rd=/dashboard", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "/oauth2/ar-systems/start?rd=%2Fapps" in response.text
+    assert "/oauth2/example-corp/start?rd=%2Fapps" in response.text
     assert "rd=%2Fdashboard" not in response.text
 
 

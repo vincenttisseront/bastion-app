@@ -23,7 +23,7 @@ def _settings(**kwargs) -> Settings:
         database_url="sqlite://",
         vault_portal_internal_token="test-secret",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
         oidc_session_cookie_name="bastion_session",
         oidc_session_max_age=3600,
         oidc_session_jwt_secret=OIDC_SECRET,
@@ -34,7 +34,7 @@ def _settings(**kwargs) -> Settings:
 
 def test_resolve_realm_ignores_empty_header_uses_default():
     req = Request({"type": "http", "headers": [(b"x-portal-realm-slug", b"")]})
-    assert _resolve_portal_realm_slug(req, _settings(), db=None) == "ar-systems"
+    assert _resolve_portal_realm_slug(req, _settings(), db=None) == "example-corp"
 
 
 def test_resolve_realm_prefers_nonempty_header():
@@ -47,12 +47,12 @@ def test_resolve_realm_from_bastion_session_jwt(db_session):
     token, _jti = issue_oidc_session(
         db_session,
         sub="sub-daniel",
-        username="daniel.guerive",
+        username="dan.lefevre",
         realm="clients",
         secret=OIDC_SECRET,
         max_age=3600,
         groups=[],
-        email="daniel.guerive@apisystems.com",
+        email="dan.lefevre@example.org",
     )
     db_session.commit()
     assert validate_oidc_session_cookie(token, db=db_session, settings=settings)
@@ -69,16 +69,16 @@ def test_resolve_realm_from_bastion_session_jwt(db_session):
 
 
 def test_touch_portal_drops_misattributed_default_realm(db_session):
-    email = "daniel.guerive@apisystems.com"
-    wrong_id = _portal_session_id(email, "ar-systems")
+    email = "dan.lefevre@example.org"
+    wrong_id = _portal_session_id(email, "default")
     now = utcnow()
     db_session.add(
         ActiveSession(
             id=wrong_id,
             kind=KIND_USER,
             user_email=email,
-            username="daniel.guerive",
-            realm="ar-systems",
+            username="dan.lefevre",
+            realm="default",
             protocol="OIDC",
             target="portal",
             status="active",
@@ -90,7 +90,7 @@ def test_touch_portal_drops_misattributed_default_realm(db_session):
 
     user = UserContext(
         email=email,
-        username="daniel.guerive",
+        username="dan.lefevre",
         groups=[],
         realm_slug="clients",
         auth_source="sso",

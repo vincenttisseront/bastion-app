@@ -15,6 +15,7 @@ from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.csrf import portal_signing_secret
 
 router = APIRouter(tags=["admin-configuration"], dependencies=[Depends(require_admin)])
 
@@ -37,7 +38,7 @@ def _hot_store_flash(response, message: str, level: str, settings: Settings):
         response,
         message,
         level,
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -111,7 +112,7 @@ async def admin_configuration_save(
     daily_recap_email: str = Form(""),
     daily_recap_hour: int = Form(7),
 ):
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     response = RedirectResponse(url=_CONFIG_SMTP, status_code=302)
     try:
         update_smtp_settings(
@@ -158,7 +159,7 @@ def admin_configuration_smtp_test(
         response,
         message,
         "success" if ok else "error",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -184,7 +185,7 @@ def admin_configuration_smtp_recap(
         response,
         result.message,
         "success" if ok else "error",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -206,7 +207,7 @@ def admin_configuration_mta_sts(
 ):
     from app.mail.mta_sts_service import update_mta_sts_settings
 
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     response = RedirectResponse(url=_CONFIG_MTA_STS, status_code=302)
     try:
         update_mta_sts_settings(
@@ -286,7 +287,7 @@ def admin_configuration_mta_sts_verify(
         response,
         result.get("message") or "Vérification terminée.",
         "success" if ok else "error",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -313,7 +314,7 @@ def admin_configuration_siem(
 ):
     from app.siem.settings_service import update_siem_settings
 
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     actions = [
         a.strip()
         for a in (filter_actions or "").replace(";", ",").split(",")
@@ -380,6 +381,6 @@ def admin_configuration_siem_test(
         response,
         message,
         "success" if ok else "error",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response

@@ -20,12 +20,12 @@ def _grommunio_app(db: Session) -> App:
     app = App(
         slug="grommunio",
         label="Grommunio",
-        upstream_url="https://vmapps-mail01.ar-systems.fr:8443/",
+        upstream_url="https://mail01.example.com:8443/",
         access_mode="subdomain_proxy",
-        public_fqdn="webmail.ar-systems.fr",
+        public_fqdn="webmail.example.com",
         robotic_driver="generic_form",
         auth_mode="generic_form",
-        login_form_url="https://vmapps-mail01.ar-systems.fr:8443/api/v1/login",
+        login_form_url="https://mail01.example.com:8443/api/v1/login",
         credential_mode="identite_utilisateur",
         enabled=True,
     )
@@ -37,8 +37,8 @@ def _grommunio_app(db: Session) -> App:
 
 def test_webmail_shares_parent_with_portal():
     assert (
-        shared_parent_domain("webmail.ar-systems.fr", "portal.ar-systems.fr")
-        == "ar-systems.fr"
+        shared_parent_domain("webmail.example.com", "portal.example.com")
+        == "example.com"
     )
 
 
@@ -48,22 +48,22 @@ def test_edit_grommunio_warning_starts_hidden_and_css_respects_hidden(
     """
     Regression: .alert { display:flex } used to override the HTML hidden
     attribute, so the orange banner always showed for subdomain apps even when
-    webmail.ar-systems.fr and portal.ar-systems.fr share ar-systems.fr.
+    webmail.example.com and portal.example.com share example.com.
     """
     get_settings.cache_clear()
     client.app.dependency_overrides[get_settings] = lambda: Settings(
         vault_portal_internal_token="test-secret",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
-        portal_domain="portal.ar-systems.fr",
+        portal_domain="portal.example.com",
     )
     _grommunio_app(db_session)
     page = client.get("/admin/apps/grommunio/edit", headers=ADMIN_HEADERS)
     assert page.status_code == 200
     html = page.text
     assert 'id="public_fqdn"' in html
-    assert 'value="webmail.ar-systems.fr"' in html
-    assert 'data-portal-domain="portal.ar-systems.fr"' in html
+    assert 'value="webmail.example.com"' in html
+    assert 'data-portal-domain="portal.example.com"' in html
     assert 'id="fqdn-cookie-domain-warning"' in html
     # Markup must keep the warning hidden until JS decides otherwise
     assert 'id="fqdn-cookie-domain-warning"' in html

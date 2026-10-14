@@ -108,7 +108,7 @@ from app.web.app_logos import (
     save_app_logo,
 )
 from app.web.constants import APP_VERSION
-from app.web.csrf import csrf_secret, verify_csrf_token
+from app.web.csrf import portal_signing_secret, verify_csrf_token
 from app.web.flash import base_template_context, flash_i18n, flash_redirect
 from app.web.metrics_service import get_dashboard_metrics
 from app.web.sessions_service import sessions_view, touch_portal_session
@@ -762,7 +762,7 @@ def _breakglass_login_response(
         response,
         "Connexion break-glass réussie.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -954,7 +954,7 @@ def login_page(
                     "SSO indisponible pour les sous-domaines — vérifiez oauth2-proxy "
                     "ou activez la session native OIDC.",
                     "error",
-                    settings.vault_portal_internal_token or "dev",
+                    portal_signing_secret(settings),
                 )
                 if native_ok and raw_session:
                     set_oidc_session_cookie(response, raw_session, settings)
@@ -1036,7 +1036,7 @@ async def breakglass_login_post(
     if not has_active_breakglass_account(db):
         raise HTTPException(status_code=403, detail="Initial setup required")
 
-    if not verify_csrf_token(request, csrf_secret(settings), csrf_token):
+    if not verify_csrf_token(request, portal_signing_secret(settings), csrf_token):
         ctx = _ctx(
             request,
             settings,
@@ -1167,7 +1167,7 @@ async def setup_post(
     if not _is_breakglass_lan_allowed(request, db, settings):
         _log_breakglass_ip_denied(db, request, actor=username.strip() or "setup", via="setup_post")
         raise HTTPException(status_code=403, detail="Forbidden")
-    if not verify_csrf_token(request, csrf_secret(settings), csrf_token):
+    if not verify_csrf_token(request, portal_signing_secret(settings), csrf_token):
         raise HTTPException(status_code=403, detail=_MSG_CSRF_EXPIRED)
 
     # Setup always creates a break-glass admin — land on setup wizard.
@@ -1537,7 +1537,7 @@ def _access_request_precheck(
             form_values=form_values,
         )
 
-    secret = settings.vault_portal_internal_token or "dev-insecure"
+    secret = portal_signing_secret(settings)
     if not verify_csrf_token(request, secret, csrf_token):
         return _access_request_page(
             request,
@@ -1633,7 +1633,7 @@ async def forgot_password_post(
     from app.security.access_request_throttle import check_forgot_password_post_rate
     from app.web.profile_security_service import request_forgot_password
 
-    secret = settings.vault_portal_internal_token or "dev-insecure"
+    secret = portal_signing_secret(settings)
     if not verify_csrf_token(request, secret, csrf_token):
         return _forgot_password_page(
             request,
@@ -1847,7 +1847,7 @@ def admin_apps_delete(
         },
         ip_address=_client_ip(request),
     )
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     if not apply_req.get("ok"):
         response = RedirectResponse(url=_PATH_ADMIN_APPS, status_code=302)
         flash_redirect(
@@ -1953,7 +1953,7 @@ def admin_pending_hosts_managed_domains_post(
 ):
     from app.portal_settings_service import update_managed_domain_suffixes
 
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     update_managed_domain_suffixes(
         db,
         settings,
@@ -1988,7 +1988,7 @@ def admin_pending_hosts_purge_unmanaged_post(
     from app.portal_settings_service import ensure_portal_settings
     from app.setup_wizard_service import get_effective_portal_domain
 
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     portal_row = ensure_portal_settings(db, settings)
     suffixes = managed_domain_suffixes(
         portal_domain=get_effective_portal_domain(db, settings),
@@ -2018,7 +2018,7 @@ def admin_pending_hosts_bulk_reject_post(
     host_ids: list[int] | None = Form(None),
 ):
     ids = [int(x) for x in (host_ids or []) if x is not None]
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     if not ids:
         response = RedirectResponse(url="/admin/pending-hosts?status=pending", status_code=302)
         flash_i18n(
@@ -2130,7 +2130,7 @@ def admin_pending_host_approve_post(
         "bastion-nginx recharge la conf exportée sous quelques secondes "
         "(sinon Apply infra / redémarrer le conteneur nginx).",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -2153,7 +2153,7 @@ def admin_pending_host_reject_post(
         response,
         "Domaine « {hostname} » rejeté.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
         hostname=row.hostname,
     )
     return response
@@ -2212,7 +2212,7 @@ def admin_pending_user_approve_post(
         f"Première connexion « {row.user_email} » validée "
         "(ne coupe pas l’accès IdP — ouvrez la fiche pour attribuer des droits Bastion).",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -2239,7 +2239,7 @@ def admin_pending_user_reject_post(
         f"Première connexion « {row.user_email} » marquée rejetée "
         "(session Keycloak non révoquée automatiquement — utilisez Sessions si besoin).",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -2284,7 +2284,7 @@ def admin_access_requests_bulk_reject_post(
     from app.rbac.access_request_service import reject_access_requests_bulk
 
     ids = [int(x) for x in (request_ids or []) if x is not None]
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     if not ids:
         response = RedirectResponse(url=_PATH_ACCESS_PENDING, status_code=302)
         flash_redirect(
@@ -2343,7 +2343,7 @@ async def admin_access_requests_bulk_approve_post(
     from app.rbac.access_request_service import approve_access_requests_bulk
 
     ids = [int(x) for x in (request_ids or []) if x is not None]
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     want_email = send_credentials.strip().lower() in ("1", "true", "on", "yes")
     if not ids:
         response = RedirectResponse(url=_PATH_ACCESS_PENDING, status_code=302)
@@ -2420,7 +2420,7 @@ async def admin_access_request_approve_post(
     )
 
     want_email = send_credentials.strip().lower() in ("1", "true", "on", "yes")
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     try:
         rid = int((realm_id or "").strip())
     except ValueError:
@@ -2476,7 +2476,7 @@ def admin_access_request_reject_post(
         reject_access_request,
     )
 
-    secret = settings.vault_portal_internal_token or "dev"
+    secret = portal_signing_secret(settings)
     try:
         row = reject_access_request(
             db,
@@ -2661,7 +2661,7 @@ def admin_apps_create_post(
         response,
         f"Application '{label}' créée. Vous pouvez ajouter un logo.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -2899,7 +2899,7 @@ def admin_apps_edit_post(
                 "Voir Admin → Infrastructure."
             ),
             "error",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
         return response
     return host_apply_wait_redirect(
@@ -3013,7 +3013,7 @@ async def admin_app_crushftp_sync_companies(
             response,
             msg,
             "error",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
         return response
 
@@ -3089,7 +3089,7 @@ def _crushftp_sync_success_response(
         response,
         msg,
         category,
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -3689,7 +3689,7 @@ def _hot_store_flash(response, message: str, level: str, settings: Settings):
         response,
         message,
         level,
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -4010,7 +4010,7 @@ def admin_security_container_logs(
         response,
         "Paramètres logs containers enregistrés.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -4042,7 +4042,7 @@ async def admin_security_container_logs_test(
         response,
         message,
         "success" if ok else "error",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -4072,7 +4072,7 @@ def admin_security_container_logs_add(
         response,
         msg,
         kind,
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -4098,7 +4098,7 @@ def admin_security_container_logs_remove(
         response,
         "Container retiré de la liste blanche.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -4139,7 +4139,7 @@ def admin_security_misc(
         response,
         "Paramètres Misc enregistrés.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -4280,7 +4280,7 @@ def admin_security_banning_rules(
         response,
         "Règles anti-abus enregistrées.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -4318,21 +4318,21 @@ def admin_security_banning_add(
             response,
             "Ban permanent refusé : cochez la confirmation explicite.",
             "error",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
     elif ban is None:
         flash_redirect(
             response,
             "Ban non appliqué (cible en liste blanche ou déjà bannie).",
             "error",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
     else:
         flash_redirect(
             response,
             "Ban ajouté.",
             "success",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
     return response
 
@@ -4358,7 +4358,7 @@ def admin_security_banning_lift(
         response,
         "Ban levé.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -4392,7 +4392,7 @@ def admin_security_allowlist_add(
         response,
         msg,
         level,
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -4418,7 +4418,7 @@ def admin_security_allowlist_remove(
         response,
         "Entrée retirée de la liste blanche.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -4436,7 +4436,7 @@ def admin_security_breakglass_jwt_secret_generate(
         generate_or_rotate_ui_breakglass_secret,
     )
 
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     response = RedirectResponse(url="/admin/security#breakglass-jwt", status_code=302)
     if env_breakglass_secret_defined(settings):
         flash_redirect(
@@ -4497,7 +4497,7 @@ def admin_security_vault_key_rotate(
 ):
     from app.vault.key_rotation_service import KeyRotationError, rotate_application_key
 
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     response = RedirectResponse(url=_PATH_VAULT, status_code=302)
     if confirm != "on":
         flash_redirect(
@@ -4541,7 +4541,7 @@ def admin_security_vault_key_cadence(
 ):
     from app.portal_settings_service import set_vault_key_rotation_days
 
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     response = RedirectResponse(url=_PATH_VAULT, status_code=302)
     days = max(1, min(3650, int(rotation_days)))
     set_vault_key_rotation_days(
@@ -4581,7 +4581,7 @@ def admin_security_vault_key_export(
             response,
             "Export annulé : les passphrases ne correspondent pas.",
             "error",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
         return response
     try:
@@ -4592,7 +4592,7 @@ def admin_security_vault_key_export(
             response,
             str(exc),
             "error",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
         return response
     version = get_active_version() or 0
@@ -4625,7 +4625,7 @@ def admin_security_subdomain_sso(
             response,
             "Activation refusée : confirmez d'abord que l'infrastructure sous-domaine est prête.",
             "error",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
         return response
 
@@ -4643,7 +4643,7 @@ def admin_security_subdomain_sso(
         "Routage par sous-domaine "
         + ("activé." if want_enabled else "désactivé."),
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 

@@ -34,9 +34,9 @@ def _settings() -> Settings:
 def _realm(db) -> RealmConfig:
     s = _settings()
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", s),
         redirect_uri="https://portal.test/cb",
@@ -71,11 +71,11 @@ def test_pending_queue_consolidates_real_sources(db_session):
     db_session.commit()
     db_session.refresh(app)
     db_session.add(
-        PendingHost(hostname="ghost.ar-systems.fr", status="pending", hit_count=2)
+        PendingHost(hostname="ghost.example.com", status="pending", hit_count=2)
     )
     db_session.add(
         PendingHost(
-            hostname="discovery-probe-123.ar-systems.fr",
+            hostname="discovery-probe-123.example.com",
             status="pending",
             hit_count=1,
         )
@@ -109,7 +109,7 @@ def test_pending_queue_consolidates_real_sources(db_session):
     db_session.add(
         ActiveSyncDevice(
             application_id=app.id,
-            user_key="herve@example.com",
+            user_key="bob@example.com",
             device_id="ApplPHONE1",
             status="pending",
             source="observed",
@@ -160,7 +160,7 @@ def test_dashboard_shows_pending_devices(client, db_session):
     db_session.add(
         ActiveSyncDevice(
             application_id=app.id,
-            user_key="herve@example.com",
+            user_key="bob@example.com",
             device_id="ApplPHONE1",
             status="pending",
             source="observed",
@@ -191,7 +191,7 @@ def test_pending_devices_list_and_approve(client, db_session):
     db_session.refresh(app)
     device = ActiveSyncDevice(
         application_id=app.id,
-        user_key="herve@example.com",
+        user_key="bob@example.com",
         device_id="ApplPHONE1",
         device_type="iPhone",
         status="pending",
@@ -204,7 +204,7 @@ def test_pending_devices_list_and_approve(client, db_session):
 
     listing = client.get("/admin/pending-devices?status=pending", headers=ADMIN_HEADERS)
     assert listing.status_code == 200
-    assert "herve@example.com" in listing.text
+    assert "bob@example.com" in listing.text
     assert "ApplPHONE1" in listing.text or "iPhone" in listing.text
     assert 'id="device-drawer"' in listing.text
     assert "data-device=" in listing.text
@@ -227,7 +227,7 @@ def test_pending_devices_list_and_approve(client, db_session):
 
 def test_dashboard_shows_pending_hides_ai_and_shortcuts(client, db_session):
     db_session.add(
-        PendingHost(hostname="ghost.ar-systems.fr", status="pending", hit_count=1)
+        PendingHost(hostname="ghost.example.com", status="pending", hit_count=1)
     )
     db_session.commit()
 

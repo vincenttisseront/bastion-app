@@ -28,6 +28,7 @@ from app.web.openapi_responses import (
     RESP_500,
     RESP_503,
 )
+from app.web.csrf import portal_signing_secret
 
 _ADMIN_RBAC_PATH = '/admin/rbac'
 
@@ -51,7 +52,7 @@ def _sync_error_response(
     if _wants_json(request):
         return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=status_code)
     response = RedirectResponse(url=_ADMIN_RBAC_PATH, status_code=302)
-    flash_redirect(response, msg, "error", settings.vault_portal_internal_token or "dev")
+    flash_redirect(response, msg, "error", portal_signing_secret(settings))
     return response
 
 
@@ -208,7 +209,7 @@ async def admin_rbac_groups_sync(
         response,
         f"Synchronisation groupes OK ({', '.join(parts)}){members_bit}.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -255,7 +256,7 @@ async def admin_rbac_group_delete(
             group_id=group_id,
             msg=str(exc),
             status_code=409,
-            secret=settings.vault_portal_internal_token or "dev",
+            secret=portal_signing_secret(settings),
         )
     except ValueError as exc:
         db.rollback()
@@ -265,7 +266,7 @@ async def admin_rbac_group_delete(
             group_id=group_id,
             msg=str(exc) or "Échec de la suppression du groupe",
             status_code=400,
-            secret=settings.vault_portal_internal_token or "dev",
+            secret=portal_signing_secret(settings),
         )
     except Exception:
         db.rollback()
@@ -276,7 +277,7 @@ async def admin_rbac_group_delete(
             group_id=group_id,
             msg="Erreur serveur pendant la suppression du groupe",
             status_code=500,
-            secret=settings.vault_portal_internal_token or "dev",
+            secret=portal_signing_secret(settings),
         )
 
     if _wants_json(request):
@@ -292,7 +293,7 @@ async def admin_rbac_group_delete(
         response,
         f"Groupe « {group_name} » supprimé ({' + '.join(bits)}).",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 

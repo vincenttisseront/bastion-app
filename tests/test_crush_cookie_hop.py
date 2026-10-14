@@ -20,7 +20,7 @@ def _settings() -> Settings:
         environment="test",
         vault_portal_internal_token="hop-test-secret",
         session_hop_secret="hop-hmac-secret-for-pytest",
-        portal_domain="portal.ar-systems.fr",
+        portal_domain="portal.example.com",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
     )
@@ -30,7 +30,7 @@ def test_seal_unseal_roundtrip_any_cookies():
     settings = _settings()
     token = seal_session_hop_payload(
         cookies={"sessionid": "abc", "csrftoken": "xyz"},
-        target_url="https://app.ar-systems.fr/",
+        target_url="https://app.example.com/",
         slug="demo",
         settings=settings,
     )
@@ -55,8 +55,8 @@ def test_unseal_rejects_tampered_token():
 
 
 def test_session_hop_url():
-    assert session_hop_url("app.ar-systems.fr") == (
-        "https://app.ar-systems.fr/.bastion/session-cookies"
+    assert session_hop_url("app.example.com") == (
+        "https://app.example.com/.bastion/session-cookies"
     )
 
 
@@ -66,9 +66,9 @@ def test_attach_portal_hop_clears_parent_session_cookies():
     attach_session_hop_portal_cookies(
         response,
         cookies={"sessionid": "S1", "csrftoken": "T1"},
-        target_url="https://app.ar-systems.fr/",
+        target_url="https://app.example.com/",
         slug="demo",
-        fqdn="app.ar-systems.fr",
+        fqdn="app.example.com",
         settings=settings,
     )
     headers = response.headers.getlist("set-cookie")
@@ -84,7 +84,7 @@ def test_apply_host_only_no_domain_on_session_cookies():
     apply_host_only_session_cookies(
         response,
         {"sessionid": "HOSTONLY1"},
-        shared_parent="ar-systems.fr",
+        shared_parent="example.com",
     )
     headers = response.headers.getlist("set-cookie")
     session = [h for h in headers if "HOSTONLY1" in h]
@@ -97,7 +97,7 @@ def test_session_cookie_hop_endpoint_sets_host_only(client):
         environment="test",
         vault_portal_internal_token="test-secret",
         session_hop_secret="test-session-hop-secret-for-pytest",
-        portal_domain="portal.ar-systems.fr",
+        portal_domain="portal.example.com",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
     )
@@ -110,11 +110,11 @@ def test_session_cookie_hop_endpoint_sets_host_only(client):
     resp = client.get(
         "/api/internal/session-cookie-hop",
         cookies={HOP_COOKIE_NAME: token},
-        headers={"Host": "app.ar-systems.fr", "X-Forwarded-Host": "app.ar-systems.fr"},
+        headers={"Host": "app.example.com", "X-Forwarded-Host": "app.example.com"},
         follow_redirects=False,
     )
     assert resp.status_code == 302
-    assert resp.headers["location"] == "https://app.ar-systems.fr/dashboard"
+    assert resp.headers["location"] == "https://app.example.com/dashboard"
     set_cookies = resp.headers.get_list("set-cookie")
     host_only = [h for h in set_cookies if "ENDPOINT99" in h]
     assert host_only
@@ -125,8 +125,8 @@ def test_session_cookie_hop_rejected_goes_to_portal_apps(client):
     resp = client.get(
         "/api/internal/session-cookie-hop",
         headers={
-            "Host": "portal.ar-systems.fr",
-            "X-Forwarded-Host": "grommunio.ar-systems.fr",
+            "Host": "portal.example.com",
+            "X-Forwarded-Host": "grommunio.example.com",
         },
         follow_redirects=False,
     )
@@ -140,7 +140,7 @@ def test_legacy_crush_hop_alias_still_works(client):
         environment="test",
         vault_portal_internal_token="test-secret",
         session_hop_secret="test-session-hop-secret-for-pytest",
-        portal_domain="portal.ar-systems.fr",
+        portal_domain="portal.example.com",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
     )
@@ -154,13 +154,13 @@ def test_legacy_crush_hop_alias_still_works(client):
         "/api/internal/crush-cookie-hop",
         cookies={HOP_COOKIE_NAME: token},
         headers={
-            "Host": "transfer.ar-systems.fr",
-            "X-Forwarded-Host": "transfer.ar-systems.fr",
+            "Host": "transfer.example.com",
+            "X-Forwarded-Host": "transfer.example.com",
         },
         follow_redirects=False,
     )
     assert resp.status_code == 302
     assert resp.headers["location"] == (
-        "https://transfer.ar-systems.fr/WebInterface/new-ui/index.html"
+        "https://transfer.example.com/WebInterface/new-ui/index.html"
     )
     assert any("LEGACYCOOKIE01" in h for h in resp.headers.get_list("set-cookie"))

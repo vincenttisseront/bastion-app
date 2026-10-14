@@ -40,9 +40,9 @@ def _settings() -> Settings:
 def _realm(db) -> RealmConfig:
     s = _settings()
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", s),
         redirect_uri="https://portal.test/cb",
@@ -88,7 +88,7 @@ def _crushftp_app(db, *, with_admin_api: bool = True) -> App:
         app.crushftp_admin_server_group = "MainUsers"
         app.crushftp_admin_username = "crushadmin"
         app.crushftp_admin_password_encrypted = encrypt_secret("admin-pass", s)
-        app.crushftp_vfs_base_path = "/crush_data/AR-SYSTEMS"
+        app.crushftp_vfs_base_path = "/crush_data/EXAMPLE-CORP"
     db.add(app)
     db.commit()
     db.refresh(app)
@@ -131,7 +131,7 @@ async def test_bastion_account_provisioning_crushftp_success(db_session):
     assert row.driver_name == "crushftp"
     assert account.status == "provisioned"
     assert route.call_count == 5
-    assert "FILE://crush_data/AR-SYSTEMS/SDIS999/" in (row.detail or "")
+    assert "FILE://crush_data/EXAMPLE-CORP/SDIS999/" in (row.detail or "")
 
     set_user_call = route.calls[2].request.content.decode()
     _assert_basic_auth(route.calls[2].request)

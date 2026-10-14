@@ -83,7 +83,7 @@ def test_build_daily_recap_includes_hosts_users_alerts(db_session: Session):
         PendingUser(
             user_email="alice@example.com",
             username="alice",
-            realm_slug="ar-systems",
+            realm_slug="example-corp",
             first_seen_at=now - timedelta(hours=3),
             last_seen_at=now,
             status="pending",

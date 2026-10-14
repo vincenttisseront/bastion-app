@@ -60,7 +60,7 @@ def _settings() -> Settings:
         portal_domain="portal.test",
         database_url="sqlite://",
         exports_dir="/tmp/bastion-exports-test-alignment",
-        sso_portal_default_realm_slug="ar-systems",
+        sso_portal_default_realm_slug="example-corp",
     )
 
 
@@ -69,12 +69,12 @@ async def test_build_report_uses_keycloak_timeouts(db_session: Session, tmp_path
     settings = _settings()
     settings = settings.model_copy(update={"exports_dir": str(tmp_path)})
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", settings),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         is_default=True,
         enabled=True,
@@ -86,7 +86,7 @@ async def test_build_report_uses_keycloak_timeouts(db_session: Session, tmp_path
     db_session.add(realm)
     db_session.commit()
 
-    export_dir = tmp_path / "oauth2" / "ar-systems"
+    export_dir = tmp_path / "oauth2" / "example-corp"
     export_dir.mkdir(parents=True)
     (export_dir / "oauth2-proxy.cfg").write_text(
         'cookie_expire = "12h"\n'

@@ -28,7 +28,7 @@ def test_validate_analyze_url_rejects_non_http():
         "http://127.0.0.1:8000/health",
         "http://10.0.0.1/",
         "http://192.168.1.1/",
-        "https://dolibarr.ar-systems.fr/login",
+        "https://dolibarr.example.com/login",
         "http://[::1]/",
     ],
 )

@@ -61,7 +61,7 @@ def test_admin_sidebar_pending_badge(client: TestClient, db_session: Session):
         PendingUser(
             user_email="pending.nav@example.com",
             username="pending.nav",
-            realm_slug="ar-systems",
+            realm_slug="example-corp",
             status="pending",
         )
     )

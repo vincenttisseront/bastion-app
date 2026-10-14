@@ -17,8 +17,8 @@ from app.secret_crypto import encrypt_secret
 from app.sso_settings import Settings
 
 CRUSH_ADMIN_URL = "https://crush-admin.internal:8080/"
-KC_TOKEN_URL = "https://kc.example.com/realms/AR-SYSTEMS/protocol/openid-connect/token"
-KC_DELETE_USER_URL = "https://kc.example.com/admin/realms/AR-SYSTEMS/users/kc-user-1"
+KC_TOKEN_URL = "https://kc.example.com/realms/EXAMPLE-CORP/protocol/openid-connect/token"
+KC_DELETE_USER_URL = "https://kc.example.com/admin/realms/EXAMPLE-CORP/users/kc-user-1"
 
 CRUSH_OK = Response(200, text="<response>success</response>")
 CRUSH_FAIL = Response(200, text="<response>failure</response>")
@@ -45,9 +45,9 @@ def _settings() -> Settings:
 def _realm(db) -> RealmConfig:
     s = _settings()
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", s),
         redirect_uri="https://portal.test/cb",
@@ -75,7 +75,7 @@ def _crushftp_app(db) -> App:
         crushftp_admin_server_group="MainUsers",
         crushftp_admin_username="crushadmin",
         crushftp_admin_password_encrypted=encrypt_secret("admin-pass", s),
-        crushftp_vfs_base_path="/crush_data/AR-SYSTEMS",
+        crushftp_vfs_base_path="/crush_data/EXAMPLE-CORP",
     )
     db.add(app)
     db.commit()

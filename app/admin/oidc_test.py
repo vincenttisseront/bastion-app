@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -69,10 +70,19 @@ def _append_issuer_match(checks: list[CheckStep], metadata: dict, issuer_url: st
         )
 
 
-async def _check_jwks(checks: list[CheckStep], jwks_uri: str) -> None:
+def _same_host(url: str, issuer_url: str) -> bool:
+    target, issuer = urlsplit(url), urlsplit(issuer_url)
+    return target.scheme == "https" and target.netloc.lower() == issuer.netloc.lower()
+
+
+async def _check_jwks(checks: list[CheckStep], client: httpx.AsyncClient, jwks_uri: str) -> None:
+    if urlsplit(jwks_uri).scheme != "https":
+        checks.append(
+            CheckStep(name="jwks", status=CheckStatus.ERROR, message="jwks_uri doit être en https://")
+        )
+        return
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            jwks_resp = await client.get(jwks_uri)
+        jwks_resp = await client.get(jwks_uri)
         if jwks_resp.status_code == 200 and jwks_resp.json().get("keys"):
             checks.append(
                 CheckStep(
@@ -94,28 +104,39 @@ async def _check_jwks(checks: list[CheckStep], jwks_uri: str) -> None:
             CheckStep(
                 name="jwks",
                 status=CheckStatus.ERROR,
-                message=f"jwks_uri injoignable : {exc}",
+                message=f"jwks_uri injoignable ({type(exc).__name__})",
             )
         )
 
 
 async def _check_client_credentials(
     checks: list[CheckStep],
+    client: httpx.AsyncClient,
     *,
+    issuer_url: str,
     token_endpoint: str,
     client_id: str,
     client_secret: str,
 ) -> None:
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            token_resp = await client.post(
-                token_endpoint,
-                data={
-                    "grant_type": "client_credentials",
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                },
+    # The client secret is posted here: never let a discovery document send it elsewhere.
+    if not _same_host(token_endpoint, issuer_url):
+        checks.append(
+            CheckStep(
+                name="client_credentials",
+                status=CheckStatus.ERROR,
+                message="token_endpoint hors de l'hôte de l'issuer — secret non envoyé",
             )
+        )
+        return
+    try:
+        token_resp = await client.post(
+            token_endpoint,
+            data={
+                "grant_type": "client_credentials",
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+        )
         content_type = token_resp.headers.get("content-type", "")
         body = token_resp.json() if content_type.startswith("application/json") else {}
         error = body.get("error", "")
@@ -160,7 +181,7 @@ async def _check_client_credentials(
             CheckStep(
                 name="client_credentials",
                 status=CheckStatus.ERROR,
-                message=f"token_endpoint injoignable : {exc}",
+                message=f"token_endpoint injoignable ({type(exc).__name__})",
             )
         )
 
@@ -173,14 +194,18 @@ async def test_oidc_connection_result(
     resource_id: str | int = "draft",
 ) -> ConnectionTestResult:
     """Run OIDC checks and return a ConnectionTestResult (no secrets in detail)."""
-    checks: list[CheckStep] = []
     start = time.monotonic()
+    async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+        checks = await _run_checks(client, issuer_url, client_id, client_secret)
+    return _oidc_result(checks, resource_id=resource_id, start=start)
 
+
+async def _run_checks(
+    client: httpx.AsyncClient, issuer_url: str, client_id: str, client_secret: str
+) -> list[CheckStep]:
+    checks: list[CheckStep] = []
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"{issuer_url.rstrip('/')}/.well-known/openid-configuration"
-            )
+        resp = await client.get(f"{issuer_url.rstrip('/')}/.well-known/openid-configuration")
         if resp.status_code != 200:
             checks.append(
                 CheckStep(
@@ -189,7 +214,7 @@ async def test_oidc_connection_result(
                     message=f"HTTP {resp.status_code} sur .well-known/openid-configuration",
                 )
             )
-            return _oidc_result(checks, resource_id=resource_id, start=start)
+            return checks
         metadata = resp.json()
         checks.append(
             CheckStep(name="discovery", status=CheckStatus.OK, message="Discovery OK")
@@ -199,12 +224,19 @@ async def test_oidc_connection_result(
             CheckStep(
                 name="discovery",
                 status=CheckStatus.ERROR,
-                message=f"Injoignable : {exc}",
+                message=f"Injoignable ({type(exc).__name__})",
             )
         )
-        return _oidc_result(checks, resource_id=resource_id, start=start)
+        return checks
+    except ValueError:
+        checks.append(
+            CheckStep(name="discovery", status=CheckStatus.ERROR, message="Discovery non-JSON")
+        )
+        return checks
 
     required = ["authorization_endpoint", "token_endpoint", "jwks_uri", "issuer"]
+    if not isinstance(metadata, dict):
+        metadata = {}
     missing = [field for field in required if field not in metadata]
     if missing:
         checks.append(
@@ -214,20 +246,22 @@ async def test_oidc_connection_result(
                 message=f"Champs manquants dans la discovery : {missing}",
             )
         )
-        return _oidc_result(checks, resource_id=resource_id, start=start)
+        return checks
     checks.append(
         CheckStep(name="metadata", status=CheckStatus.OK, message="Métadonnées complètes")
     )
 
     _append_issuer_match(checks, metadata, issuer_url)
-    await _check_jwks(checks, metadata["jwks_uri"])
+    await _check_jwks(checks, client, str(metadata["jwks_uri"]))
     await _check_client_credentials(
         checks,
-        token_endpoint=metadata["token_endpoint"],
+        client,
+        issuer_url=issuer_url,
+        token_endpoint=str(metadata["token_endpoint"]),
         client_id=client_id,
         client_secret=client_secret,
     )
-    return _oidc_result(checks, resource_id=resource_id, start=start)
+    return checks
 
 
 async def test_oidc_connection(

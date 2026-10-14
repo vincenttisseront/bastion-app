@@ -15,6 +15,7 @@ from app.files.service import (
     assign_beta_channel,
     create_file_resource,
     delete_channel_assignment,
+    delete_file_resource,
     promote_file_version,
     resolve_storage_path,
     store_file_version,
@@ -37,6 +38,7 @@ from app.sso_settings import Settings, get_settings
 from app.web.flash import flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.csrf import portal_signing_secret
 
 logger = logging.getLogger(__name__)
 
@@ -68,14 +70,16 @@ def _wants_json(request: Request) -> bool:
 
 def _file_catalogue_rows(db: Session) -> list[dict]:
     files = db.query(FileResource).order_by(FileResource.label).all()
+    active_by_file: dict[int, list[FileVersion]] = {}
+    for version in (
+        db.query(FileVersion)
+        .filter(FileVersion.status == "active")
+        .order_by(FileVersion.uploaded_at.desc())
+    ):
+        active_by_file.setdefault(version.file_id, []).append(version)
     rows = []
     for fr in files:
-        versions = (
-            db.query(FileVersion)
-            .filter_by(file_id=fr.id, status="active")
-            .order_by(FileVersion.uploaded_at.desc())
-            .all()
-        )
+        versions = active_by_file.get(fr.id, [])
         stable = next((v for v in versions if v.channel == "stable"), None)
         beta = next((v for v in versions if v.channel == "beta"), None)
         rows.append(
@@ -196,7 +200,7 @@ def _deposit_error_response(
     if flash_on_html:
         response = RedirectResponse(url="/files", status_code=302)
         flash_redirect(
-            response, detail, "error", settings.vault_portal_internal_token or "dev"
+            response, detail, "error", portal_signing_secret(settings)
         )
         return response
     raise HTTPException(status_code=status, detail=detail)
@@ -286,7 +290,7 @@ def _deposit_success_response(
         response,
         payload["message"],
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -400,7 +404,7 @@ async def admin_files_create(
     except ValueError as exc:
         response = RedirectResponse(url="/admin/files", status_code=302)
         flash_redirect(
-            response, str(exc), "error", settings.vault_portal_internal_token or "dev"
+            response, str(exc), "error", portal_signing_secret(settings)
         )
         return response
 
@@ -414,7 +418,7 @@ async def admin_files_create(
     )
     response = RedirectResponse(url=f"/admin/files/{fr.id}", status_code=302)
     flash_redirect(
-        response, "Fichier créé.", "success", settings.vault_portal_internal_token or "dev"
+        response, "Fichier créé.", "success", portal_signing_secret(settings)
     )
     return response
 
@@ -513,7 +517,7 @@ async def admin_files_edit(
         response,
         "Fichier mis à jour.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -528,8 +532,10 @@ async def admin_files_delete(
 ):
     fr = _file_or_404(db, file_id)
     slug = fr.slug
-    db.delete(fr)
+    blob_paths = delete_file_resource(db, fr)
     db.commit()
+    for path in blob_paths:
+        _unlink_blob(path, settings)
     log_action(
         db,
         actor=user.email,
@@ -543,7 +549,7 @@ async def admin_files_delete(
         response,
         "Fichier supprimé.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -580,7 +586,7 @@ async def admin_files_upload_version(
     except ValueError as exc:
         response = RedirectResponse(url=f"/admin/files/{fr.id}", status_code=302)
         flash_redirect(
-            response, str(exc), "error", settings.vault_portal_internal_token or "dev"
+            response, str(exc), "error", portal_signing_secret(settings)
         )
         return response
 
@@ -604,7 +610,7 @@ async def admin_files_upload_version(
         response,
         f"Version {version.version_label} ({version.channel}) publiée.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -631,7 +637,7 @@ async def admin_files_promote_or_patch_version(
         except ValueError as exc:
             response = RedirectResponse(url=f"/admin/files/{file_id}", status_code=302)
             flash_redirect(
-                response, str(exc), "error", settings.vault_portal_internal_token or "dev"
+                response, str(exc), "error", portal_signing_secret(settings)
             )
             return response
         log_action(
@@ -651,7 +657,7 @@ async def admin_files_promote_or_patch_version(
             response,
             f"Version {version.version_label} promue en stable.",
             "success",
-            settings.vault_portal_internal_token or "dev",
+            portal_signing_secret(settings),
         )
         return response
 
@@ -680,7 +686,7 @@ async def admin_files_promote_or_patch_version(
     )
     response = RedirectResponse(url=f"/admin/files/{file_id}", status_code=302)
     flash_redirect(
-        response, "Version mise à jour.", "success", settings.vault_portal_internal_token or "dev"
+        response, "Version mise à jour.", "success", portal_signing_secret(settings)
     )
     return response
 
@@ -711,7 +717,7 @@ async def admin_files_archive_version(
     )
     response = RedirectResponse(url=f"/admin/files/{file_id}", status_code=302)
     flash_redirect(
-        response, "Version archivée.", "success", settings.vault_portal_internal_token or "dev"
+        response, "Version archivée.", "success", portal_signing_secret(settings)
     )
     return response
 
@@ -744,7 +750,7 @@ async def admin_files_assign_beta(
     except ValueError as exc:
         response = RedirectResponse(url=redirect_url, status_code=302)
         flash_redirect(
-            response, str(exc), "error", settings.vault_portal_internal_token or "dev"
+            response, str(exc), "error", portal_signing_secret(settings)
         )
         return response
 
@@ -767,7 +773,7 @@ async def admin_files_assign_beta(
         response,
         "Affectation canal bêta ajoutée.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response
 
@@ -807,6 +813,6 @@ async def admin_files_unassign_beta(
         response,
         "Affectation canal bêta retirée (accès conservé, canal stable).",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response

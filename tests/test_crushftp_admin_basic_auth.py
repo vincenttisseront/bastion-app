@@ -17,7 +17,7 @@ from app.sso_settings import Settings
 
 CRUSH_ADMIN_URL = "http://10.0.0.50:8080/"
 ADMIN_PASS = "s3cret-admin-pass"
-VFS_BASE = "/crush_data/AR-SYSTEMS"
+VFS_BASE = "/crush_data/EXAMPLE-CORP"
 ORG = "SDIS999"
 
 CRUSH_OK = Response(200, text="<response>success</response>")
@@ -109,7 +109,7 @@ async def test_crushftp_admin_basic_auth_create_account(db_session, caplog):
 
     assert result.status == "success"
     assert "jdoe" in result.detail
-    assert f"FILE://crush_data/AR-SYSTEMS/{ORG}/" in result.detail
+    assert f"FILE://crush_data/EXAMPLE-CORP/{ORG}/" in result.detail
     assert route.call_count == 5
 
     commands = [
@@ -124,7 +124,7 @@ async def test_crushftp_admin_basic_auth_create_account(db_session, caplog):
     assert set_user["data_action"] == ["replace"]
     assert set_user["serverGroup"] == ["MainUsers"]
     assert set_user["username"] == ["jdoe"]
-    assert f"FILE://crush_data/AR-SYSTEMS/{ORG}/" in set_user["vfs_items"][0]
+    assert f"FILE://crush_data/EXAMPLE-CORP/{ORG}/" in set_user["vfs_items"][0]
     assert f"<name>{ORG}</name>" in set_user["vfs_items"][0]
     assert "FILE://users/" not in set_user["vfs_items"][0]
     assert "create_home_folder>false" in set_user["user"][0]

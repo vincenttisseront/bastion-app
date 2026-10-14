@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import httpx
 
-BASE = "https://portal.ar-systems.fr"
+BASE = "https://portal.example.com"
 
 
 def main() -> None:

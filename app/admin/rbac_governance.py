@@ -34,6 +34,7 @@ from app.sso_settings import Settings, get_settings
 from app.web.flash import flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.csrf import portal_signing_secret
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +59,13 @@ def _resolve_role_for_group_config(db: Session, body: dict, mode: str):
     from app.rbac.permission_seed import SECURITY_ADMIN_ROLE_NAME
 
     role_name = SECURITY_ADMIN_ROLE_NAME if _mode_is_total(mode) else None
-    role_id = body.get("rbac_role_id")
+    role_id = str(body.get("rbac_role_id") or "").strip()
     if role_id:
-        return db.query(RbacRole).filter_by(id=int(role_id)).first()
+        # An unknown id must not fall through to "no role": that would drop every role grant.
+        role = db.get(RbacRole, int(role_id)) if role_id.isdigit() else None
+        if role is None:
+            raise HTTPException(status_code=400, detail="Rôle RBAC introuvable")
+        return role
     if role_name:
         return db.query(RbacRole).filter_by(name=role_name).first()
     return None
@@ -127,7 +132,8 @@ def admin_rbac_governance(
     user=Depends(require_admin),
 ):
     seed_governance_rbac(db)
-    db.commit()
+    if db.new or db.dirty:
+        db.commit()
 
     roles = list_roles(db)
     if not roles:
@@ -186,8 +192,13 @@ async def admin_rbac_role_permissions_save(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    body = await request.json()
-    changes = body.get("changes") or []
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"ok": False, "detail": "JSON invalide"}, status_code=400)
+    changes = body.get("changes") if isinstance(body, dict) else None
+    if not isinstance(changes, list):
+        return JSONResponse({"ok": False, "detail": "changes doit être une liste"}, status_code=400)
     try:
         applied = apply_permission_diff(
             db, role_id, changes, actor=user.email or user.username
@@ -230,7 +241,7 @@ async def admin_rbac_role_create(
     except ValueError as exc:
         response = RedirectResponse(url="/admin/rbac/governance", status_code=302)
         flash_redirect(
-            response, str(exc), "error", settings.vault_portal_internal_token or "dev"
+            response, str(exc), "error", portal_signing_secret(settings)
         )
         return response
 
@@ -246,7 +257,7 @@ async def admin_rbac_role_create(
         url=f"/admin/rbac/governance?role_id={role.id}", status_code=302
     )
     flash_redirect(
-        response, "Rôle créé.", "success", settings.vault_portal_internal_token or "dev"
+        response, "Rôle créé.", "success", portal_signing_secret(settings)
     )
     return response
 
@@ -266,7 +277,15 @@ async def admin_rbac_group_role_config(
     if not group:
         raise HTTPException(status_code=404, detail="Groupe introuvable")
 
-    body = await request.json() if _wants_json(request) else dict(await request.form())
+    if _wants_json(request):
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="JSON invalide") from None
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="JSON invalide")
+    else:
+        body = dict(await request.form())
     mode = str(body.get("mode") or "limited").strip().lower()
     role = _resolve_role_for_group_config(db, body, mode)
     _replace_group_rbac_role_grants(
@@ -299,6 +318,6 @@ async def admin_rbac_group_role_config(
         response,
         "Configuration groupe enregistrée.",
         "success",
-        settings.vault_portal_internal_token or "dev",
+        portal_signing_secret(settings),
     )
     return response

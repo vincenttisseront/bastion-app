@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.admin.export import (
     core_static_realm_slugs,
     export_app_catalogue_files,
+    exports_path,
     prune_deleted_realm_exports,
     write_nginx_realms_conf,
     write_oauth2_proxy_export,
@@ -38,12 +39,6 @@ router = APIRouter(
 )
 
 MANIFEST_FILENAME = "infrastructure-manifest.json"
-
-
-def _exports_path(settings: Settings) -> Path:
-    path = Path(settings.exports_dir)
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
 def iter_exportable_realms(db: Session, settings: Settings) -> list[RealmConfig]:
@@ -143,7 +138,7 @@ def build_infrastructure_manifest(
 
 def apply_infrastructure(db: Session, settings: Settings) -> dict[str, Any]:
     """Write export files from DB and return the infrastructure manifest."""
-    exports_path = _exports_path(settings)
+    root = exports_path(settings)
     written_files: list[dict[str, Any]] = []
     partial = False
     error: str | None = None
@@ -252,7 +247,7 @@ def apply_infrastructure(db: Session, settings: Settings) -> dict[str, Any]:
         partial=partial,
         error=error,
     )
-    manifest_path = exports_path / MANIFEST_FILENAME
+    manifest_path = root / MANIFEST_FILENAME
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     manifest["manifest_path"] = str(manifest_path)
     return manifest

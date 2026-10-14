@@ -210,7 +210,7 @@ def test_aggregator_skips_loopback_host_noise(tmp_path: Path):
                 _sample_audit_line(rule_id="920350", host="127.0.0.1:8080"),
                 _sample_audit_line(rule_id="920350", host="localhost"),
                 _sample_audit_line(
-                    rule_id="942100", host="portal.ar-systems.fr", client_ip="198.51.100.9"
+                    rule_id="942100", host="portal.example.com", client_ip="198.51.100.9"
                 ),
             ]
         )
@@ -224,7 +224,7 @@ def test_aggregator_skips_loopback_host_noise(tmp_path: Path):
     w24 = summary["windows"]["24h"]
     assert w24["inspected"] == 1
     assert w24["detections"] == 1
-    assert w24["top_hosts"] == [{"host": "portal.ar-systems.fr", "count": 1}]
+    assert w24["top_hosts"] == [{"host": "portal.example.com", "count": 1}]
     assert w24["top_rules"][0]["rule_id"] == "942100"
     assert all(
         not str(h.get("host", "")).startswith("127.") for h in w24["top_hosts"]
@@ -241,12 +241,12 @@ def test_aggregator_skips_loopback_client_ip_smoke(tmp_path: Path):
             [
                 _sample_audit_line(
                     rule_id="942180",
-                    host="portal.ar-systems.fr",
+                    host="portal.example.com",
                     client_ip="127.0.0.1",
                 ),
                 _sample_audit_line(
                     rule_id="942100",
-                    host="portal.ar-systems.fr",
+                    host="portal.example.com",
                     client_ip="198.51.100.9",
                 ),
             ]
@@ -264,7 +264,7 @@ def test_aggregator_skips_loopback_client_ip_smoke(tmp_path: Path):
     assert w24["top_attackers"] == [{"ip": "198.51.100.9", "count": 1}]
     assert all(e["client_ip"] != "127.0.0.1" for e in summary["recent_events"])
     assert is_audit_noise_event(
-        {"host": "portal.ar-systems.fr", "client_ip": "127.0.0.1"}
+        {"host": "portal.example.com", "client_ip": "127.0.0.1"}
     )
 
 

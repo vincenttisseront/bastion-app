@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -19,6 +20,9 @@ from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.csrf import portal_signing_secret
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin-waf"], dependencies=[Depends(require_admin)])
 
@@ -37,7 +41,7 @@ def _actor(user) -> str:
 
 
 def _flash_secret(settings: Settings) -> str:
-    return settings.vault_portal_internal_token or "dev"
+    return portal_signing_secret(settings)
 
 
 def _waf_page_context(
@@ -75,8 +79,8 @@ def _waf_page_context(
             if sid.isdigit() and sid not in suggestions:
                 msg = str(ev.get("message") or "").strip()
                 suggestions[sid] = (msg[:60] if msg else f"Règle CRS {sid}")
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception:  # noqa: BLE001 — suggestions are optional, the page must render
+        logger.warning("WAF rule suggestions unavailable", exc_info=True)
     rule_suggestions = [
         {"id": rid, "label": f"{rid} — {label}"}
         for rid, label in sorted(suggestions.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0)

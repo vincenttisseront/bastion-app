@@ -22,6 +22,7 @@ from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.csrf import portal_signing_secret
 
 _ADMIN_BRANDING_PATH = '/admin/branding'
 
@@ -62,7 +63,7 @@ async def admin_branding_save(
     support_contact: str = Form(""),
     show_product_branding: str | None = Form(None),
 ):
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     response = RedirectResponse(url=_ADMIN_BRANDING_PATH, status_code=302)
     try:
         update_branding_settings(
@@ -94,7 +95,7 @@ async def admin_branding_logo_upload(
     user=Depends(require_admin),
     file: UploadFile = File(...),
 ):
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     response = RedirectResponse(url=_ADMIN_BRANDING_PATH, status_code=302)
     raw = await file.read()
     try:
@@ -119,7 +120,7 @@ async def admin_branding_favicon_upload(
     user=Depends(require_admin),
     file: UploadFile = File(...),
 ):
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     response = RedirectResponse(url=_ADMIN_BRANDING_PATH, status_code=302)
     raw = await file.read()
     try:
@@ -143,7 +144,7 @@ async def admin_branding_logo_delete(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     response = RedirectResponse(url=_ADMIN_BRANDING_PATH, status_code=302)
     clear_branding_asset(
         db,
@@ -163,7 +164,7 @@ async def admin_branding_favicon_delete(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    token = settings.vault_portal_internal_token or "dev"
+    token = portal_signing_secret(settings)
     response = RedirectResponse(url=_ADMIN_BRANDING_PATH, status_code=302)
     clear_branding_asset(
         db,

@@ -23,12 +23,12 @@ def test_login_headers_no_stack_fingerprint(client: TestClient, db_session: Sess
     )
     db_session.add(
         RealmConfig(
-            slug="ar-systems",
-            name="AR-SYSTEMS",
-            issuer_url="https://keycloak.example/realms/ar-systems",
+            slug="example-corp",
+            name="EXAMPLE-CORP",
+            issuer_url="https://keycloak.example/realms/example-corp",
             client_id="portal",
             client_secret_encrypted=encrypt_secret("secret", settings),
-            redirect_uri="https://portal.example/oauth2/ar-systems/callback",
+            redirect_uri="https://portal.example/oauth2/example-corp/callback",
             oauth2_proxy_port=4180,
             is_default=True,
             enabled=True,

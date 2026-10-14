@@ -33,12 +33,12 @@ def _settings() -> Settings:
 def _realm(db) -> RealmConfig:
     s = _settings()
     realm = RealmConfig(
-        slug="ar-systems",
-        name="AR-SYSTEMS",
-        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        slug="example-corp",
+        name="EXAMPLE-CORP",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
         client_id="portal",
         client_secret_encrypted=encrypt_secret("secret", s),
-        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        redirect_uri="https://portal.test/oauth2/example-corp/callback",
         oauth2_proxy_port=4180,
         enabled=True,
         groups_sync_enabled=True,
@@ -144,7 +144,7 @@ async def test_effective_grants_merge_group_and_direct(db_session):
         AccessGrantCreate(
             subject_type="user",
             keycloak_user_id=user_id,
-            user_display_cache="vincent.tisseront",
+            user_display_cache="alice.martin",
             resource_type="system_role",
             system_role="portal_auditor",
             access_level="view",
@@ -154,7 +154,7 @@ async def test_effective_grants_merge_group_and_direct(db_session):
     db_session.commit()
 
     token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
-    groups_url = f"https://kc.example.com/admin/realms/AR-SYSTEMS/users/{user_id}/groups"
+    groups_url = f"https://kc.example.com/admin/realms/EXAMPLE-CORP/users/{user_id}/groups"
     respx.post(token_url).respond(200, json={"access_token": "t"})
     respx.get(groups_url).respond(200, json=[{"id": group.keycloak_group_id, "name": group.name}])
 
@@ -174,14 +174,14 @@ def test_user_search_mocked(client, db_session):
     settings = _settings()
     realm = _realm(db_session)
     token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
-    search_url = "https://kc.example.com/admin/realms/AR-SYSTEMS/users?search=vincent&max=20"
-    prefix_url = "https://kc.example.com/admin/realms/AR-SYSTEMS/users?search=vi&max=100"
+    search_url = "https://kc.example.com/admin/realms/EXAMPLE-CORP/users?search=vincent&max=20"
+    prefix_url = "https://kc.example.com/admin/realms/EXAMPLE-CORP/users?search=vi&max=100"
     respx.post(token_url).respond(200, json={"access_token": "t"})
     payload = [
         {
             "id": "user-1",
-            "username": "vincent.tisseront",
-            "email": "vincent@example.com",
+            "username": "alice.martin",
+            "email": "alice@example.com",
         }
     ]
     respx.get(search_url).respond(200, json=payload)
@@ -194,7 +194,7 @@ def test_user_search_mocked(client, db_session):
     assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is True
-    assert data["users"][0]["username"] == "vincent.tisseront"
+    assert data["users"][0]["username"] == "alice.martin"
 
 
 def test_create_grant_via_api(client, db_session):
