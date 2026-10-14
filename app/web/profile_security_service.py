@@ -12,12 +12,12 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.models import OidcSession, RealmConfig, utcnow
-from app.oidc_bff import (
+from app.auth.oidc_bff import (
     purge_expired_oidc_sessions,
     revoke_oidc_jti,
     validate_oidc_session_cookie,
 )
-from app.oidc_bff_client import (
+from app.auth.oidc_bff_client import (
     InvalidCredentialsError,
     UnsupportedAuthFlowError,
     verify_keycloak_password,
@@ -79,7 +79,7 @@ def password_self_service_available(
         return False
     if manage_users_configured(realm):
         return True
-    from app.oidc_bff_config_service import get_headless_oidc_config
+    from app.auth.oidc_bff_config_service import get_headless_oidc_config
 
     return get_headless_oidc_config(db, realm.slug, settings) is not None
 
@@ -128,7 +128,7 @@ async def _change_password_via_account_api(
 ) -> None:
     import httpx
 
-    from app.oidc_bff_client import InvalidCredentialsError, start_headless_login
+    from app.auth.oidc_bff_client import InvalidCredentialsError, start_headless_login
 
     login_id = (user.username or user.email or "").strip()
     result = await start_headless_login(

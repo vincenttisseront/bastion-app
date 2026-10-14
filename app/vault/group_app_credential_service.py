@@ -10,9 +10,9 @@ from app.audit import log_action
 from app.models import (
     GroupAppCredential,
     GroupAppCredentialExclusion,
-    RBACGroup,
     utcnow,
 )
+from app.rbac.group_lookup import resolve_rbac_groups
 from app.secret_crypto import (
     encrypt_secret,
     encryption_config_error,
@@ -20,10 +20,6 @@ from app.secret_crypto import (
 )
 from app.sso_settings import Settings
 from app.vault.app_credential_service import EncryptionNotConfiguredError, VaultError
-
-
-class GroupCredentialConflictError(VaultError):
-    """Raised when a group already has a credential for the app."""
 
 
 def _require_encryption(settings: Settings) -> None:
@@ -245,6 +241,7 @@ def resolve_group_credential_for_user(
     app_slug: str,
     keycloak_user_id: str | None,
     group_names: Sequence[str] | None,
+    realm_slug: str | None = None,
 ) -> tuple[GroupAppCredential | None, bool]:
     """Pick the group shared credential for this user/app.
 
@@ -255,11 +252,10 @@ def resolve_group_credential_for_user(
       this app but is excluded from every applicable one → block (no app shared)
     - ``(None, False)`` — no group credential applies → fall through to app shared
     """
-    names = [n for n in (group_names or []) if n]
-    if not names or not keycloak_user_id:
+    if not keycloak_user_id:
         return None, False
 
-    groups = db.query(RBACGroup).filter(RBACGroup.name.in_(names)).all()
+    groups = resolve_rbac_groups(db, realm_slug=realm_slug, group_names=group_names)
     if not groups:
         return None, False
     group_ids = [g.id for g in groups]
@@ -295,7 +291,6 @@ def resolve_group_credential_for_user(
 
 
 __all__ = [
-    "GroupCredentialConflictError",
     "list_group_credentials",
     "get_group_credential",
     "set_group_credential",

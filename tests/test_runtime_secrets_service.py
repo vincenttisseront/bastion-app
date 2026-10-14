@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from cryptography.fernet import Fernet
 
-from app.breakglass import resolve_breakglass_signing_secret_with_source
-from app.oidc_bff_config_service import resolve_oidc_session_jwt_secret
+from app.auth.breakglass import resolve_breakglass_signing_secret_with_source
+from app.auth.oidc_bff_config_service import resolve_oidc_session_jwt_secret
 from app.runtime_secrets_service import (
     ensure_portal_runtime_secrets,
     reset_runtime_secrets_cache_for_tests,

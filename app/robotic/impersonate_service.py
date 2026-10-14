@@ -340,6 +340,7 @@ def _load_app_and_credential(
     driver: str,
     keycloak_user_id: str | None,
     group_names: Sequence[str] | None = None,
+    realm_slug: str | None = None,
 ) -> tuple[App, ResolvedCredential, str]:
     """Return (app, ResolvedCredential, password). Raises ImpersonationError on failure."""
     app = db.query(App).filter_by(slug=app_slug).first()
@@ -362,6 +363,7 @@ def _load_app_and_credential(
             settings,
             keycloak_user_id=keycloak_user_id,
             group_names=group_names,
+            realm_slug=realm_slug,
         )
     except EncryptionNotConfiguredError as exc:
         _audit_impersonate(
@@ -805,6 +807,7 @@ async def impersonate(
     ip_address: str | None = None,
     keycloak_user_id: str | None = None,
     group_names: Sequence[str] | None = None,
+    realm_slug: str | None = None,
     ephemeral_username: str | None = None,
     ephemeral_password: str | None = None,
     client_headers: dict[str, str] | None = None,
@@ -868,6 +871,7 @@ async def impersonate(
             driver=driver_name,
             keycloak_user_id=keycloak_user_id,
             group_names=group_names,
+            realm_slug=realm_slug,
         )
 
     handler = _COOKIE_SSO_HANDLERS[driver_name]
@@ -966,6 +970,7 @@ async def get_basic_auth_header(
     ip_address: str | None = None,
     keycloak_user_id: str | None = None,
     group_names: Sequence[str] | None = None,
+    realm_slug: str | None = None,
 ) -> BasicAuthHeaderResult:
     """
     Return Authorization header for Nginx auth_request (generic_basic_auth).
@@ -1023,6 +1028,7 @@ async def get_basic_auth_header(
         driver="generic_basic_auth",
         keycloak_user_id=keycloak_user_id,
         group_names=group_names,
+        realm_slug=realm_slug,
     )
     try:
         auth_header = generic_basic_auth_header(resolved, password)
@@ -1056,6 +1062,7 @@ async def get_wsse_header(
     ip_address: str | None = None,
     keycloak_user_id: str | None = None,
     group_names: Sequence[str] | None = None,
+    realm_slug: str | None = None,
 ) -> WsseHeaderResult:
     """
     Return a fresh X-WSSE UsernameToken for Nginx auth_request (generic_wsse).
@@ -1114,6 +1121,7 @@ async def get_wsse_header(
         driver="generic_wsse",
         keycloak_user_id=keycloak_user_id,
         group_names=group_names,
+        realm_slug=realm_slug,
     )
     try:
         wsse_header = generic_wsse_header(resolved.robotic_username, password)

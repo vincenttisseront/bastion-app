@@ -19,12 +19,14 @@ USER_HEADERS = {
     "X-Preferred-Username": "alice",
     "X-User-Id": "kc-user-alice",
     "X-Groups": "team-ops",
+    "X-Portal-Realm-Slug": "default",
 }
 
 ADMIN_HEADERS = {
     "X-Email": "admin@example.com",
     "X-Preferred-Username": "admin",
     "X-Groups": "portal-admins",
+    "X-Portal-Realm-Slug": "default",
 }
 
 ADMIN_CATEGORY_KEYS = ("users", "groups", "sessions", "realms", "audit")
@@ -47,7 +49,7 @@ def _app(db: Session, *, slug: str, label: str, **kwargs) -> App:
 
 
 def _group(db: Session, name: str = "team-ops") -> RBACGroup:
-    g = RBACGroup(name=name, realm_slug="ar-systems", path=f"/{name}")
+    g = RBACGroup(name=name, realm_slug="default", path=f"/{name}")
     db.add(g)
     db.commit()
     db.refresh(g)
@@ -106,7 +108,7 @@ def test_global_search_user_only_applications(client, db_session):
             issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
             client_id="c",
             client_secret_encrypted="x",
-            redirect_uri="https://portal.example/oauth2/callback",
+            redirect_uri="https://portal.example.com/oauth2/callback",
             oauth2_proxy_port=4180,
             enabled=True,
         )
@@ -140,7 +142,7 @@ def test_global_search_user_only_applications(client, db_session):
 def test_global_search_admin_categories(client, db_session):
     app = _app(db_session, slug="grafana", label="Grafana")
     admin_group = RBACGroup(
-        name="portal-admins", realm_slug="ar-systems", path="/portal-admins"
+        name="portal-admins", realm_slug="default", path="/portal-admins"
     )
     db_session.add(admin_group)
     db_session.commit()
@@ -152,12 +154,12 @@ def test_global_search_admin_categories(client, db_session):
 
     db_session.add(
         RealmConfig(
-            slug="ar-systems",
-            name="AR Systems",
+            slug="acme-systems",
+            name="Acme Systems",
             issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
             client_id="c",
             client_secret_encrypted="x",
-            redirect_uri="https://portal.example/oauth2/callback",
+            redirect_uri="https://portal.example.com/oauth2/callback",
             oauth2_proxy_port=4181,
             enabled=True,
             groups_sync_enabled=False,
@@ -192,7 +194,7 @@ def test_global_search_admin_categories(client, db_session):
     data2 = resp2.json()
     assert "realms" in data2["results"]
     assert any(
-        "AR" in r["label"] or "ar-systems" in (r.get("sublabel") or "")
+        "Acme" in r["label"] or "acme-systems" in (r.get("sublabel") or "")
         for r in data2["results"]["realms"]
     )
 
@@ -292,7 +294,7 @@ def test_search_applications_anchor_uses_app_prefix(client, db_session):
         username="alice",
         groups=["team-ops"],
         keycloak_user_id="kc-user-alice",
-        realm_slug="ar-systems",
+        realm_slug="default",
         auth_source="headers",
         is_admin=False,
     )

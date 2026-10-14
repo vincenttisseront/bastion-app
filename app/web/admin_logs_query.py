@@ -20,6 +20,7 @@ from app.audit.event_catalog import (
     resolve_event,
 )
 from app.models import AuditLog
+from app.sql_like import LIKE_ESCAPE, contains_pattern
 from app.web.log_masking import format_details_for_display
 
 DEFAULT_COLUMNS = [
@@ -327,7 +328,9 @@ def apply_audit_filters(
     if action:
         query = query.filter(AuditLog.action == action)
     if actor:
-        query = query.filter(AuditLog.actor.ilike(f"%{actor.strip()}%"))
+        query = query.filter(
+            AuditLog.actor.ilike(contains_pattern(actor.strip()), escape=LIKE_ESCAPE)
+        )
     if date_from:
         query = query.filter(AuditLog.created_at >= date_from)
     if date_to:
@@ -349,7 +352,7 @@ def apply_audit_filters(
     detail_text = cast(AuditLog.details, String)
     if detail_kw and detail_kw.strip():
         kw = detail_kw.strip()
-        query = query.filter(detail_text.ilike(f"%{kw}%"))
+        query = query.filter(detail_text.ilike(contains_pattern(kw), escape=LIKE_ESCAPE))
     if q and q.strip():
         terms = [t for t in q.strip().split() if t]
         for term in terms:

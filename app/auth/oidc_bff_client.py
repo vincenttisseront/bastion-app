@@ -550,7 +550,7 @@ def _resolve_bff_creds(
             raise OidcBffConfigError(
                 f"OIDC natif non configuré pour le realm '{realm}'"
             )
-        from app.oidc_bff_config_service import get_headless_oidc_config
+        from app.auth.oidc_bff_config_service import get_headless_oidc_config
 
         cfg = get_headless_oidc_config(db, realm, settings)
         if cfg is None:
@@ -1208,7 +1208,7 @@ async def submit_headless_otp(
     db: Session | None = None,
 ) -> LoginStepResult:
     """Complete an OTP step for a stored ``OidcLoginAttempt`` (single-use on success)."""
-    from app.oidc_bff_config_service import get_headless_oidc_config
+    from app.auth.oidc_bff_config_service import get_headless_oidc_config
 
     settings = settings or get_settings()
     if db is None:

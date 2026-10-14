@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 from starlette.responses import Response
 
-from app.auth import _apply_oauth2_sso_binding, _breakglass_auth_response
+from app.auth.auth_request import _apply_oauth2_sso_binding, _breakglass_auth_response
 
 
 def test_apply_oauth2_sso_binding_commits(monkeypatch):
@@ -22,7 +22,7 @@ def test_apply_oauth2_sso_binding_commits(monkeypatch):
     def eval_binding(*_a, **_k):
         called["ok"] = True
 
-    monkeypatch.setattr("app.auth.evaluate_sso_binding", eval_binding)
+    monkeypatch.setattr("app.auth.auth_request.evaluate_sso_binding", eval_binding)
     _apply_oauth2_sso_binding(db, request, resp)
     assert called.get("ok") is True
     db.commit.assert_called_once()
@@ -36,7 +36,7 @@ def test_apply_oauth2_sso_binding_rolls_back_on_error(monkeypatch):
     def boom(*_a, **_k):
         raise RuntimeError("fail")
 
-    monkeypatch.setattr("app.auth.evaluate_sso_binding", boom)
+    monkeypatch.setattr("app.auth.auth_request.evaluate_sso_binding", boom)
     _apply_oauth2_sso_binding(db, request, resp)
     db.rollback.assert_called_once()
 
@@ -47,7 +47,7 @@ def test_breakglass_auth_response_ok_and_denied(monkeypatch):
     settings = MagicMock()
 
     monkeypatch.setattr(
-        "app.auth.process_breakglass_auth_request",
+        "app.auth.auth_request.process_breakglass_auth_request",
         lambda *_a, **_k: MagicMock(ok=True),
     )
     ok = _breakglass_auth_response(db, request, settings, "cookie")
@@ -56,7 +56,7 @@ def test_breakglass_auth_response_ok_and_denied(monkeypatch):
     assert ok.headers.get("X-Auth-Source") == "breakglass"
 
     monkeypatch.setattr(
-        "app.auth.process_breakglass_auth_request",
+        "app.auth.auth_request.process_breakglass_auth_request",
         lambda *_a, **_k: MagicMock(ok=False),
     )
     denied = _breakglass_auth_response(db, request, settings, "cookie")

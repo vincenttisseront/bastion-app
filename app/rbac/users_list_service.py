@@ -8,6 +8,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import BastionAccount, BastionAccountProvisioning
+from app.sql_like import LIKE_ESCAPE, contains_pattern
 
 DEFAULT_PAGE_SIZE = 25
 MAX_PAGE_SIZE = 100
@@ -63,19 +64,21 @@ def query_bastion_accounts(
         query = query.filter(BastionAccount.realm_id == realm_id)
     needle = (q or "").strip()
     if needle:
-        like = f"%{needle}%"
+        like = contains_pattern(needle)
         query = query.filter(
             or_(
-                BastionAccount.username.ilike(like),
-                BastionAccount.email.ilike(like),
-                BastionAccount.organization.ilike(like),
-                BastionAccount.first_name.ilike(like),
-                BastionAccount.last_name.ilike(like),
+                BastionAccount.username.ilike(like, escape=LIKE_ESCAPE),
+                BastionAccount.email.ilike(like, escape=LIKE_ESCAPE),
+                BastionAccount.organization.ilike(like, escape=LIKE_ESCAPE),
+                BastionAccount.first_name.ilike(like, escape=LIKE_ESCAPE),
+                BastionAccount.last_name.ilike(like, escape=LIKE_ESCAPE),
             )
         )
     group = (group_name or "").strip()
     if group:
-        query = query.filter(BastionAccount.organization.ilike(f"%{group}%"))
+        query = query.filter(
+            BastionAccount.organization.ilike(contains_pattern(group), escape=LIKE_ESCAPE)
+        )
     status = (status_filter or "tous").strip().lower()
     if status == "actifs":
         query = query.filter(

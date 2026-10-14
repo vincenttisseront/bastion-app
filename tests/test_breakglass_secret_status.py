@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from app.breakglass import (
+from app.auth.breakglass import (
     create_breakglass_token,
     decode_breakglass_token_with_fallback,
     resolve_breakglass_signing_secret,
     resolve_breakglass_signing_secret_with_source,
     validate_breakglass_cookie,
 )
-from app.breakglass_secret_service import (
+from app.auth.breakglass_secret_service import (
     build_breakglass_secret_status,
     generate_or_rotate_ui_breakglass_secret,
     get_ui_breakglass_previous_secret,

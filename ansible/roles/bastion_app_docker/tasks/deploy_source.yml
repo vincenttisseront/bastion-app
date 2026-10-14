@@ -658,7 +658,7 @@
     docker compose exec -T bastion-app python - <<'PY'
     import pathlib
     import app.admin.infrastructure as infra
-    import app.auth as auth
+    import app.auth.auth_request as auth
     from app.bastion.drivers import generic as generic_driver
     from app.models import App
     from app.sso_settings import get_settings

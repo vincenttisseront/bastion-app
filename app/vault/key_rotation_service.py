@@ -1,6 +1,6 @@
 """Fernet key rotation for the application vault (portal.db ciphertext columns).
 
-One logical key protects AppCredential, UserAppCredential and RealmConfig secrets.
+One logical key protects every ``*_encrypted`` column listed in ``_ENCRYPTED_COLUMNS``.
 Key material lives in VAULT_KEYS_DIR; rotate_application_key() drives in-process
 rotation. rotate_fernet_key() remains the transactional re-encrypt core.
 """
@@ -19,7 +19,18 @@ from cryptography.fernet import InvalidToken
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
-from app.models import AppCredential, PortalSettings, RealmConfig, UserAppCredential, utcnow
+from app.models import (
+    AcmeSettings,
+    App,
+    AppCredential,
+    GroupAppCredential,
+    OidcLoginAttempt,
+    PortalSettings,
+    RealmConfig,
+    SiemForwardingSettings,
+    UserAppCredential,
+    utcnow,
+)
 from app.secret_crypto import decrypt_with_key, encrypt_with_key
 from app.sso_settings import Settings
 
@@ -39,35 +50,76 @@ class RotationReport:
     success: bool
     app_credentials: int = 0
     user_app_credentials: int = 0
+    group_app_credentials: int = 0
+    app_crushftp_admin_passwords: int = 0
     realm_client_secrets: int = 0
     realm_oauth2_cookie_secrets: int = 0
     realm_admin_client_secrets: int = 0
+    realm_provision_client_secrets: int = 0
     realm_oidc_bff_client_secrets: int = 0
     portal_breakglass_jwt_secrets: int = 0
     portal_session_hop_secrets: int = 0
     portal_oidc_session_jwt_secrets: int = 0
     portal_smtp_passwords: int = 0
+    portal_hot_store_passwords: int = 0
+    siem_webhook_secrets: int = 0
+    acme_cf_tokens: int = 0
+    oidc_login_attempts: int = 0
     duration_ms: float = 0.0
     error: str | None = None
 
     @property
     def total(self) -> int:
-        return (
-            self.app_credentials
-            + self.user_app_credentials
-            + self.realm_client_secrets
-            + self.realm_oauth2_cookie_secrets
-            + self.realm_admin_client_secrets
-            + self.realm_oidc_bff_client_secrets
-            + self.portal_breakglass_jwt_secrets
-            + self.portal_session_hop_secrets
-            + self.portal_oidc_session_jwt_secrets
-        )
+        return sum(getattr(self, counter) for counter in _COUNTERS)
 
     def to_audit_details(self) -> dict[str, Any]:
         data = asdict(self)
         data["total"] = self.total
         return data
+
+
+# Every Fernet column of portal.db: (model, ((column, report counter), ...)).
+# A column missing here stays encrypted with the retired key after rotation.
+_ENCRYPTED_COLUMNS: tuple[tuple[type, tuple[tuple[str, str], ...]], ...] = (
+    (AppCredential, (("encrypted_password", "app_credentials"),)),
+    (UserAppCredential, (("encrypted_password", "user_app_credentials"),)),
+    (GroupAppCredential, (("encrypted_password", "group_app_credentials"),)),
+    (App, (("crushftp_admin_password_encrypted", "app_crushftp_admin_passwords"),)),
+    (
+        RealmConfig,
+        (
+            ("client_secret_encrypted", "realm_client_secrets"),
+            ("oauth2_cookie_secret_encrypted", "realm_oauth2_cookie_secrets"),
+            ("keycloak_admin_client_secret_encrypted", "realm_admin_client_secrets"),
+            ("keycloak_provision_client_secret_encrypted", "realm_provision_client_secrets"),
+            ("oidc_bff_client_secret_encrypted", "realm_oidc_bff_client_secrets"),
+        ),
+    ),
+    (
+        PortalSettings,
+        (
+            ("breakglass_jwt_secret_encrypted", "portal_breakglass_jwt_secrets"),
+            ("breakglass_jwt_secret_previous_encrypted", "portal_breakglass_jwt_secrets"),
+            ("session_hop_secret_encrypted", "portal_session_hop_secrets"),
+            ("oidc_session_jwt_secret_encrypted", "portal_oidc_session_jwt_secrets"),
+            ("smtp_password_encrypted", "portal_smtp_passwords"),
+            ("hot_store_password_encrypted", "portal_hot_store_passwords"),
+        ),
+    ),
+    (SiemForwardingSettings, (("webhook_auth_secret_encrypted", "siem_webhook_secrets"),)),
+    (AcmeSettings, (("cf_token_encrypted", "acme_cf_tokens"),)),
+    (
+        OidcLoginAttempt,
+        (
+            ("keycloak_cookies_encrypted", "oidc_login_attempts"),
+            ("otp_form_encrypted", "oidc_login_attempts"),
+        ),
+    ),
+)
+
+_COUNTERS: tuple[str, ...] = tuple(
+    dict.fromkeys(counter for _, cols in _ENCRYPTED_COLUMNS for _, counter in cols)
+)
 
 
 def _reencrypt_field(ciphertext: str | None, old_key: str, new_key: str) -> str | None:
@@ -103,119 +155,17 @@ def rotate_fernet_key(
         raise KeyRotationError("old_key and new_key must differ")
 
     started = time.perf_counter()
-    counts = {
-        "app_credentials": 0,
-        "user_app_credentials": 0,
-        "realm_client_secrets": 0,
-        "realm_oauth2_cookie_secrets": 0,
-        "realm_admin_client_secrets": 0,
-        "realm_oidc_bff_client_secrets": 0,
-        "portal_breakglass_jwt_secrets": 0,
-        "portal_session_hop_secrets": 0,
-        "portal_oidc_session_jwt_secrets": 0,
-        "portal_smtp_passwords": 0,
-    }
+    counts = dict.fromkeys(_COUNTERS, 0)
 
     try:
-        for cred in db.query(AppCredential).all():
-            cred.encrypted_password = _reencrypt_field(
-                cred.encrypted_password, old_material, new_material
-            )
-            counts["app_credentials"] += 1
-
-        for cred in db.query(UserAppCredential).all():
-            cred.encrypted_password = _reencrypt_field(
-                cred.encrypted_password, old_material, new_material
-            )
-            counts["user_app_credentials"] += 1
-
-        for realm in db.query(RealmConfig).all():
-            if realm.client_secret_encrypted and str(realm.client_secret_encrypted).strip():
-                realm.client_secret_encrypted = _reencrypt_field(
-                    realm.client_secret_encrypted, old_material, new_material
-                )
-                counts["realm_client_secrets"] += 1
-            if (
-                realm.oauth2_cookie_secret_encrypted
-                and str(realm.oauth2_cookie_secret_encrypted).strip()
-            ):
-                realm.oauth2_cookie_secret_encrypted = _reencrypt_field(
-                    realm.oauth2_cookie_secret_encrypted, old_material, new_material
-                )
-                counts["realm_oauth2_cookie_secrets"] += 1
-            if (
-                realm.keycloak_admin_client_secret_encrypted
-                and str(realm.keycloak_admin_client_secret_encrypted).strip()
-            ):
-                realm.keycloak_admin_client_secret_encrypted = _reencrypt_field(
-                    realm.keycloak_admin_client_secret_encrypted,
-                    old_material,
-                    new_material,
-                )
-                counts["realm_admin_client_secrets"] += 1
-            if (
-                getattr(realm, "oidc_bff_client_secret_encrypted", None)
-                and str(realm.oidc_bff_client_secret_encrypted).strip()
-            ):
-                realm.oidc_bff_client_secret_encrypted = _reencrypt_field(
-                    realm.oidc_bff_client_secret_encrypted,
-                    old_material,
-                    new_material,
-                )
-                counts["realm_oidc_bff_client_secrets"] += 1
-
-        for portal in db.query(PortalSettings).all():
-            if (
-                portal.breakglass_jwt_secret_encrypted
-                and str(portal.breakglass_jwt_secret_encrypted).strip()
-            ):
-                portal.breakglass_jwt_secret_encrypted = _reencrypt_field(
-                    portal.breakglass_jwt_secret_encrypted,
-                    old_material,
-                    new_material,
-                )
-                counts["portal_breakglass_jwt_secrets"] += 1
-            if (
-                portal.breakglass_jwt_secret_previous_encrypted
-                and str(portal.breakglass_jwt_secret_previous_encrypted).strip()
-            ):
-                portal.breakglass_jwt_secret_previous_encrypted = _reencrypt_field(
-                    portal.breakglass_jwt_secret_previous_encrypted,
-                    old_material,
-                    new_material,
-                )
-                counts["portal_breakglass_jwt_secrets"] += 1
-            if (
-                getattr(portal, "session_hop_secret_encrypted", None)
-                and str(portal.session_hop_secret_encrypted).strip()
-            ):
-                portal.session_hop_secret_encrypted = _reencrypt_field(
-                    portal.session_hop_secret_encrypted,
-                    old_material,
-                    new_material,
-                )
-                counts["portal_session_hop_secrets"] += 1
-            if (
-                getattr(portal, "oidc_session_jwt_secret_encrypted", None)
-                and str(portal.oidc_session_jwt_secret_encrypted).strip()
-            ):
-                portal.oidc_session_jwt_secret_encrypted = _reencrypt_field(
-                    portal.oidc_session_jwt_secret_encrypted,
-                    old_material,
-                    new_material,
-                )
-                counts["portal_oidc_session_jwt_secrets"] += 1
-            if (
-                getattr(portal, "smtp_password_encrypted", None)
-                and str(portal.smtp_password_encrypted).strip()
-            ):
-                portal.smtp_password_encrypted = _reencrypt_field(
-                    portal.smtp_password_encrypted,
-                    old_material,
-                    new_material,
-                )
-                counts["portal_smtp_passwords"] += 1
-
+        for model, columns in _ENCRYPTED_COLUMNS:
+            for row in db.query(model).all():
+                for column, counter in columns:
+                    ciphertext = getattr(row, column)
+                    if not ciphertext or not str(ciphertext).strip():
+                        continue
+                    setattr(row, column, _reencrypt_field(ciphertext, old_material, new_material))
+                    counts[counter] += 1
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -226,12 +176,8 @@ def rotate_fernet_key(
             duration_ms,
         )
         err = str(exc) if isinstance(exc, KeyRotationError) else "rotation failed"
-        report = RotationReport(
-            success=False,
-            duration_ms=duration_ms,
-            error=err,
-            **counts,
-        )
+        # Everything was rolled back: report zero rows re-encrypted.
+        report = RotationReport(success=False, duration_ms=duration_ms, error=err)
         details = report.to_audit_details()
         if extra_details:
             details.update(extra_details)

@@ -7,8 +7,8 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.breakglass import COOKIE_NAME, BreakglassAuthResult
-from app.breakglass_store import set_breakglass_password
+from app.auth.breakglass import COOKIE_NAME, BreakglassAuthResult
+from app.auth.breakglass_store import set_breakglass_password
 from app.web.user_context import UserContext
 from tests.test_auth_login_flow import _add_default_idp
 

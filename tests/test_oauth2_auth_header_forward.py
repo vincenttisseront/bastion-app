@@ -112,7 +112,7 @@ def test_oauth2_auth_header_forward_request_error_returns_503(client, db_session
 @respx.mock
 def test_oauth2_auth_prefers_sso_over_breakglass_cookie(client, db_session):
     """Leftover bg_session must not hide a valid oauth2 session (/apps steal)."""
-    from app.breakglass import create_breakglass_token
+    from app.auth.breakglass import create_breakglass_token
 
     settings = _settings()
     _override_settings(client, settings)
@@ -143,7 +143,7 @@ def test_oauth2_auth_prefers_sso_over_breakglass_cookie(client, db_session):
 
 @respx.mock
 def test_oauth2_auth_falls_back_to_breakglass_when_sso_401(client, db_session):
-    from app.breakglass import create_breakglass_token
+    from app.auth.breakglass import create_breakglass_token
 
     settings = _settings()
     _override_settings(client, settings)
@@ -243,7 +243,7 @@ def test_oauth2_auth_oauth2_proxy_alone_unchanged(client, db_session):
 
 @respx.mock
 def test_oauth2_auth_bastion_session_alone_valid(client, db_session):
-    from app.oidc_bff import issue_oidc_session
+    from app.auth.oidc_bff import issue_oidc_session
 
     settings = _settings_native_enabled()
     _override_settings(client, settings)
@@ -282,7 +282,7 @@ def test_oauth2_auth_bastion_session_alone_valid(client, db_session):
 @respx.mock
 def test_oauth2_auth_bastion_session_without_groups_omits_groups_header(client, db_session):
     """Legacy JWTs without groups still authenticate (user must re-login for grants)."""
-    from app.oidc_bff import issue_oidc_session
+    from app.auth.oidc_bff import issue_oidc_session
 
     settings = _settings_native_enabled()
     _override_settings(client, settings)
@@ -311,7 +311,7 @@ def test_oauth2_auth_bastion_session_without_groups_omits_groups_header(client, 
 @respx.mock
 def test_oauth2_auth_bastion_session_revoked_falls_back_then_401(client, db_session):
     from app.models import OidcSession
-    from app.oidc_bff import issue_oidc_session
+    from app.auth.oidc_bff import issue_oidc_session
 
     settings = _settings_native_enabled()
     _override_settings(client, settings)
@@ -356,7 +356,7 @@ def test_oauth2_auth_no_cookies_returns_401(client, db_session):
 
 @respx.mock
 def test_oauth2_auth_native_disabled_ignores_bastion_session(client, db_session):
-    from app.oidc_bff import issue_oidc_session
+    from app.auth.oidc_bff import issue_oidc_session
 
     settings = _settings()
     assert not (settings.oidc_native_session_enabled_realms or "").strip()

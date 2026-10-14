@@ -13,7 +13,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from app.database import SessionLocal  # noqa: E402
-from app.breakglass_store import set_breakglass_password  # noqa: E402
+from app.auth.breakglass_store import set_breakglass_password  # noqa: E402
 
 
 def main() -> int:

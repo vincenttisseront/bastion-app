@@ -13,18 +13,9 @@ from sqlalchemy.orm import Session
 
 from app.models import AccessGrant, ActiveSession, AuditLog, RBACGroup, RealmConfig, utcnow
 from app.rbac.keycloak_admin import count_keycloak_users
+from app.sql_like import LIKE_ESCAPE, contains_pattern
 from app.sso_settings import Settings
 
-
-def _dt_aware(value):
-    """SQLite often returns naive datetimes; utcnow() is aware — normalize for compares."""
-    if value is None:
-        return None
-    if getattr(value, "tzinfo", None) is None:
-        from datetime import timezone
-
-        return value.replace(tzinfo=timezone.utc)
-    return value
 
 # Short in-process cache for Keycloak counts (seconds).
 _STATS_TTL = 60.0
@@ -101,7 +92,7 @@ def count_privileged_subjects(db: Session) -> tuple[int, int]:
             subjects.add(f"u:{g.keycloak_user_id}")
         elif g.subject_type == "group" and g.rbac_group_id:
             subjects.add(f"g:{g.rbac_group_id}")
-        if _dt_aware(g.granted_at) and _dt_aware(g.granted_at) >= cutoff:
+        if g.granted_at is not None and g.granted_at >= cutoff:
             new_7d += 1
     return len(subjects), new_7d
 
@@ -266,9 +257,10 @@ def group_distribution(
     query = db.query(RBACGroup)
     needle = (q or "").strip()
     if needle:
+        like = contains_pattern(needle)
         query = query.filter(
-            (RBACGroup.name.ilike(f"%{needle}%"))
-            | (RBACGroup.path.ilike(f"%{needle}%"))
+            RBACGroup.name.ilike(like, escape=LIKE_ESCAPE)
+            | RBACGroup.path.ilike(like, escape=LIKE_ESCAPE)
         )
     if not include_empty and not needle:
         query = query.filter(func.coalesce(RBACGroup.member_count, 0) > 0)

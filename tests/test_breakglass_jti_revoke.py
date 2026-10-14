@@ -9,7 +9,7 @@ import respx
 from httpx import Response
 from sqlalchemy.orm import Session
 
-from app.breakglass import (
+from app.auth.breakglass import (
     COOKIE_NAME,
     IDLE_TIMEOUT_SECONDS,
     create_breakglass_token,
@@ -19,7 +19,7 @@ from app.breakglass import (
     revoke_breakglass_jti,
     validate_breakglass_cookie,
 )
-from app.breakglass_store import set_breakglass_password
+from app.auth.breakglass_store import set_breakglass_password
 from app.models import AuditLog, BreakGlassSession, RealmConfig
 from app.secret_crypto import encrypt_secret
 from app.sso_settings import Settings, get_settings

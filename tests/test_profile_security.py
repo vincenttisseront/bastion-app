@@ -265,7 +265,7 @@ def test_login_page_has_forgot_password_link(
         oidc_native_session_enabled_realms="ar-systems",
     )
     get_settings.cache_clear()
-    monkeypatch.setattr("app.oidc_bff.get_settings", lambda: settings)
+    monkeypatch.setattr("app.auth.oidc_bff.get_settings", lambda: settings)
     app.dependency_overrides[get_settings] = lambda: settings
     _realm(db_session)
     try:

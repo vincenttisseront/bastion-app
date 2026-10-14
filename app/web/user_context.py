@@ -12,7 +12,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app import re_safe
-from app.breakglass import (
+from app.auth.breakglass import (
     COOKIE_NAME,
     decode_breakglass_token_with_fallback,
     validate_breakglass_cookie,
@@ -355,8 +355,8 @@ def _realm_from_bastion_session(
     if db is None:
         return ""
     try:
-        from app.auth import extract_oidc_session_cookie_raw
-        from app.oidc_bff import validate_oidc_session_cookie
+        from app.auth.auth_request import extract_oidc_session_cookie_raw
+        from app.auth.oidc_bff import validate_oidc_session_cookie
     except Exception:
         return ""
     raw = extract_oidc_session_cookie_raw(request, settings)
@@ -486,6 +486,7 @@ def get_user_context(
             db,
             keycloak_user_id=user.keycloak_user_id,
             group_names=user.groups,
+            realm_slug=user.realm_slug,
         ):
             user.is_admin = True
         enrich_user_identity(user, db)
@@ -507,6 +508,7 @@ def is_portal_admin(
         db,
         keycloak_user_id=user.keycloak_user_id,
         group_names=user.groups,
+        realm_slug=user.realm_slug,
     )
 
 

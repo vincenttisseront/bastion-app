@@ -1,4 +1,4 @@
-"""Fernet application-vault key rotation — transactional re-encrypt."""
+"""Fernet application-vault key rotation â€” transactional re-encrypt."""
 
 from __future__ import annotations
 
@@ -8,9 +8,19 @@ import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy.orm import Session
 
-from app.models import App, AppCredential, AuditLog, RealmConfig, UserAppCredential
+from app.models import (
+    App,
+    AppCredential,
+    AuditLog,
+    Base,
+    GroupAppCredential,
+    RBACGroup,
+    RealmConfig,
+    UserAppCredential,
+)
 from app.secret_crypto import decrypt_with_key, encrypt_with_key
 from app.vault.key_rotation_service import (
+    _ENCRYPTED_COLUMNS,
     KeyRotationError,
     rotate_fernet_key,
 )
@@ -135,6 +145,58 @@ def test_rotate_fernet_key_partial_failure_rolls_back(db_session: Session):
 
     with pytest.raises(ValueError):
         decrypt_with_key(app_after, NEW_KEY)
+
+
+def test_rotate_covers_every_encrypted_column():
+    declared = {
+        (model.__tablename__, column)
+        for model, columns in _ENCRYPTED_COLUMNS
+        for column, _ in columns
+    }
+    found = {
+        (table.name, col.name)
+        for table in Base.metadata.sorted_tables
+        for col in table.columns
+        if col.name.endswith("_encrypted") or col.name == "encrypted_password"
+    }
+    assert found - declared == set()
+
+
+def test_rotate_reencrypts_group_credentials(db_session: Session):
+    _seed_encrypted_rows(db_session)
+    group = RBACGroup(name="ops")
+    db_session.add(group)
+    db_session.flush()
+    db_session.add(
+        GroupAppCredential(
+            rbac_group_id=group.id,
+            app_slug="transfer",
+            robotic_username="ops-robot",
+            encrypted_password=encrypt_with_key("group-secret", OLD_KEY),
+            is_active=True,
+        )
+    )
+    db_session.commit()
+
+    report = rotate_fernet_key(db_session, OLD_KEY, NEW_KEY)
+
+    assert report.group_app_credentials == 1
+    assert report.total == 6
+    cred = db_session.query(GroupAppCredential).one()
+    assert decrypt_with_key(cred.encrypted_password, NEW_KEY) == "group-secret"
+
+
+def test_rotate_failure_report_counts_nothing(db_session: Session):
+    _seed_encrypted_rows(db_session)
+    db_session.query(UserAppCredential).one().encrypted_password = "not-a-valid-fernet-token"
+    db_session.commit()
+
+    with pytest.raises(KeyRotationError):
+        rotate_fernet_key(db_session, OLD_KEY, NEW_KEY)
+
+    audit = db_session.query(AuditLog).filter_by(action="key_rotation").one()
+    assert audit.details["success"] is False
+    assert audit.details["total"] == 0
 
 
 def test_rotate_rejects_identical_keys(db_session: Session):

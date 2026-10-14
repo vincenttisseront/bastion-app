@@ -5,7 +5,7 @@ import json
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.breakglass_store import (
+from app.auth.breakglass_store import (
     LEGACY_BREAKGLASS_PASSWORD_HASH_KEY,
     LEGACY_BREAKGLASS_USERNAME,
     has_active_breakglass_account,

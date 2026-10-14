@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 
 from app import re_safe
 from app.audit import log_action
-from app.auth import get_realm_proxy_url
-from app.breakglass import COOKIE_NAME, process_breakglass_auth_request
+from app.auth.auth_request import get_realm_proxy_url
+from app.auth.breakglass import COOKIE_NAME, process_breakglass_auth_request
 from app.database import get_db, release_db_connection
 from app.models import ACTIVESYNC_DEVICE_APPROVED, ActiveSyncDevice, App
 from app.rbac.effective_access_service import user_can_launch_application
@@ -542,6 +542,7 @@ async def activesync_auth(
                 application_id=app_id,
                 keycloak_user_id=keycloak_user_id or None,
                 group_names=groups,
+                realm_slug=app.realm_slug,
             ):
                 _log_activesync(
                     db,

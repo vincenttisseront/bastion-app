@@ -17,9 +17,9 @@ from sqlalchemy.orm import Session
 
 from app import re_safe
 from app.audit import log_action
-from app.auth import get_realm_proxy_url, is_rfc1918
+from app.auth.auth_request import get_realm_proxy_url, is_rfc1918
 from app.bastion.m2m_policy import app_uri_is_m2m_bypass, m2m_credential_allows
-from app.breakglass import (
+from app.auth.breakglass import (
     COOKIE_NAME,
     process_breakglass_auth_request,
 )
@@ -255,7 +255,7 @@ def native_subdomain_auth_would_allow(
     subdomain — mirrors the break-glass login harden (stale cookie must not
     redirect-loop).
     """
-    from app.auth import _native_oidc_auth_response
+    from app.auth.auth_request import _native_oidc_auth_response
 
     app = _resolve_app_by_host(db, host)
     if not app:
@@ -278,6 +278,7 @@ def native_subdomain_auth_would_allow(
         application_id=app.id,
         keycloak_user_id=keycloak_user_id or None,
         group_names=groups,
+        realm_slug=_header(native.headers, "X-Auth-Request-Realm") or None,
     )
 
 
@@ -329,7 +330,7 @@ async def subdomain_auth(
     # bastion_session is present — trusted-header upstreams need X-Auth-Email.
     # Anonymous LAN 200 only if no session.
     if settings.rfc1918_bypass_enabled and is_rfc1918(client_ip, settings.rfc1918_cidrs):
-        from app.auth import _native_oidc_auth_response
+        from app.auth.auth_request import _native_oidc_auth_response
 
         lan_app = _resolve_app_by_host(db, original_host)
         native = _native_oidc_auth_response(request, settings, db)
@@ -393,9 +394,10 @@ async def subdomain_auth(
     # then oauth2-proxy. Native check needs the DB; release only before httpx.
     app_id = app.id
     app_slug = app.slug
+    app_realm_slug = app.realm_slug
     proxy_url = get_realm_proxy_url(app.realm_slug, settings, db)
 
-    from app.auth import _native_oidc_auth_response
+    from app.auth.auth_request import _native_oidc_auth_response
 
     native = _native_oidc_auth_response(request, settings, db)
     if native is not None:
@@ -421,6 +423,7 @@ async def subdomain_auth(
             application_id=app_id,
             keycloak_user_id=keycloak_user_id or None,
             group_names=groups,
+            realm_slug=_header(native.headers, "X-Auth-Request-Realm") or None,
         ):
             app = db.get(App, app_id)
             if app is None:
@@ -528,6 +531,7 @@ async def subdomain_auth(
             application_id=app_id,
             keycloak_user_id=keycloak_user_id or None,
             group_names=groups,
+            realm_slug=app_realm_slug,
         ):
             app = db.get(App, app_id)
             if app is None:
@@ -641,7 +645,7 @@ async def subdomain_auth(
         )
     # Unauthenticated — nginx error_page 401 → @portal_redirect → /auth/login.
     # Distinct from 403 (authenticated, no AccessGrant).
-    from app.auth import extract_oidc_session_cookie_raw
+    from app.auth.auth_request import extract_oidc_session_cookie_raw
 
     had_native = bool(extract_oidc_session_cookie_raw(request, settings))
     cookie_len = len(request.headers.get("Cookie") or "")

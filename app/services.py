@@ -186,6 +186,7 @@ def _apps_visible_to_user(
         db,
         keycloak_user_id=user.keycloak_user_id,
         group_names=user.groups,
+        realm_slug=user.realm_slug,
     )
     return [e.app for e in entries]
 

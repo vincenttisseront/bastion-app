@@ -53,6 +53,7 @@ def _search_applications(db: Session, user: UserContext, q: str) -> list[dict[st
         db,
         keycloak_user_id=user.keycloak_user_id,
         group_names=user.groups,
+        realm_slug=user.realm_slug,
     )
     scored: list[tuple[float, dict[str, str]]] = []
     for entry in entries:

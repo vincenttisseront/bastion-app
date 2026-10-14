@@ -3,7 +3,7 @@
 Resolves AccessGrant union (direct user + group-via-OIDC-groups claim),
 deduplicates by application_id keeping the highest access_level, and returns
 only enabled apps. Group matching uses RBACGroup.name ↔ token "groups" claim
-(no Keycloak Admin API call).
+within the session realm (no Keycloak Admin API call).
 """
 
 from __future__ import annotations
@@ -11,10 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Sequence
 
+from sqlalchemy import ColumnElement, and_, or_
 from sqlalchemy.orm import Session
 
 from app.access_modes import is_user_catalogue_mode
 from app.models import AccessGrant, App, RBACGroup
+from app.rbac.group_lookup import resolve_rbac_groups
 
 ACCESS_LEVEL_RANK: dict[str, int] = {"view": 1, "launch": 2, "manage": 3}
 
@@ -66,77 +68,85 @@ def _merge_candidate(
         existing.grant_ids.append(grant_id)
 
 
+def _subject_filter(
+    db: Session,
+    *,
+    keycloak_user_id: str | None,
+    realm_slug: str | None,
+    group_names: Sequence[str] | None,
+) -> tuple[ColumnElement[bool] | None, dict[int, RBACGroup]]:
+    """SQL predicate matching the user's direct and group grants."""
+    groups = resolve_rbac_groups(db, realm_slug=realm_slug, group_names=group_names)
+    group_by_id = {g.id: g for g in groups}
+    clauses: list[ColumnElement[bool]] = []
+    if keycloak_user_id:
+        clauses.append(
+            and_(
+                AccessGrant.subject_type == "user",
+                AccessGrant.keycloak_user_id == keycloak_user_id,
+            )
+        )
+    if group_by_id:
+        clauses.append(
+            and_(
+                AccessGrant.subject_type == "group",
+                AccessGrant.rbac_group_id.in_(list(group_by_id)),
+            )
+        )
+    return (or_(*clauses) if clauses else None), group_by_id
+
+
 def get_effective_apps_for_user(
     db: Session,
     *,
     keycloak_user_id: str | None = None,
     group_names: Sequence[str] | None = None,
+    realm_slug: str | None = None,
+    application_id: int | None = None,
 ) -> list[EffectiveAppAccess]:
     """Return enabled apps the user can access, deduped by highest access_level.
 
     Direct grants: subject_type=user, keycloak_user_id match.
-    Group grants: subject_type=group where RBACGroup.name is in group_names
-    (OIDC groups claim).
+    Group grants: subject_type=group on groups of ``realm_slug`` named in
+    ``group_names`` (OIDC groups claim). ``application_id`` narrows the lookup
+    to one application.
     """
-    by_app: dict[int, EffectiveAppAccess] = {}
-    names = [n for n in (group_names or []) if n]
-
-    if keycloak_user_id:
-        direct = (
-            db.query(AccessGrant)
-            .filter(
-                AccessGrant.subject_type == "user",
-                AccessGrant.keycloak_user_id == keycloak_user_id,
-                AccessGrant.resource_type == "application",
-                AccessGrant.application_id.is_not(None),
-            )
-            .all()
+    subject, group_by_id = _subject_filter(
+        db,
+        keycloak_user_id=keycloak_user_id,
+        realm_slug=realm_slug,
+        group_names=group_names,
+    )
+    if subject is None:
+        return []
+    query = (
+        db.query(AccessGrant, App)
+        .join(App, App.id == AccessGrant.application_id)
+        .filter(
+            subject,
+            AccessGrant.resource_type == "application",
+            App.enabled.is_(True),
         )
-        for grant in direct:
-            app = db.query(App).filter_by(id=grant.application_id, enabled=True).first()
-            if not app or not is_user_catalogue_mode(app.access_mode):
-                continue
-            _merge_candidate(
-                by_app,
-                app=app,
-                access_level=grant.access_level or "view",
-                source="direct",
-                grant_id=grant.id,
-            )
+    )
+    if application_id is not None:
+        query = query.filter(App.id == application_id)
 
-    if names:
-        groups = db.query(RBACGroup).filter(RBACGroup.name.in_(names)).all()
-        group_ids = [g.id for g in groups]
-        group_by_id = {g.id: g for g in groups}
-        if group_ids:
-            group_grants = (
-                db.query(AccessGrant)
-                .filter(
-                    AccessGrant.subject_type == "group",
-                    AccessGrant.rbac_group_id.in_(group_ids),
-                    AccessGrant.resource_type == "application",
-                    AccessGrant.application_id.is_not(None),
-                )
-                .all()
-            )
-            for grant in group_grants:
-                app = (
-                    db.query(App)
-                    .filter_by(id=grant.application_id, enabled=True)
-                    .first()
-                )
-                if not app or not is_user_catalogue_mode(app.access_mode):
-                    continue
-                group = group_by_id.get(grant.rbac_group_id) if grant.rbac_group_id else None
-                source = f"via groupe {group.name}" if group else "via groupe"
-                _merge_candidate(
-                    by_app,
-                    app=app,
-                    access_level=grant.access_level or "view",
-                    source=source,
-                    grant_id=grant.id,
-                )
-
+    by_app: dict[int, EffectiveAppAccess] = {}
+    for grant, app in query.all():
+        if not is_user_catalogue_mode(app.access_mode):
+            continue
+        if grant.subject_type == "user":
+            source = "direct"
+        else:
+            group = group_by_id.get(grant.rbac_group_id)
+            source = f"via groupe {group.name}" if group else "via groupe"
+        _merge_candidate(
+            by_app,
+            app=app,
+            access_level=grant.access_level or "view",
+            source=source,
+            grant_id=grant.id,
+        )
     return sorted(by_app.values(), key=lambda e: (e.app.label or "").lower())
 
 
@@ -146,16 +156,17 @@ def user_can_launch_application(
     application_id: int,
     keycloak_user_id: str | None = None,
     group_names: Sequence[str] | None = None,
+    realm_slug: str | None = None,
 ) -> bool:
     """True if effective AccessGrant grants at least ``launch`` on this application."""
-    for entry in get_effective_apps_for_user(
+    entries = get_effective_apps_for_user(
         db,
         keycloak_user_id=keycloak_user_id,
         group_names=group_names,
-    ):
-        if entry.application_id == application_id and entry.can_launch:
-            return True
-    return False
+        realm_slug=realm_slug,
+        application_id=application_id,
+    )
+    return any(entry.can_launch for entry in entries)
 
 
 def user_has_portal_admin_role(
@@ -163,34 +174,21 @@ def user_has_portal_admin_role(
     *,
     keycloak_user_id: str | None = None,
     group_names: Sequence[str] | None = None,
+    realm_slug: str | None = None,
 ) -> bool:
     """True if an AccessGrant grants system_role=portal_admin (direct or via group)."""
-    if keycloak_user_id:
-        direct = (
-            db.query(AccessGrant)
-            .filter(
-                AccessGrant.subject_type == "user",
-                AccessGrant.keycloak_user_id == keycloak_user_id,
-                AccessGrant.resource_type == "system_role",
-                AccessGrant.system_role == "portal_admin",
-            )
-            .first()
-        )
-        if direct:
-            return True
-
-    names = [n for n in (group_names or []) if n]
-    if not names:
-        return False
-    groups = db.query(RBACGroup).filter(RBACGroup.name.in_(names)).all()
-    group_ids = [g.id for g in groups]
-    if not group_ids:
+    subject, _ = _subject_filter(
+        db,
+        keycloak_user_id=keycloak_user_id,
+        realm_slug=realm_slug,
+        group_names=group_names,
+    )
+    if subject is None:
         return False
     return (
-        db.query(AccessGrant)
+        db.query(AccessGrant.id)
         .filter(
-            AccessGrant.subject_type == "group",
-            AccessGrant.rbac_group_id.in_(group_ids),
+            subject,
             AccessGrant.resource_type == "system_role",
             AccessGrant.system_role == "portal_admin",
         )

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
@@ -34,6 +34,12 @@ from app.web.openapi_responses import (
 )
 from app.sso_settings import Settings, get_settings
 from app.user_agent_label import summarize_user_agent
+from app.web.session_cookie_seal import (
+    SEALED_KEY,
+    has_session_cookies,
+    seal_session_cookies,
+    strip_session_cookies,
+)
 from app.web.user_context import (
     UserContext,
     elevate_portal_admin,
@@ -471,7 +477,9 @@ def _merge_details(
 ) -> dict[str, Any] | None:
     if not existing and not incoming:
         return None
+    # Plain-JSON cookies predate sealing: drop them on the next write.
     out = dict(existing or {})
+    out.pop("session_cookies", None)
     if not incoming:
         return out
     # Never wipe a captured User-Agent with an empty later touch.
@@ -479,8 +487,8 @@ def _merge_details(
     for key in ("user_agent", "user_agent_label"):
         if not protected.get(key) and out.get(key):
             protected.pop(key, None)
-    # Keep session_cookies / verify_base_url unless explicitly replaced with non-empty
-    for key in ("session_cookies", "verify_base_url"):
+    # Keep stored cookies / verify_base_url unless explicitly replaced with non-empty
+    for key in (SEALED_KEY, "verify_base_url"):
         if key in protected and not protected.get(key) and out.get(key):
             protected.pop(key, None)
     out.update(protected)
@@ -530,7 +538,7 @@ def app_cookie_diagnostics(
         "robotic_username": robotic_username,
         "driver": driver,
         # Full cookie values for live getUsername verification (short-lived).
-        "session_cookies": dict(cookies) if cookies else {},
+        SEALED_KEY: seal_session_cookies(cookies),
         "verify_base_url": (verify_base_url or "").strip() or None,
         "upstream_tls_verify": bool(upstream_tls_verify),
         "verifiable": (driver or "").strip().lower() in ("crushftp", "generic_form"),
@@ -632,22 +640,6 @@ def _ua_label_from_details(
     )
 
 
-def _ttls_for_row(row: ActiveSession) -> tuple[timedelta, timedelta]:
-    """Return (idle_ttl, absolute_ttl) for a registry row."""
-    if (row.protocol or "").upper() == _PROTOCOL_BREAKGLASS:
-        return BREAKGLASS_IDLE_TTL, BREAKGLASS_ABSOLUTE_TTL
-    return SESSION_IDLE_TTL, SESSION_ABSOLUTE_TTL
-
-
-def _session_exceeded_ttl(row: ActiveSession, now) -> bool:
-    idle_ttl, absolute_ttl = _ttls_for_row(row)
-    started = _aware(row.started_at)
-    last_seen = _aware(row.last_seen_at) or started
-    if started is not None and started < now - absolute_ttl:
-        return True
-    return last_seen is not None and last_seen < now - idle_ttl
-
-
 def _safe_purge(db: Session, label: str, fn) -> None:
     try:
         fn(db)
@@ -659,28 +651,52 @@ def _safe_purge(db: Session, label: str, fn) -> None:
             pass
 
 
+_SATELLITE_PURGE_INTERVAL = timedelta(seconds=60)
+_last_satellite_purge: datetime | None = None
+
+
+def _purge_satellite_registries(db: Session, now: datetime) -> None:
+    """Break-glass / SSO anchor housekeeping, at most once per interval."""
+    global _last_satellite_purge
+    if _last_satellite_purge is not None and now - _last_satellite_purge < _SATELLITE_PURGE_INTERVAL:
+        return
+    _last_satellite_purge = now
+    from app.auth.breakglass import purge_expired_breakglass_sessions
+    from app.security.session_binding_service import purge_stale_sso_session_anchors
+
+    _safe_purge(db, "breakglass session purge", purge_expired_breakglass_sessions)
+    _safe_purge(db, "sso session anchor purge", purge_stale_sso_session_anchors)
+
+
 def expire_stale_sessions(db: Session) -> int:
     """
     Delete active rows that exceeded idle or absolute TTL.
     Absolute TTL prevents duration from growing forever when last_seen keeps updating.
     """
     now = utcnow()
-    stale = (
-        db.query(ActiveSession)
-        .filter(ActiveSession.status == "active")
-        .all()
-    )
-    to_delete = [row for row in stale if _session_exceeded_ttl(row, now)]
-    for row in to_delete:
-        db.delete(row)
-    if to_delete:
+    is_breakglass = func.upper(func.coalesce(ActiveSession.protocol, "")) == _PROTOCOL_BREAKGLASS
+    last_seen = func.coalesce(ActiveSession.last_seen_at, ActiveSession.started_at)
+    deleted = 0
+    for scope, (idle_ttl, absolute_ttl) in (
+        (is_breakglass, (BREAKGLASS_IDLE_TTL, BREAKGLASS_ABSOLUTE_TTL)),
+        (~is_breakglass, (SESSION_IDLE_TTL, SESSION_ABSOLUTE_TTL)),
+    ):
+        deleted += (
+            db.query(ActiveSession)
+            .filter(
+                ActiveSession.status == "active",
+                scope,
+                or_(
+                    ActiveSession.started_at < now - absolute_ttl,
+                    last_seen < now - idle_ttl,
+                ),
+            )
+            .delete(synchronize_session="fetch")
+        )
+    if deleted:
         db.commit()
-    from app.breakglass import purge_expired_breakglass_sessions
-    from app.security.session_binding_service import purge_stale_sso_session_anchors
-
-    _safe_purge(db, "breakglass session purge", purge_expired_breakglass_sessions)
-    _safe_purge(db, "sso session anchor purge", purge_stale_sso_session_anchors)
-    return len(to_delete)
+    _purge_satellite_registries(db, now)
+    return deleted
 
 def touch_portal_session(
     db: Session,
@@ -724,7 +740,7 @@ def _breakglass_session_meta(request: Request, db: Session) -> dict[str, Any] | 
 def _breakglass_jti_from_request(
     request: Request, db: Session | None = None
 ) -> str | None:
-    from app.breakglass import COOKIE_NAME, decode_breakglass_token_with_fallback
+    from app.auth.breakglass import COOKIE_NAME, decode_breakglass_token_with_fallback
     from app.sso_settings import get_settings
 
     raw = request.cookies.get(COOKIE_NAME)
@@ -996,7 +1012,7 @@ def _touch_app_presence(
     existing_details = (
         dict(row.details) if row is not None and isinstance(row.details, dict) else {}
     )
-    has_cookies = bool(existing_details.get("session_cookies"))
+    has_cookies = has_session_cookies(existing_details)
     presence_patch: dict[str, Any] = {
         "source": "subdomain_auth",
         "auth_source": (auth_source or "oidc").strip() or "oidc",
@@ -1086,7 +1102,7 @@ def _touch_app_session(
         if details:
             row.details = _merge_details(row.details if isinstance(row.details, dict) else None, details)
             # New impersonate cookies invalidate prior live-check.
-            if details.get("session_cookies"):
+            if has_session_cookies(details):
                 row.last_verified_at = None
                 row.last_verified_status = None
                 merged = dict(row.details) if isinstance(row.details, dict) else {}
@@ -1257,11 +1273,7 @@ def _strip_or_none(value: Any) -> str | None:
 
 
 def _public_session_details(details: dict[str, Any] | None) -> dict[str, Any]:
-    return {
-        k: v
-        for k, v in (details or {}).items()
-        if k != "session_cookies"  # never expose full cookies to the UI/API list
-    }
+    return strip_session_cookies(dict(details or {}))
 
 
 def _show_disconnect(*, is_breakglass: bool, auth_family: str, kind: str) -> bool:
@@ -1366,7 +1378,8 @@ def _row_to_dict(
         "user_agent_label": diag["user_agent_label"],
         "browser_note": diag.get("browser_note"),
         "can_revoke": True,
-        "can_rotate": row.kind == KIND_APP,
+        # Per-session key rotation is not implemented (see rotate_keys).
+        "can_rotate": False,
         "show_disconnect": _show_disconnect(
             is_breakglass=is_breakglass, auth_family=auth_family, kind=row.kind
         ),
@@ -1531,7 +1544,7 @@ def _dedupe_sessions_for_group(sessions: list[dict[str, Any]]) -> list[dict[str,
 
     def _score(s: dict[str, Any]) -> tuple:
         details = s.get("details") if isinstance(s.get("details"), dict) else {}
-        has_cookies = bool(details.get("session_cookies"))
+        has_cookies = has_session_cookies(details)
         verifiable = bool(s.get("verifiable"))
         last_seen = s.get("last_seen_at") or s.get("started_at") or ""
         return (has_cookies, verifiable, str(last_seen))
@@ -1603,6 +1616,27 @@ def get_active_sessions(
         return []
 
 
+def sessions_view(
+    db: Session,
+    *,
+    viewer: UserContext,
+    kind: str | None,
+    locale: str = DEFAULT_LOCALE,
+) -> dict[str, Any]:
+    """Sessions of ``kind`` (all when unknown), their groups and per-kind counts."""
+    every = get_active_sessions(db, viewer=viewer, locale=locale)
+    sessions = [s for s in every if s.get("kind") == kind] if kind in (KIND_USER, KIND_APP) else every
+    return {
+        "sessions": sessions,
+        "groups": build_session_groups(db, sessions),
+        "counts": {
+            "all": len(every),
+            "user": sum(1 for s in every if s.get("kind") == KIND_USER),
+            "app": sum(1 for s in every if s.get("kind") == KIND_APP),
+        },
+    }
+
+
 def count_active_sessions(db: Session, *, kind: str | None = None) -> int:
     """Count active registry rows; optional ``kind`` is ``user`` or ``app``."""
     try:
@@ -1664,7 +1698,7 @@ def revoke_active_session(
         and delete
     ):
         try:
-            from app.breakglass import revoke_breakglass_jti
+            from app.auth.breakglass import revoke_breakglass_jti
 
             revoke_breakglass_jti(
                 db,
@@ -1677,6 +1711,23 @@ def revoke_active_session(
         except LookupError:
             audit_details["jti"] = jti
             audit_details["breakglass_revoked"] = False
+    # Native OIDC portal rows: the registry keeps no jti, so cut every native
+    # bastion_session of this identity in the realm (else the JWT lives on).
+    if (
+        delete
+        and session.kind == KIND_USER
+        and (session.protocol or "").upper() == _PROTOCOL_OIDC
+    ):
+        from app.auth.oidc_bff import revoke_oidc_sessions_for_identity
+
+        audit_details["oidc_sessions_revoked"] = revoke_oidc_sessions_for_identity(
+            db,
+            realm_slug=session.realm,
+            emails={session.user_email},
+            usernames={session.username},
+            revoked_by=actor or "system",
+            reason=reason,
+        )
     if delete:
         # Drop stored robotic cookies with the row
         db.delete(session)
@@ -1684,8 +1735,7 @@ def revoke_active_session(
     else:
         session.status = "isolated"
         if isinstance(session.details, dict):
-            cleaned = dict(session.details)
-            cleaned.pop("session_cookies", None)
+            cleaned = strip_session_cookies(dict(session.details))
             cleaned["consecutive_invalid_count"] = 0
             session.details = cleaned
         action = "session.isolated"
@@ -1856,20 +1906,7 @@ def list_sessions(
     from app.i18n.middleware import get_request_locale
 
     locale = get_request_locale(request)
-    sessions = get_active_sessions(db, viewer=user, kind=kind, locale=locale)
-    payload: dict[str, Any] = {
-        "sessions": sessions,
-        "groups": build_session_groups(db, sessions),
-        "counts": {
-            "all": len(get_active_sessions(db, viewer=user, locale=locale)),
-            "user": len(
-                get_active_sessions(db, viewer=user, kind=KIND_USER, locale=locale)
-            ),
-            "app": len(
-                get_active_sessions(db, viewer=user, kind=KIND_APP, locale=locale)
-            ),
-        },
-    }
+    payload: dict[str, Any] = sessions_view(db, viewer=user, kind=kind, locale=locale)
     # Temporary diagnostic for IP capture (admins only) — remove once validated.
     if user.is_admin:
         payload["ip_probe"] = client_ip_probe(request)
@@ -1917,23 +1954,10 @@ async def live_verify_sessions(
     # poller replaces a kind=user rail with app sessions (2 people under
     # « Utilisateurs » while the tab still says 1).
     kind = (body.get("kind") or "").strip().lower() or None
-    if kind not in (KIND_USER, KIND_APP):
-        kind = None
-    sessions = get_active_sessions(db, viewer=user, kind=kind, locale=locale)
     return {
         "verified": verified,
         "revoked": [v["id"] for v in verified if v.get("revoked")],
-        "groups": build_session_groups(db, sessions),
-        "sessions": sessions,
-        "counts": {
-            "all": len(get_active_sessions(db, viewer=user, locale=locale)),
-            "user": len(
-                get_active_sessions(db, viewer=user, kind=KIND_USER, locale=locale)
-            ),
-            "app": len(
-                get_active_sessions(db, viewer=user, kind=KIND_APP, locale=locale)
-            ),
-        },
+        **sessions_view(db, viewer=user, kind=kind, locale=locale),
     }
 
 
@@ -1981,22 +2005,19 @@ def isolate_session(
     return {"status": "ok", "session_id": result["session_id"]}
 
 
-@admin_router.post("/admin/sessions/{session_id}/rotate-keys", responses=RESP_404)
+@admin_router.post(
+    "/admin/sessions/{session_id}/rotate-keys",
+    responses={**RESP_404, 501: {"description": "Not implemented"}},
+)
 def rotate_keys(
     session_id: str,
-    request: Request,
     db: Session = Depends(get_db),
     user: UserContext = Depends(require_admin),
 ):
-    session = get_session_by_id(db, session_id)
-    if not session:
+    """Per-session key rotation is not implemented: say so instead of faking success."""
+    if not get_session_by_id(db, session_id):
         raise HTTPException(status_code=404, detail=_MSG_SESSION_NOT_FOUND)
-    log_action(
-        db,
-        actor=user.email,
-        action="session.rotate_keys",
-        target=session.target,
-        details={"session_id": session_id, "kind": session.kind},
-        ip_address=client_ip_from_request(request),
+    raise HTTPException(
+        status_code=501,
+        detail="Rotation des clés par session non disponible — révoquez la session.",
     )
-    return {"status": "ok", "session_id": session_id}

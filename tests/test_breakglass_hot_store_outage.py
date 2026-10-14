@@ -13,12 +13,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from app.breakglass import (
+from app.auth.breakglass import (
     COOKIE_MAX_AGE,
     DEGRADED_TOKEN_TTL_SEC,
     issue_breakglass_token,
 )
-from app.breakglass_store import set_breakglass_password
+from app.auth.breakglass_store import set_breakglass_password
 from app.models import BreakGlassSession
 
 PASSWORD = "correct-password-12"
@@ -42,7 +42,7 @@ def test_login_succeeds_when_the_session_registry_is_down(
     set_breakglass_password(db_session, "admin", PASSWORD)
 
     with patch(
-        "app.breakglass.register_breakglass_session", side_effect=PG_DOWN
+        "app.auth.breakglass.register_breakglass_session", side_effect=PG_DOWN
     ):
         response = _login(client)
 
@@ -104,7 +104,7 @@ def test_unregistered_token_is_short_lived(client: TestClient, db_session: Sessi
     """It cannot be revoked, so the window it opens has to be bounded."""
     set_breakglass_password(db_session, "admin", PASSWORD)
 
-    with patch("app.breakglass.register_breakglass_session", side_effect=PG_DOWN):
+    with patch("app.auth.breakglass.register_breakglass_session", side_effect=PG_DOWN):
         token, _jti = issue_breakglass_token(db_session, "admin", "s3cret-signing-key")
 
     payload = jwt.decode(

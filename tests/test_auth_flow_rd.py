@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.auth_flow import safe_post_login_rd
+from app.auth.flow import safe_post_login_rd
 
 
 def test_safe_rd_relative_paths():

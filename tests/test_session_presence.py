@@ -7,6 +7,7 @@ from datetime import timedelta
 from sqlalchemy.orm import Session
 
 from app.models import ActiveSession, App, utcnow
+from app.web.session_cookie_seal import SEALED_KEY, open_session_cookies, seal_session_cookies
 from app.web.sessions_service import (
     PRESENCE_THROTTLE_SECONDS,
     _aware,
@@ -22,8 +23,8 @@ def _app(db: Session, *, slug: str = "webmail") -> App:
         upstream_url=f"https://{slug}.internal/",
         enabled=True,
         access_mode="subdomain_proxy",
-        public_fqdn=f"{slug}.ar-systems.fr",
-        realm_slug="ar-systems",
+        public_fqdn=f"{slug}.example.com",
+        realm_slug="default",
     )
     db.add(app)
     db.commit()
@@ -37,7 +38,7 @@ def test_touch_app_presence_creates_presence_only_row(db_session: Session):
         db_session,
         email="alice@example.com",
         username="alice",
-        realm="ar-systems",
+        realm="default",
         app=app,
         source_ip="203.0.113.9",
         auth_source="oidc",
@@ -63,7 +64,7 @@ def test_touch_app_presence_throttles_within_window(db_session: Session):
         db_session,
         email="alice@example.com",
         username="alice",
-        realm="ar-systems",
+        realm="default",
         app=app,
         source_ip="203.0.113.9",
         auth_source="oidc",
@@ -77,7 +78,7 @@ def test_touch_app_presence_throttles_within_window(db_session: Session):
         db_session,
         email="alice@example.com",
         username="alice",
-        realm="ar-systems",
+        realm="default",
         app=app,
         source_ip="198.51.100.1",
         auth_source="oidc",
@@ -97,7 +98,7 @@ def test_touch_app_presence_updates_after_throttle(db_session: Session):
         db_session,
         email="alice@example.com",
         username="alice",
-        realm="ar-systems",
+        realm="default",
         app=app,
         source_ip="203.0.113.9",
         auth_source="oidc",
@@ -112,7 +113,7 @@ def test_touch_app_presence_updates_after_throttle(db_session: Session):
         db_session,
         email="alice@example.com",
         username="alice",
-        realm="ar-systems",
+        realm="default",
         app=app,
         source_ip="198.51.100.1",
         auth_source="oidc",
@@ -134,7 +135,7 @@ def test_touch_app_presence_preserves_session_cookies(db_session: Session):
         kind="app",
         user_email="alice@example.com",
         username="alice",
-        realm="ar-systems",
+        realm="default",
         protocol="HTTPS",
         target="webmail",
         source_ip="203.0.113.9",
@@ -142,7 +143,7 @@ def test_touch_app_presence_preserves_session_cookies(db_session: Session):
         started_at=utcnow() - timedelta(hours=1),
         last_seen_at=utcnow() - timedelta(seconds=120),
         details={
-            "session_cookies": cookies,
+            SEALED_KEY: seal_session_cookies(cookies),
             "verifiable": True,
             "driver": "generic_form",
             "cookies_present": list(cookies.keys()),
@@ -157,7 +158,7 @@ def test_touch_app_presence_preserves_session_cookies(db_session: Session):
         db_session,
         email="alice@example.com",
         username="alice",
-        realm="ar-systems",
+        realm="default",
         app=app,
         source_ip="203.0.113.9",
         auth_source="oidc",
@@ -165,7 +166,8 @@ def test_touch_app_presence_preserves_session_cookies(db_session: Session):
     )
     row = db_session.query(ActiveSession).filter_by(id=seeded.id).one()
     details = row.details or {}
-    assert details.get("session_cookies") == cookies
+    assert open_session_cookies(details) == cookies
+    assert "session_cookies" not in details
     assert details.get("driver") == "generic_form"
     assert details.get("presence_only") is False
     assert details.get("source") == "subdomain_auth"
@@ -184,7 +186,7 @@ def test_row_to_dict_exposes_robotic_username(db_session: Session):
         kind="app",
         user_email="alice@example.com",
         username="alice",
-        realm="ar-systems",
+        realm="default",
         protocol="HTTPS",
         target="transfer",
         source_ip="203.0.113.9",

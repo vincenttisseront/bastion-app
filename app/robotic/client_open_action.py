@@ -139,6 +139,7 @@ def _check_app_rbac(
         application_id=app.id,
         keycloak_user_id=user.keycloak_user_id,
         group_names=user.groups,
+        realm_slug=user.realm_slug,
     ):
         return JSONResponse(
             {"detail": "Access denied to this application"},
@@ -429,6 +430,7 @@ async def client_impersonate(
             ip_address=_client_ip(request),
             keycloak_user_id=user.keycloak_user_id,
             group_names=user.groups,
+            realm_slug=user.realm_slug,
             client_headers=_browser_fingerprint_headers(request),
         )
     except ImpersonationError as exc:
@@ -521,6 +523,7 @@ async def open_with_identity(
             ip_address=_client_ip(request),
             keycloak_user_id=user.keycloak_user_id,
             group_names=user.groups,
+            realm_slug=user.realm_slug,
             ephemeral_username=username,
             ephemeral_password=password,
             client_headers=_browser_fingerprint_headers(request),
@@ -658,6 +661,7 @@ async def basic_auth_header(
             ip_address=_client_ip(request),
             keycloak_user_id=user.keycloak_user_id,
             group_names=user.groups,
+            realm_slug=user.realm_slug,
         )
     except ImpersonationCredentialRequiredError:
         return Response(status_code=409)
@@ -704,6 +708,7 @@ async def wsse_header(
             ip_address=_client_ip(request),
             keycloak_user_id=user.keycloak_user_id,
             group_names=user.groups,
+            realm_slug=user.realm_slug,
         )
     except ImpersonationCredentialRequiredError:
         return Response(status_code=409)

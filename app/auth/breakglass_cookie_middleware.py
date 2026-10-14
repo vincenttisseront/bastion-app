@@ -20,7 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.breakglass import (
+from app.auth.breakglass import (
     COOKIE_NAME,
     ROTATION_MIN_INTERVAL_SECONDS,
     process_breakglass_auth_request,

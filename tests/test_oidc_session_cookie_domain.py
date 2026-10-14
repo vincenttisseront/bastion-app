@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi.responses import Response
 
-from app.oidc_bff import clear_oidc_session_cookie, set_oidc_session_cookie
+from app.auth.oidc_bff import clear_oidc_session_cookie, set_oidc_session_cookie
 from app.sso_settings import Settings
 
 

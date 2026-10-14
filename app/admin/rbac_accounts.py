@@ -619,6 +619,7 @@ async def admin_rbac_user_view(
                 va["slug"],
                 keycloak_user_id,
                 group_names=group_names or None,
+                realm_slug=realm.slug,
             )
             detail = {
                 "app_slug": va["slug"],

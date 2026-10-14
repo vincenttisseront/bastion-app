@@ -232,7 +232,7 @@ def apply_host_only_bastion_session_mirror(
     settings: Settings,
 ) -> bool:
     """Host-only copy of bastion_session on the app FQDN (parent Domain may not stick)."""
-    from app.auth import extract_oidc_session_cookie_raw
+    from app.auth.auth_request import extract_oidc_session_cookie_raw
 
     raw = extract_oidc_session_cookie_raw(request, settings)
     if not raw:

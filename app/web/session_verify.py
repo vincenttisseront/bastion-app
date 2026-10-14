@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.bastion.drivers.base import RoboticLoginError
 from app.bastion.drivers.crushftp import CrushFTPDriver, CrushFTPSession
 from app.models import ActiveSession, utcnow
+from app.web.session_cookie_seal import open_session_cookies
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ def _details_dict(row: ActiveSession) -> dict[str, Any]:
 
 
 async def verify_crushftp_session(details: dict[str, Any]) -> VerifyStatus:
-    cookies = details.get("session_cookies") or {}
+    cookies = open_session_cookies(details)
     base = (details.get("verify_base_url") or "").strip()
     expected = (details.get("robotic_username") or "").strip()
     if not cookies.get("CrushAuth") or not base:
@@ -74,7 +75,7 @@ async def verify_generic_form_session(details: dict[str, Any]) -> VerifyStatus:
 
     Generic apps have no universal identity probe — documented limitation.
     """
-    cookies = details.get("session_cookies") or {}
+    cookies = open_session_cookies(details)
     base = (details.get("verify_base_url") or "").strip()
     if not cookies or not base:
         return "unknown"

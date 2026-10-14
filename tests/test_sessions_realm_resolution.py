@@ -5,7 +5,7 @@ from __future__ import annotations
 from starlette.requests import Request
 
 from app.models import ActiveSession, utcnow
-from app.oidc_bff import issue_oidc_session, validate_oidc_session_cookie
+from app.auth.oidc_bff import issue_oidc_session, validate_oidc_session_cookie
 from app.sso_settings import Settings
 from app.web.sessions_service import (
     KIND_USER,

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import time
+from collections.abc import Sequence
 
 from sqlalchemy.orm import Session
 
@@ -28,8 +30,29 @@ from app.vault.app_credential_service import (
     CredentialDecryptError,
     CredentialNotFoundError,
     EncryptionNotConfiguredError,
+    VaultError,
 )
-from app.vault.user_app_credential_service import resolve_credential
+from app.vault.user_app_credential_service import (
+    GroupCredentialExcludedError,
+    resolve_credential,
+)
+
+logger = logging.getLogger(__name__)
+
+_MSG_NO_CREDENTIAL = "No active credential configured"
+_MSG_DECRYPT_FAILED = "Credential decryption failed"
+
+
+def _vault_message(exc: VaultError) -> str:
+    if isinstance(exc, EncryptionNotConfiguredError):
+        return str(exc)
+    if isinstance(exc, CredentialDecryptError):
+        return _MSG_DECRYPT_FAILED
+    if isinstance(exc, GroupCredentialExcludedError):
+        return GroupCredentialExcludedError.user_message
+    if isinstance(exc, CredentialNotFoundError):
+        return _MSG_NO_CREDENTIAL
+    return "Vault error"
 
 
 async def test_app_credential_connection(
@@ -38,8 +61,14 @@ async def test_app_credential_connection(
     settings: Settings,
     *,
     keycloak_user_id: str | None = None,
+    group_names: Sequence[str] | None = None,
+    realm_slug: str | None = None,
 ) -> ConnectionTestResult:
-    """Run login + fingerprint steps; never put secrets in CheckStep.detail."""
+    """Run login + fingerprint steps; never put secrets in CheckStep.detail.
+
+    Resolves the same credential as impersonation (user override, then group
+    shared, then app shared) when ``group_names`` is given.
+    """
     checks: list[CheckStep] = []
     start = time.monotonic()
     slug = app.slug
@@ -47,45 +76,16 @@ async def test_app_credential_connection(
 
     try:
         resolved, password = resolve_credential(
-            db, slug, settings, keycloak_user_id=keycloak_user_id
+            db,
+            slug,
+            settings,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
+            realm_slug=realm_slug,
         )
-    except EncryptionNotConfiguredError as exc:
+    except VaultError as exc:
         checks.append(
-            CheckStep(
-                name="vault",
-                status=CheckStatus.ERROR,
-                message=str(exc),
-            )
-        )
-        return ConnectionTestResult(
-            resource_type="app_credential",
-            resource_id=slug,
-            overall_status=CheckStatus.ERROR,
-            checks=checks,
-            latency_ms=int((time.monotonic() - start) * 1000),
-        )
-    except CredentialNotFoundError:
-        checks.append(
-            CheckStep(
-                name="vault",
-                status=CheckStatus.ERROR,
-                message="No active credential configured",
-            )
-        )
-        return ConnectionTestResult(
-            resource_type="app_credential",
-            resource_id=slug,
-            overall_status=CheckStatus.ERROR,
-            checks=checks,
-            latency_ms=int((time.monotonic() - start) * 1000),
-        )
-    except CredentialDecryptError:
-        checks.append(
-            CheckStep(
-                name="vault",
-                status=CheckStatus.ERROR,
-                message="Credential decryption failed",
-            )
+            CheckStep(name="vault", status=CheckStatus.ERROR, message=_vault_message(exc))
         )
         return ConnectionTestResult(
             resource_type="app_credential",
@@ -152,6 +152,7 @@ async def test_app_credential_connection(
                     )
                 )
         except Exception:
+            logger.warning("Basic Auth probe failed for app %s", slug, exc_info=True)
             checks.append(
                 CheckStep(
                     name="basic_auth",
@@ -182,6 +183,7 @@ async def test_app_credential_connection(
                     )
                 )
         except Exception:
+            logger.warning("X-WSSE probe failed for app %s", slug, exc_info=True)
             checks.append(
                 CheckStep(
                     name="wsse",
@@ -300,9 +302,9 @@ def credential_test_legacy_response(result: ConnectionTestResult) -> tuple[dict,
             message = step.message
             break
     status = 200
-    if message == "No active credential configured":
+    if message == _MSG_NO_CREDENTIAL:
         status = 404
-    elif message == "Credential decryption failed":
+    elif message == _MSG_DECRYPT_FAILED:
         status = 500
     elif "PORTAL_SECRET" in message or "Fernet" in message or "encryption" in message.lower():
         status = 503

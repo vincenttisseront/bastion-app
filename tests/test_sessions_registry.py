@@ -156,7 +156,7 @@ def test_sessions_grouped_by_user(client: TestClient, db_session: Session):
     assert "last_seen_ago" in portal
     assert "client_ip" in portal
     app = next(s for s in group["sessions"] if s["kind"] == "app")
-    assert app["can_rotate"] is True
+    assert app["can_rotate"] is False
     assert group["show_disconnect"] is True
     assert "oidc" in group["auth_families"]
     assert "app" in group["auth_families"]

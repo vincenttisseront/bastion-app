@@ -21,8 +21,8 @@ from jwt.algorithms import RSAAlgorithm
 from sqlalchemy.orm import Session
 
 from app.models import OidcSession, RealmConfig, utcnow
-from app.oidc_bff import OIDC_LOGIN_MAX_FAILURES
-from app.oidc_bff_config_service import set_oidc_bff_config
+from app.auth.oidc_bff import OIDC_LOGIN_MAX_FAILURES
+from app.auth.oidc_bff_config_service import set_oidc_bff_config
 from app.secret_crypto import encrypt_secret
 from app.sso_settings import Settings, get_settings
 from app.testing_framework.throttle import reset_throttles
@@ -74,8 +74,8 @@ def e2e_settings(monkeypatch):
         sso_portal_default_realm_slug=REALM,
     )
     get_settings.cache_clear()
-    monkeypatch.setattr("app.oidc_bff.get_settings", lambda: settings)
-    monkeypatch.setattr("app.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("app.auth.oidc_bff.get_settings", lambda: settings)
+    monkeypatch.setattr("app.auth.auth_request.get_settings", lambda: settings)
     from app.main import app
 
     app.dependency_overrides[get_settings] = lambda: settings
@@ -656,7 +656,7 @@ def test_e2e_otp_wrong_then_lockout(
     client: TestClient, db_session: Session, e2e_settings: Settings
 ):
     from app.models import OidcLoginAttempt
-    from app.oidc_bff_client import MAX_OTP_FAILURES
+    from app.auth.oidc_bff_client import MAX_OTP_FAILURES
 
     _add_realm(db_session, e2e_settings)
     respx.get(AUTH).mock(
