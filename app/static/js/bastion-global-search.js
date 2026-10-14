@@ -10,7 +10,7 @@
 
   var MIN_LEN = 2;
   var DEBOUNCE_MS = 200;
-  var DISPLAY_LIMIT = 5;
+  var DISPLAY_LIMIT = 8;
 
   /** Maps SearchStatus → data-global-search-state panel id in the DOM. */
   var STATUS_PANEL = {
@@ -24,16 +24,19 @@
 
   var CATEGORY_URLS = {
     applications: "/apps",
+    hosts: "/admin/pending-hosts",
     users: "/admin/rbac/users",
     groups: "/admin/rbac",
     sessions: "/sessions",
     realms: "/admin/realms",
-    audit: "/audit",
+    audit: "/admin/logs",
   };
 
   var CATEGORY_ICONS = {
     applications:
       '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+    hosts:
+      '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
     users:
       '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
     groups:

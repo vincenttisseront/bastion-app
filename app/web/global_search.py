@@ -14,7 +14,7 @@ from app.audit import list_audit_entries
 from app.database import get_db
 from app.i18n.helpers import localize_mapping
 from app.i18n.middleware import get_request_locale
-from app.models import App, RBACGroup, RealmConfig
+from app.models import App, PendingHost, RBACGroup, RealmConfig
 from app.rbac.effective_access_service import get_effective_apps_for_user
 from app.rbac.grants_service import serialize_user_search_result
 from app.rbac.keycloak_admin import search_keycloak_users_fuzzy
@@ -33,6 +33,7 @@ AUDIT_LOOKBACK_DAYS = 30
 
 CATEGORY_LABELS = {
     "applications": "Applications",
+    "hosts": "Domaines",
     "users": "Utilisateurs",
     "groups": "Groupes",
     "sessions": "Sessions",
@@ -48,31 +49,120 @@ def _hit(label: str, url: str, *, sublabel: str | None = None) -> dict[str, str]
     return item
 
 
-def _search_applications(db: Session, user: UserContext, q: str) -> list[dict[str, str]]:
-    entries = get_effective_apps_for_user(
-        db,
-        keycloak_user_id=user.keycloak_user_id,
-        group_names=user.groups,
-        realm_slug=user.realm_slug,
+def _app_search_fields(app: App) -> list[str]:
+    """Fields an operator actually types: label, slug, FQDN, upstream host."""
+    return [
+        app.label or "",
+        app.slug or "",
+        app.description or "",
+        app.public_fqdn or "",
+        app.upstream_url or "",
+        app.healthcheck_url or "",
+        app.login_form_url or "",
+    ]
+
+
+def _app_sublabel(app: App) -> str | None:
+    fqdn = (app.public_fqdn or "").strip()
+    if fqdn:
+        return fqdn
+    desc = (app.description or "").strip()
+    if desc:
+        return desc
+    return (app.slug or "").strip() or None
+
+
+def _search_applications(
+    db: Session,
+    user: UserContext,
+    q: str,
+    *,
+    admin: bool = False,
+) -> list[dict[str, str]]:
+    scored: list[tuple[float, dict[str, str]]] = []
+
+    if admin:
+        # Catalogue complet : un admin cherche souvent un FQDN / slug qu'il
+        # n'a pas forcément en grant personnel.
+        apps = (
+            db.query(App)
+            .filter(App.enabled.is_(True))
+            .order_by(App.label.asc())
+            .limit(500)
+            .all()
+        )
+        for app in apps:
+            score = score_query_against_fields(q, _app_search_fields(app))
+            if score < MIN_SCORE:
+                continue
+            scored.append(
+                (
+                    score,
+                    _hit(
+                        app.label or app.slug,
+                        f"/admin/apps/{app.slug}/edit",
+                        sublabel=_app_sublabel(app),
+                    ),
+                )
+            )
+    else:
+        entries = get_effective_apps_for_user(
+            db,
+            keycloak_user_id=user.keycloak_user_id,
+            group_names=user.groups,
+            realm_slug=user.realm_slug,
+        )
+        for entry in entries:
+            app: App = entry.app
+            if not app.enabled:
+                continue
+            score = score_query_against_fields(q, _app_search_fields(app))
+            if score < MIN_SCORE:
+                continue
+            scored.append(
+                (
+                    score,
+                    _hit(
+                        app.label or app.slug,
+                        f"/apps#app-{app.slug}",
+                        sublabel=_app_sublabel(app),
+                    ),
+                )
+            )
+
+    scored.sort(key=lambda pair: (-pair[0], pair[1]["label"].casefold()))
+    return [item for _, item in scored[:RESULT_LIMIT]]
+
+
+def _search_pending_hosts(db: Session, q: str) -> list[dict[str, str]]:
+    """Pending / known discovery hosts — subdomain often typed before an app exists."""
+    from app.bastion.pending_host_service import is_infra_discovery_probe
+
+    rows = (
+        db.query(PendingHost)
+        .order_by(PendingHost.last_seen_at.desc())
+        .limit(400)
+        .all()
     )
     scored: list[tuple[float, dict[str, str]]] = []
-    for entry in entries:
-        app: App = entry.app
-        if not app.enabled:
+    for row in rows:
+        host = (row.hostname or "").strip()
+        if not host or is_infra_discovery_probe(host):
             continue
         score = score_query_against_fields(
             q,
-            [app.label or "", app.description or "", app.slug or ""],
+            [host, row.last_uri or "", row.last_client_ip or "", row.status or ""],
         )
         if score < MIN_SCORE:
             continue
+        status = (row.status or "pending").strip() or "pending"
         scored.append(
             (
                 score,
                 _hit(
-                    app.label or app.slug,
-                    f"/apps#app-{app.slug}",
-                    sublabel=(app.description or "").strip() or None,
+                    host,
+                    f"/admin/pending-hosts?status={status}",
+                    sublabel=status,
                 ),
             )
         )
@@ -261,9 +351,10 @@ async def global_search(
     """
     Unified search for the topbar modal.
 
-    Always returns ``applications`` (effective access = same as /apps).
-    Admin-only keys (users, groups, sessions, realms, audit) are omitted entirely
-    for non-admins — never empty stubs that could leak category existence.
+    Always returns ``applications`` (effective access for users; full catalogue
+    for admins, including ``public_fqdn`` / upstream host).
+    Admin-only keys (hosts, users, groups, sessions, realms, audit) are omitted
+    entirely for non-admins — never empty stubs that could leak category existence.
     """
     query = (q or "").strip()
     if len(query) < MIN_QUERY_LEN:
@@ -271,10 +362,11 @@ async def global_search(
 
     admin = is_portal_admin(user, db, settings)
     results: dict[str, Any] = {
-        "applications": _search_applications(db, user, query),
+        "applications": _search_applications(db, user, query, admin=admin),
     }
 
     if admin:
+        results["hosts"] = _search_pending_hosts(db, query)
         results["groups"] = _search_groups(db, query)
         results["realms"] = _search_realms(db, query)
         results["sessions"] = _search_sessions(db, query)
