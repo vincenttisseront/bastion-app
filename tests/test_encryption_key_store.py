@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -9,10 +11,16 @@ from cryptography.fernet import Fernet
 from sqlalchemy.orm import Session
 
 from app.models import App, AppCredential, AuditLog, EncryptionKeyVersion
-from app.secret_crypto import decrypt_with_key, encrypt_with_key
+from app.secret_crypto import (
+    decrypt_secret,
+    decrypt_with_key,
+    encrypt_with_key,
+    fernet_from_key_material,
+)
 from app.sso_settings import Settings
 from app.vault.encryption_key_store import (
     EncryptionKeyStoreError,
+    derive_legacy_fernet_key,
     ensure_encryption_key,
     export_active_key_backup,
     get_active_key,
@@ -22,6 +30,7 @@ from app.vault.encryption_key_store import (
     resolve_keys_dir,
 )
 from app.vault.key_rotation_service import KeyRotationError, rotate_application_key
+from app.vault.keyfile import write_secret_file
 
 
 def _settings(tmp_path: Path, **kwargs) -> Settings:
@@ -163,3 +172,49 @@ def test_export_backup_requires_passphrase(db_session: Session, tmp_path: Path):
     blob = export_active_key_backup(settings, "long-enough-passphrase")
     assert blob.startswith(b"bastion-fernet-backup-v1\n")
     assert get_active_key().encode() not in blob
+
+
+LEGACY_PASSPHRASE = "test-encryption-key-for-pytest-only"
+
+
+def test_env_passphrase_is_stored_as_its_derived_fernet_key(db_session: Session, tmp_path: Path):
+    """Ciphertexts written from the passphrase must still decrypt with the stored key."""
+    legacy_ciphertext = encrypt_with_key("secret", LEGACY_PASSPHRASE)
+    settings = _settings(tmp_path, portal_secret_encryption_key=LEGACY_PASSPHRASE)
+
+    ensure_encryption_key(db_session, settings)
+
+    stored = key_path(resolve_keys_dir(settings), 1).read_text(encoding="ascii").strip()
+    assert stored == get_active_key() == derive_legacy_fernet_key(LEGACY_PASSPHRASE)
+    assert decrypt_secret(legacy_ciphertext, settings) == "secret"
+
+
+def test_passphrase_left_in_a_key_file_is_normalized_on_boot(db_session: Session, tmp_path: Path):
+    settings = _settings(tmp_path)
+    keys_dir = resolve_keys_dir(settings)
+    keys_dir.mkdir(parents=True)
+    key_path(keys_dir, 1).write_text(LEGACY_PASSPHRASE + "\n", encoding="ascii")
+    (keys_dir / "current").write_text("1\n", encoding="ascii")
+
+    ensure_encryption_key(db_session, settings)
+
+    assert key_path(keys_dir, 1).read_text(encoding="ascii").strip() == derive_legacy_fernet_key(
+        LEGACY_PASSPHRASE
+    )
+
+
+def test_malformed_active_key_is_rejected_instead_of_silently_derived():
+    with pytest.raises(ValueError, match="Fernet invalide"):
+        fernet_from_key_material("not-a-fernet-key")
+
+
+def test_write_secret_file_replaces_content_without_leftovers(tmp_path: Path):
+    folder = tmp_path / "secrets"
+    folder.mkdir()
+    target = folder / "k.key"
+    write_secret_file(target, "first")
+    write_secret_file(target, "second")
+    assert target.read_text(encoding="ascii") == "second\n"
+    assert [p.name for p in folder.iterdir()] == ["k.key"]
+    if os.name == "posix":
+        assert stat.S_IMODE(target.stat().st_mode) == 0o600

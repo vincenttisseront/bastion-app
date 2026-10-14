@@ -201,6 +201,82 @@ def test_collect_hot_store_stats_counts_and_24h():
     assert stats["security_rate_events_24h"] == 1
 
 
+def test_stats_keep_counting_after_one_table_fails():
+    """A failed probe must not poison the probes after it (Postgres aborts the txn)."""
+    from app.db.hot_store import collect_hot_store_stats
+
+    eng = _mem_engine()
+    tables = [Base.metadata.tables[n] for n in HOT_TABLE_NAMES if n != "oidc_sessions"]
+    Base.metadata.create_all(bind=eng, tables=tables)
+    db = sessionmaker(bind=eng)()
+    db.add(AuditLog(actor="a", action="one", target="t1"))
+    db.commit()
+    db.close()
+
+    stats = collect_hot_store_stats(eng)
+
+    assert stats["table_counts"]["oidc_sessions"] == -1
+    assert stats["table_counts"]["audit_logs"] == 1
+    assert stats["audit_logs_24h"] == 1
+
+
+def test_hot_engine_refresh_reads_settings_once_per_ttl(monkeypatch):
+    calls = []
+    monkeypatch.setattr(hot_store_mod, "sync_hot_engine_from_config", lambda db, s: calls.append(1))
+    hot_store_mod.invalidate_hot_enabled_cache()
+
+    for _ in range(5):
+        hot_store_mod.refresh_hot_engine_if_stale(object(), object())
+    assert len(calls) == 1
+
+    hot_store_mod.invalidate_hot_enabled_cache()
+    hot_store_mod.refresh_hot_engine_if_stale(object(), object())
+    assert len(calls) == 2
+    hot_store_mod.invalidate_hot_enabled_cache()
+
+
+def test_status_page_never_realigns_sequences(db_session, monkeypatch):
+    """setval on a live table can move a sequence backwards under concurrent inserts."""
+    from app.portal_settings_service import ensure_portal_settings
+
+    settings = Settings(
+        environment="test",
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+        vault_portal_internal_token="t",
+    )
+    row = ensure_portal_settings(db_session, settings)
+    row.hot_store_host = "postgres"
+    row.hot_store_enabled = True
+    db_session.commit()
+
+    hot_eng = _mem_engine()
+    Base.metadata.create_all(bind=hot_eng, tables=[Base.metadata.tables[n] for n in HOT_TABLE_NAMES])
+    monkeypatch.setattr(hot_store_mod, "sync_hot_engine_from_config", lambda db, s: hot_eng)
+    realigned = []
+    monkeypatch.setattr(hot_store_mod, "reset_hot_table_sequences", realigned.append)
+
+    status = hot_store_mod.get_hot_store_status(db_session, settings)
+
+    assert status.engine_ready is True
+    assert realigned == []
+
+
+def test_endpoint_rejects_unknown_sslmode():
+    with pytest.raises(HotStoreError, match="sslmode"):
+        hot_store_mod.HotStoreEndpoint.parse(host="postgres", sslmode="sometimes")
+
+
+def test_endpoint_applies_defaults():
+    endpoint = hot_store_mod.HotStoreEndpoint.parse(host=" postgres ")
+    assert (endpoint.host, endpoint.port, endpoint.database, endpoint.user, endpoint.sslmode) == (
+        "postgres",
+        5432,
+        "bastion_hot",
+        "bastion_hot",
+        "prefer",
+    )
+
+
 def test_migrate_all_resets_sequences(monkeypatch):
     from app.db.hot_store import migrate_all_hot_tables
 

@@ -10,9 +10,10 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.db.hot_store import (
+    HOT_DEFAULT_PORT,
     HOT_TABLE_NAMES,
+    HotStoreEndpoint,
     HotStoreError,
-    build_hot_dsn,
     dispose_hot_engine,
     ensure_hot_engine,
     invalidate_hot_enabled_cache,
@@ -20,6 +21,7 @@ from app.db.hot_store import (
     prepare_hot_schema,
     provision_hot_role_and_database,
     reset_hot_table_sequences,
+    resolve_hot_dsn_from_settings_row,
     resolve_hot_password,
     set_hot_enabled_cache,
     sync_hot_engine_from_config,
@@ -67,48 +69,11 @@ def _require_configured(row: PortalSettings) -> None:
 
 def _hot_dsn_from_row(row: PortalSettings, settings: Settings) -> str:
     _require_configured(row)
-    password = resolve_hot_password(
+    return resolve_hot_dsn_from_settings_row(
         row,
         decrypt_password=lambda enc: decrypt_secret(enc, settings),
         env_password=getattr(settings, "hot_store_pg_password", ""),
-    )
-    return build_hot_dsn(
-        host=row.hot_store_host or "",
-        port=int(row.hot_store_port or 5432),
-        database=row.hot_store_database or "bastion_hot",
-        user=row.hot_store_user or "bastion_hot",
-        password=password,
-        sslmode=row.hot_store_sslmode or "prefer",
-    )
-
-
-def _normalize_hot_store_fields(
-    *,
-    host: str,
-    port: int,
-    database: str,
-    user: str,
-    sslmode: str,
-) -> dict[str, Any]:
-    host = (host or "").strip()
-    database = (database or "").strip() or "bastion_hot"
-    user = (user or "").strip() or "bastion_hot"
-    sslmode = (sslmode or "prefer").strip() or "prefer"
-    if sslmode not in ("prefer", "require", "disable", "allow", "verify-ca", "verify-full"):
-        raise HotStoreError(f"sslmode invalide : {sslmode}")
-    try:
-        port_i = int(port or 5432)
-    except (TypeError, ValueError) as exc:
-        raise HotStoreError("Port PostgreSQL invalide") from exc
-    if not host:
-        raise HotStoreError("Hôte PostgreSQL requis")
-    return {
-        "host": host,
-        "port": port_i,
-        "database": database,
-        "user": user,
-        "sslmode": sslmode,
-    }
+    ) or ""
 
 
 def save_hot_store_config(
@@ -130,31 +95,25 @@ def save_hot_store_config(
             "Chiffrement Fernet requis pour stocker le mot de passe PostgreSQL"
         )
     row = ensure_portal_settings(db, settings)
-    fields = _normalize_hot_store_fields(
+    endpoint = HotStoreEndpoint.parse(
         host=host, port=port, database=database, user=user, sslmode=sslmode
     )
-    host = fields["host"]
-    port_i = fields["port"]
-    database = fields["database"]
-    user = fields["user"]
-    sslmode = fields["sslmode"]
-
     prev_host = (row.hot_store_host or "").strip()
-    prev_port = int(row.hot_store_port or 5432) if row.hot_store_port else 5432
+    prev_port = int(row.hot_store_port or HOT_DEFAULT_PORT)
     prev_db = (row.hot_store_database or "").strip()
     prev_user = (row.hot_store_user or "").strip()
-    endpoint_changed = (
-        prev_host != host
-        or prev_port != port_i
-        or prev_db != database
-        or prev_user != user
+    endpoint_changed = (prev_host, prev_port, prev_db, prev_user) != (
+        endpoint.host,
+        endpoint.port,
+        endpoint.database,
+        endpoint.user,
     )
 
-    row.hot_store_host = host
-    row.hot_store_port = port_i
-    row.hot_store_database = database
-    row.hot_store_user = user
-    row.hot_store_sslmode = sslmode
+    row.hot_store_host = endpoint.host
+    row.hot_store_port = endpoint.port
+    row.hot_store_database = endpoint.database
+    row.hot_store_user = endpoint.user
+    row.hot_store_sslmode = endpoint.sslmode
     if (password or "").strip():
         row.hot_store_password_encrypted = encrypt_secret(password.strip(), settings)
     _clear_test_state(row)
@@ -173,11 +132,11 @@ def save_hot_store_config(
         action="hot_store.config_saved",
         target="portal_settings",
         details={
-            "host": host,
-            "port": port_i,
-            "database": database,
-            "user": user,
-            "sslmode": sslmode,
+            "host": endpoint.host,
+            "port": endpoint.port,
+            "database": endpoint.database,
+            "user": endpoint.user,
+            "sslmode": endpoint.sslmode,
             "password_updated": bool((password or "").strip()),
             "endpoint_changed": endpoint_changed,
             "wizard_reset": endpoint_changed,
@@ -402,7 +361,7 @@ def run_hot_store_migrate(
 ) -> dict[str, int]:
     """Copy hot tables from SQLite config DB into Postgres (full replace per table)."""
     row = ensure_portal_settings(db, settings)
-    if bool(getattr(row, "hot_store_enabled", False)):
+    if row.hot_store_enabled:
         raise HotStoreError(
             "Désactivez le hot store avant de re-migrer (évite les écritures concurrentes)"
         )
@@ -446,7 +405,7 @@ def skip_hot_store_migrate(
     row = ensure_portal_settings(db, settings)
     if not row.hot_store_schema_prepared_at and not row.hot_store_last_migrate_at:
         raise HotStoreError(_MSG_PREPARE_PG_SCHEMA_FIRST)
-    if bool(getattr(row, "hot_store_enabled", False)):
+    if row.hot_store_enabled:
         raise HotStoreError("Désactivez le hot store avant de modifier cette étape")
     row.hot_store_migrate_skipped_at = utcnow()
     row.hot_store_migrate_skipped_by = actor
@@ -509,18 +468,16 @@ def set_hot_store_enabled(
             db, settings, row, actor=actor, ip_address=ip_address
         )
 
-    previous = bool(getattr(row, "hot_store_enabled", False))
+    previous = bool(row.hot_store_enabled)
     row.hot_store_enabled = new_value
     row.updated_at = utcnow()
     row.updated_by = actor
     db.commit()
     db.refresh(row)
+    invalidate_hot_enabled_cache()
     set_hot_enabled_cache(new_value)
     if new_value:
         sync_hot_engine_from_config(db, settings)
-    else:
-        invalidate_hot_enabled_cache()
-        set_hot_enabled_cache(False)
     log_action(
         db,
         actor=actor,
