@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from httpx import Response
 from jwt.algorithms import RSAAlgorithm
 
-from app.oidc_bff_client import (
+from app.auth.oidc_bff_client import (
     InvalidCredentialsError,
     OidcBffConfigError,
     _absolute_action_url,
@@ -126,7 +126,7 @@ def _totp_setup_html() -> str:
 
 
 def test_extract_totp_setup_parses_secret_and_qr():
-    from app.oidc_bff_client import _extract_totp_setup
+    from app.auth.oidc_bff_client import _extract_totp_setup
 
     parsed = _extract_totp_setup(_totp_setup_html())
     assert parsed is not None
@@ -143,7 +143,7 @@ def test_extract_totp_setup_parses_secret_and_qr():
 async def test_interpret_follows_configure_totp_required_action():
     import httpx
 
-    from app.oidc_bff_client import _interpret_post_password_response
+    from app.auth.oidc_bff_client import _interpret_post_password_response
 
     setup_url = (
         f"{KC}/realms/{REALM}/login-actions/required-action"
@@ -363,7 +363,7 @@ async def test_headless_login_mfa_via_redirect_location(db_session):
 
 
 def test_extract_groups_from_oidc_claims_paths_and_csv():
-    from app.oidc_bff_client import extract_groups_from_oidc_claims
+    from app.auth.oidc_bff_client import extract_groups_from_oidc_claims
 
     assert extract_groups_from_oidc_claims(
         {"groups": ["/Example-Users", "/portal-admins"]}

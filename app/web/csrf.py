@@ -71,6 +71,79 @@ def verify_csrf_token(request: Request, secret: str, csrf_token: str = "") -> bo
     return any(c and hmac.compare_digest(c, expected) for c in candidates)
 
 
+_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+_TRUSTED_FETCH_SITES = frozenset({"same-origin", "none"})
+# nginx-internal subrequests (auth_request, unknown-host catch-all) are never browser-initiated.
+_EXEMPT_PREFIXES = ("/internal/",)
+
+
+def _header(scope: Scope, name: bytes) -> str:
+    for key, value in scope.get("headers") or ():
+        if key == name:
+            return value.decode("latin-1").strip()
+    return ""
+
+
+def _host_of(origin: str) -> str:
+    _, _, rest = origin.partition("://")
+    return rest.split("/", 1)[0].lower()
+
+
+def is_cross_origin_browser_write(scope: Scope) -> bool:
+    """True for a cookie-carrying unsafe request a browser flagged as not same-origin.
+
+    Sibling subdomains are *same-site*, so ``SameSite=Lax`` cookies reach the portal
+    from them; Fetch Metadata (or ``Origin`` on older browsers) tells them apart.
+    Non-browser clients send neither header and are left to their own auth.
+    """
+    if scope.get("method", "GET").upper() not in _UNSAFE_METHODS:
+        return False
+    if scope.get("path", "").startswith(_EXEMPT_PREFIXES):
+        return False
+    if not _header(scope, b"cookie") or _header(scope, b"authorization"):
+        return False
+    site = _header(scope, b"sec-fetch-site").lower()
+    if site:
+        return site not in _TRUSTED_FETCH_SITES
+    origin = _header(scope, b"origin")
+    if not origin:
+        return False
+    hosts = {
+        h.strip().lower()
+        for h in (_header(scope, b"host"), *_header(scope, b"x-forwarded-host").split(","))
+        if h.strip()
+    }
+    return origin == "null" or _host_of(origin) not in hosts
+
+
+class CrossOriginWriteMiddleware:
+    """Reject cross-origin browser writes before any route runs (CSRF baseline).
+
+    Complements per-form ``csrf_token`` checks: it covers every admin / API route,
+    including the many forms and ``fetch`` calls that carry no token.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and is_cross_origin_browser_write(scope):
+            body = b'{"detail":"Cross-origin request blocked"}'
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 403,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(body)).encode("ascii")),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": body})
+            return
+        await self.app(scope, receive, send)
+
+
 class CsrfCookieMiddleware:
     """Issue the ``bastion_csrf`` nonce on the first HTTP response that lacks it."""
 

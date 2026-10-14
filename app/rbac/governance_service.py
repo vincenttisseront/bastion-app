@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -13,7 +14,9 @@ from app.models import (
     RolePermission,
     utcnow,
 )
-from app.rbac.permission_seed import SECURITY_ADMIN_ROLE_NAME
+from app.rbac.group_lookup import resolve_rbac_groups
+
+PERMISSION_FIELDS = ("can_read", "can_write", "can_delete", "can_execute")
 
 
 def list_modules(db: Session) -> list[PermissionModule]:
@@ -75,7 +78,10 @@ def serialize_permission(perm: RolePermission, module: PermissionModule | None =
 
 
 def permissions_matrix_for_role(db: Session, role_id: int) -> list[dict[str, Any]]:
-    """Return one row per module (create missing RolePermission as all-false)."""
+    """Return one row per module; a missing RolePermission reads as all-false.
+
+    Read-only: missing cells are created by ``apply_permission_diff`` on write.
+    """
     role = get_role(db, role_id)
     if role is None:
         return []
@@ -86,20 +92,15 @@ def permissions_matrix_for_role(db: Session, role_id: int) -> list[dict[str, Any
     }
     rows: list[dict[str, Any]] = []
     for module in modules:
-        perm = existing.get(module.id)
-        if perm is None:
-            perm = RolePermission(
-                role_id=role_id,
-                module_id=module.id,
-                can_read=False,
-                can_write=False,
-                can_delete=False,
-                can_execute=False,
-                locked=(module.key == "dashboard"),
-            )
-            db.add(perm)
-            db.flush()
-            existing[module.id] = perm
+        perm = existing.get(module.id) or RolePermission(
+            role_id=role_id,
+            module_id=module.id,
+            can_read=False,
+            can_write=False,
+            can_delete=False,
+            can_execute=False,
+            locked=(module.key == "dashboard"),
+        )
         rows.append(
             {
                 "module": serialize_module(module),
@@ -132,7 +133,7 @@ def apply_permission_diff(
         module_key = change.get("module_key")
         field = change.get("field")
         value = bool(change.get("value"))
-        if field not in ("can_read", "can_write", "can_delete", "can_execute"):
+        if field not in PERMISSION_FIELDS:
             raise ValueError(f"Champ de permission invalide: {field}")
 
         module: PermissionModule | None = None
@@ -237,42 +238,39 @@ def effective_flags_for_user(
     *,
     keycloak_user_id: str | None,
     group_names: list[str] | None = None,
+    realm_slug: str | None = None,
     module_key: str,
 ) -> dict[str, bool]:
     """
     Union of RolePermission flags from AccessGrant resource_type=rbac_role
-    assigned to the user (direct or via group name).
+    assigned to the user (direct or via group name), parent roles included.
     """
-    flags = {
-        "can_read": False,
-        "can_write": False,
-        "can_delete": False,
-        "can_execute": False,
-    }
+    flags = dict.fromkeys(PERMISSION_FIELDS, False)
     module = db.query(PermissionModule).filter_by(key=module_key).first()
     if module is None:
         return flags
 
     role_ids = _role_ids_for_user(
-        db, keycloak_user_id=keycloak_user_id, group_names=group_names
+        db,
+        keycloak_user_id=keycloak_user_id,
+        group_names=group_names,
+        realm_slug=realm_slug,
     )
     if not role_ids:
         # Bootstrap: portal_admin system_role still implies full internal admin
         # until roles are assigned — callers may also check is_portal_admin.
         return flags
 
-    for rid in role_ids:
-        perm = (
-            db.query(RolePermission)
-            .filter_by(role_id=rid, module_id=module.id)
-            .first()
+    perms = (
+        db.query(RolePermission)
+        .filter(
+            RolePermission.role_id.in_(role_ids),
+            RolePermission.module_id == module.id,
         )
-        if not perm:
-            continue
-        flags["can_read"] = flags["can_read"] or bool(perm.can_read)
-        flags["can_write"] = flags["can_write"] or bool(perm.can_write)
-        flags["can_delete"] = flags["can_delete"] or bool(perm.can_delete)
-        flags["can_execute"] = flags["can_execute"] or bool(perm.can_execute)
+        .all()
+    )
+    for field in PERMISSION_FIELDS:
+        flags[field] = any(bool(getattr(p, field)) for p in perms)
     return flags
 
 
@@ -281,41 +279,40 @@ def _role_ids_for_user(
     *,
     keycloak_user_id: str | None,
     group_names: list[str] | None,
+    realm_slug: str | None,
 ) -> set[int]:
-    from app.models import RBACGroup
-
-    role_ids: set[int] = set()
+    """Roles granted directly or via a realm group, plus their parent role."""
+    clauses = []
     if keycloak_user_id:
-        for grant in (
-            db.query(AccessGrant)
-            .filter_by(
-                subject_type="user",
-                keycloak_user_id=keycloak_user_id,
-                resource_type="rbac_role",
+        clauses.append(
+            and_(
+                AccessGrant.subject_type == "user",
+                AccessGrant.keycloak_user_id == keycloak_user_id,
             )
-            .all()
-        ):
-            if grant.rbac_role_id:
-                role_ids.add(grant.rbac_role_id)
-
-    names = [n for n in (group_names or []) if n]
-    if not names:
-        return role_ids
-    groups = db.query(RBACGroup).filter(RBACGroup.name.in_(names)).all()
-    gids = [g.id for g in groups]
-    if not gids:
-        return role_ids
-    for grant in (
-        db.query(AccessGrant)
-        .filter(
-            AccessGrant.subject_type == "group",
-            AccessGrant.rbac_group_id.in_(gids),
-            AccessGrant.resource_type == "rbac_role",
         )
-        .all()
-    ):
-        if grant.rbac_role_id:
-            role_ids.add(grant.rbac_role_id)
+    groups = resolve_rbac_groups(db, realm_slug=realm_slug, group_names=group_names)
+    if groups:
+        clauses.append(
+            and_(
+                AccessGrant.subject_type == "group",
+                AccessGrant.rbac_group_id.in_([g.id for g in groups]),
+            )
+        )
+    if not clauses:
+        return set()
+    role_ids = {
+        rid
+        for (rid,) in db.query(AccessGrant.rbac_role_id).filter(
+            or_(*clauses),
+            AccessGrant.resource_type == "rbac_role",
+            AccessGrant.rbac_role_id.is_not(None),
+        )
+    }
+    if role_ids:
+        parents = db.query(RbacRole.inherits_from_id).filter(
+            RbacRole.id.in_(role_ids), RbacRole.inherits_from_id.is_not(None)
+        )
+        role_ids |= {pid for (pid,) in parents}
     return role_ids
 
 
@@ -327,6 +324,7 @@ def user_can_module_action(
     module_key: str,
     action: str,
     is_portal_admin: bool = False,
+    realm_slug: str | None = None,
 ) -> bool:
     """
     Enforce a governance action. Portal admins (legacy system_role / groups) keep
@@ -334,18 +332,16 @@ def user_can_module_action(
     """
     if is_portal_admin:
         return True
-    if action not in ("can_read", "can_write", "can_delete", "can_execute"):
+    if action not in PERMISSION_FIELDS:
         return False
     flags = effective_flags_for_user(
         db,
         keycloak_user_id=keycloak_user_id,
         group_names=group_names,
+        realm_slug=realm_slug,
         module_key=module_key,
     )
     return bool(flags.get(action))
-
-
-DEFAULT_ROLE_NAME = SECURITY_ADMIN_ROLE_NAME
 
 
 def role_distribution_summary(db: Session) -> dict[str, Any]:

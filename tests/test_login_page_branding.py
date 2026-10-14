@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.branding import update_branding_settings
-from app.breakglass_store import set_breakglass_password
+from app.auth.breakglass_store import set_breakglass_password
 from app.models import RealmConfig
 from app.secret_crypto import encrypt_secret
 from app.sso_settings import Settings

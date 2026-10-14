@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from urllib.parse import quote
 
 import httpx
@@ -30,6 +31,10 @@ _MSG_QUERY_GROUPS = (
     "Le compte de service n'a pas le rôle realm-management:query-groups. "
     "Vérifiez la configuration côté Keycloak."
 )
+
+# Service-account tokens: (token endpoint, client_id, encrypted secret) -> (token, expiry).
+_TOKEN_CACHE: dict[tuple[str, str, str], tuple[str, float]] = {}
+_TOKEN_EXPIRY_MARGIN_SECONDS = 30.0
 
 
 def _issuer_parts(issuer_url: str) -> tuple[str, str]:
@@ -354,12 +359,7 @@ async def search_keycloak_users(
     return data if isinstance(data, list) else []
 
 
-from app.search_fuzzy import fold_text, score_query_against_fields
-
-
-def _fold_text(value: str) -> str:
-    """Backward-compatible alias — prefer app.search_fuzzy.fold_text."""
-    return fold_text(value)
+from app.search_fuzzy import score_query_against_fields
 
 
 def _user_search_fields(user: dict) -> list[str]:
@@ -945,6 +945,10 @@ async def _client_credentials_token(
     Never duplicated per account.
     """
     token_endpoint = f"{issuer_url.rstrip('/')}/protocol/openid-connect/token"
+    cache_key = (token_endpoint, client_id, client_secret_encrypted)
+    cached = _TOKEN_CACHE.get(cache_key)
+    if cached is not None and cached[1] > time.monotonic():
+        return cached[0]
     client_secret = decrypt_secret(client_secret_encrypted, settings)
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.post(
@@ -964,7 +968,18 @@ async def _client_credentials_token(
     token = body.get("access_token")
     if not token:
         raise ValueError("Réponse token admin invalide (access_token manquant)")
+    try:
+        lifetime = float(body.get("expires_in") or 0) - _TOKEN_EXPIRY_MARGIN_SECONDS
+    except (TypeError, ValueError):
+        lifetime = 0.0
+    if lifetime > 0:
+        _TOKEN_CACHE[cache_key] = (token, time.monotonic() + lifetime)
     return token
+
+
+def clear_admin_token_cache() -> None:
+    """Forget cached service-account tokens (tests, secret rotation)."""
+    _TOKEN_CACHE.clear()
 
 
 async def get_admin_token(realm: RealmConfig, settings: Settings) -> str:

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 from app.bastion.ip_geolocation import _unique_public_ips
 from app.bastion.modsec_audit_aggregator import _accumulate_hourly_bucket
 from app.db.hot_store import _wizard_step_status, build_hot_store_wizard_steps
-from app.oidc_bff import _oidc_claims_from_payload, _parse_oidc_groups
+from app.auth.oidc_bff import _oidc_claims_from_payload, _parse_oidc_groups
 from app.admin.rbac_access import _redirect_url_after_grant_delete
 
 

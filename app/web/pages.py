@@ -27,7 +27,7 @@ from app.web.openapi_responses import (
 from app.admin.export import export_app_catalogue_files
 from app.admin.infra_host_apply import request_host_apply
 from app.audit import list_audit_entries, log_action
-from app.auth_flow import get_default_idp_realm, oauth2_start_url, resolve_rd, setup_url
+from app.auth.flow import get_default_idp_realm, oauth2_start_url, resolve_rd, setup_url
 from app.bastion.bastion_fields import (
     PROVISIONING_DRIVER_LABELS,
     normalize_auth_mode,
@@ -54,7 +54,7 @@ from app.bastion.pending_host_service import (
     sort_pending_hosts,
     suggest_slug,
 )
-from app.breakglass import (
+from app.auth.breakglass import (
     COOKIE_NAME,
     clear_breakglass_cookie,
     issue_breakglass_token,
@@ -64,7 +64,7 @@ from app.breakglass import (
     revoke_breakglass_session_from_request,
     set_breakglass_cookie,
 )
-from app.breakglass_store import (
+from app.auth.breakglass_store import (
     create_initial_breakglass_account,
     has_active_breakglass_account,
     verify_breakglass_password,
@@ -72,7 +72,7 @@ from app.breakglass_store import (
 from app.database import get_db
 from app.db.hot_store import hot_read
 from app.health_probe import compute_health_score, compute_status_counts, probe_row_from_app
-from app.jwt_audience import resolve_breakglass_jwt_audience
+from app.auth.jwt_audience import resolve_breakglass_jwt_audience
 from app.models import AccessGrant, App, PendingHost, PendingUser, RBACGroup, RealmConfig
 from app.pathutil import sanitize_log_value
 from app.request_client_ip import client_ip_from_request
@@ -111,11 +111,7 @@ from app.web.constants import APP_VERSION
 from app.web.csrf import csrf_secret, verify_csrf_token
 from app.web.flash import base_template_context, flash_i18n, flash_redirect
 from app.web.metrics_service import get_dashboard_metrics
-from app.web.sessions_service import (
-    build_session_groups,
-    get_active_sessions,
-    touch_portal_session,
-)
+from app.web.sessions_service import sessions_view, touch_portal_session
 from app.web.templates import render
 from app.web.user_context import (
     elevate_portal_admin,
@@ -574,7 +570,7 @@ def _login_surface_flags(
     preferred_realm: str | None = None,
 ) -> dict:
     """Shared flags for auth/login.html (native SSO vs oauth2-proxy vs break-glass)."""
-    from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+    from app.auth.oidc_native_session import is_oidc_native_session_enabled_for_realm
     from app.rbac.access_request_service import realms_advertising_access_requests
 
     default = get_default_idp_realm(db)
@@ -668,21 +664,11 @@ def sessions_page(
     locale = get_request_locale(request)
 
     def read_sessions() -> dict[str, Any]:
-        sessions = get_active_sessions(
-            db, viewer=user, kind=filter_kind, locale=locale
-        )
+        view = sessions_view(db, viewer=user, kind=filter_kind, locale=locale)
         return {
-            "sessions": sessions,
-            "session_groups": build_session_groups(db, sessions),
-            "session_counts": {
-                "all": len(get_active_sessions(db, viewer=user, locale=locale)),
-                "user": len(
-                    get_active_sessions(db, viewer=user, kind="user", locale=locale)
-                ),
-                "app": len(
-                    get_active_sessions(db, viewer=user, kind="app", locale=locale)
-                ),
-            },
+            "sessions": view["sessions"],
+            "session_groups": view["groups"],
+            "session_counts": view["counts"],
         }
 
     # active_sessions is a hot table, and this page is reachable by any user.
@@ -902,12 +888,12 @@ def login_page(
     # Avoid transfer↔login redirect loop.
     from urllib.parse import urlparse
 
-    from app.auth import (
+    from app.auth.auth_request import (
         extract_oidc_session_cookie_raw,
         iter_oidc_session_cookie_candidates,
     )
-    from app.oidc_bff import set_oidc_session_cookie, validate_oidc_session_cookie
-    from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+    from app.auth.oidc_bff import set_oidc_session_cookie, validate_oidc_session_cookie
+    from app.auth.oidc_native_session import is_oidc_native_session_enabled_for_realm
     from app.subdomain.subdomain_auth import native_subdomain_auth_would_allow
 
     raw_session = None
@@ -1102,7 +1088,7 @@ async def breakglass_login_post(
         evaluate_login_attempt(
             db, ip=client_ip, username=username, success=False
         )
-        from app.breakglass_store import breakglass_account_exists
+        from app.auth.breakglass_store import breakglass_account_exists
 
         # Empty details {} made these rows unreadable in Admin → Logs —
         # unknown_username + a python-httpx UA is a scan/probe, bad_password
@@ -1303,7 +1289,7 @@ def logout(
     ``bg_session`` with the same Secure/HttpOnly flags used at set time, otherwise
     the browser keeps the cookie and ``/auth/login`` redirects back to ``/apps``.
     """
-    from app.oidc_bff import (
+    from app.auth.oidc_bff import (
         clear_oidc_session_cookie,
         revoke_oidc_session_from_request,
     )
@@ -3300,6 +3286,7 @@ def admin_user_app_credential_delete(
         db,
         keycloak_user_id=user.keycloak_user_id,
         group_names=user.groups,
+        realm_slug=user.realm_slug,
         module_key="secret_vault",
         action="can_delete",
         is_portal_admin=is_portal_admin(user, db, settings),
@@ -3634,8 +3621,8 @@ def admin_security(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    from app.breakglass import resolve_breakglass_signing_secret_with_source
-    from app.breakglass_secret_service import build_breakglass_secret_status
+    from app.auth.breakglass import resolve_breakglass_signing_secret_with_source
+    from app.auth.breakglass_secret_service import build_breakglass_secret_status
     from app.db_cipher import get_db_encryption_status
     from app.portal_settings_service import get_subdomain_sso_enabled
     from app.security.banning.service import (
@@ -4444,7 +4431,7 @@ def admin_security_breakglass_jwt_secret_generate(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    from app.breakglass_secret_service import (
+    from app.auth.breakglass_secret_service import (
         env_breakglass_secret_defined,
         generate_or_rotate_ui_breakglass_secret,
     )
@@ -4482,7 +4469,7 @@ def admin_security_breakglass_jwt_secret_generate(
         flash_redirect(response, str(exc), "error", token)
         return response
 
-    from app.breakglass_secret_service import get_ui_breakglass_previous_secret
+    from app.auth.breakglass_secret_service import get_ui_breakglass_previous_secret
 
     if get_ui_breakglass_previous_secret(db, settings):
         msg = (

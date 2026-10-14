@@ -17,9 +17,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
-from app.breakglass_store import breakglass_account_exists, verify_breakglass_password
+from app.auth.breakglass_store import breakglass_account_exists, verify_breakglass_password
 from app.database import get_db
-from app.jwt_audience import (
+from app.auth.jwt_audience import (
     DEFAULT_BREAKGLASS_JWT_AUDIENCE,
     jwt_audience_matches,
     resolve_breakglass_jwt_audience,
@@ -31,7 +31,7 @@ from app.sso_settings import Settings, get_settings
 from app.web.openapi_responses import RESP_401, RESP_403, RESP_404
 
 if TYPE_CHECKING:
-    from app.breakglass_secret_service import SigningSource
+    from app.auth.breakglass_secret_service import SigningSource
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ def resolve_breakglass_signing_secret_with_source(
 
     Returns ``(secret, source)`` where source is env|ui|legacy|ephemeral.
     """
-    from app.breakglass_secret_service import get_ui_breakglass_secret
+    from app.auth.breakglass_secret_service import get_ui_breakglass_secret
 
     def _from_ui_or_cache() -> tuple[str, SigningSource] | None:
         ui = get_ui_breakglass_secret(db, settings)
@@ -187,7 +187,7 @@ def _validation_secrets(
     Signing uses a single source; validation may accept env, UI current/previous,
     and legacy vault token when fallback is enabled.
     """
-    from app.breakglass_secret_service import (
+    from app.auth.breakglass_secret_service import (
         get_ui_breakglass_previous_secret,
         get_ui_breakglass_secret,
         secrets_equal,

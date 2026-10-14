@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import respx
 
-from app.breakglass_store import set_breakglass_password
+from app.auth.breakglass_store import set_breakglass_password
 from app.models import AccessRequest, BastionAccount, RBACGroup, RealmConfig
 from app.secret_crypto import encrypt_secret
 from app.sso_settings import Settings

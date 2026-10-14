@@ -17,13 +17,13 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.database import get_db
-from app.jwt_audience import (
+from app.auth.jwt_audience import (
     DEFAULT_OIDC_SESSION_JWT_AUDIENCE,
     jwt_audience_matches,
     resolve_oidc_session_jwt_audience,
 )
 from app.models import OidcLoginAttempt, OidcSession, RealmConfig, utcnow
-from app.oidc_bff_client import (
+from app.auth.oidc_bff_client import (
     InvalidCredentialsError,
     InvalidOtpError,
     LoginStepResult,
@@ -34,8 +34,8 @@ from app.oidc_bff_client import (
     start_headless_login,
     submit_headless_otp,
 )
-from app.oidc_bff_config_service import resolve_oidc_session_jwt_secret
-from app.oidc_native_session import (
+from app.auth.oidc_bff_config_service import resolve_oidc_session_jwt_secret
+from app.auth.oidc_native_session import (
     is_oidc_mfa_enabled_for_realm,
     is_oidc_native_session_enabled_for_realm,
 )
@@ -477,7 +477,7 @@ def validate_oidc_session_cookie(
 
 
 def _safe_login_rd(rd: str | None, *, portal_domain: str = "") -> str:
-    from app.auth_flow import safe_post_login_rd
+    from app.auth.flow import safe_post_login_rd
 
     return safe_post_login_rd(rd, portal_domain=portal_domain, default="/apps")
 

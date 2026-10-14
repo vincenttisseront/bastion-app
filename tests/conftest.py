@@ -13,7 +13,7 @@ from app.main import app
 from app.models import Base
 from app.sso_settings import Settings, get_settings
 from app.vault.encryption_key_store import reset_active_cache_for_tests
-from app.breakglass import reset_breakglass_ephemeral_secret_for_tests
+from app.auth.breakglass import reset_breakglass_ephemeral_secret_for_tests
 
 # Injected by TrustedHeadersTestClient so forged X-Email/X-Groups in tests still
 # satisfy SDD-001 (identity headers require X-Portal-Internal-Token).
@@ -84,6 +84,11 @@ def _isolate_fernet_key_store(tmp_path, monkeypatch):
 
     reset_active_cache_for_tests()
     reset_breakglass_ephemeral_secret_for_tests()
+    from app.rbac.keycloak_admin import clear_admin_token_cache
+    from app.web import sessions_service
+
+    clear_admin_token_cache()
+    monkeypatch.setattr(sessions_service, "_last_satellite_purge", None)
     keys = tmp_path / "vault-keys"
     keys.mkdir()
     monkeypatch.setenv("VAULT_KEYS_DIR", str(keys))
@@ -146,7 +151,7 @@ def client(db_engine, monkeypatch):
     monkeypatch.setattr(main_mod, "engine", db_engine)
     # Middleware opened its own session (request.state.db is already closed).
     monkeypatch.setattr(
-        "app.breakglass_cookie_middleware.SessionLocal",
+        "app.auth.breakglass_cookie_middleware.SessionLocal",
         session_factory,
     )
     monkeypatch.setattr(
@@ -175,7 +180,7 @@ def client(db_engine, monkeypatch):
 
     # Middleware calls get_settings() directly (not Depends).
     monkeypatch.setattr(
-        "app.breakglass_cookie_middleware.get_settings",
+        "app.auth.breakglass_cookie_middleware.get_settings",
         override_get_settings,
     )
 

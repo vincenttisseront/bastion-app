@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 
 from sqlalchemy.orm import Session
 
@@ -16,7 +15,6 @@ from app.secret_crypto import (
 )
 from app.sso_settings import Settings
 
-logger = logging.getLogger(__name__)
 
 
 class VaultError(Exception):

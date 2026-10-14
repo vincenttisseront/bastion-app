@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 from sqlalchemy.orm import Session
 
-from app.breakglass import COOKIE_NAME, issue_breakglass_token
+from app.auth.breakglass import COOKIE_NAME, issue_breakglass_token
 from app.models import ActiveSession, PendingUser
 from app.sso_settings import Settings
 from app.web.sessions_service import touch_portal_session

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.oidc_bff_client import _keycloak_error_title_hint, _keycloak_http_error_hint
+from app.auth.oidc_bff_client import _keycloak_error_title_hint, _keycloak_http_error_hint
 
 
 def test_keycloak_http_error_hint_cookie_and_expired():
@@ -21,7 +21,7 @@ def test_keycloak_error_title_skips_login_and_reports_errors():
 
 
 def test_require_headless_login_inputs():
-    from app.oidc_bff_client import (
+    from app.auth.oidc_bff_client import (
         InvalidCredentialsError,
         OidcBffConfigError,
         _require_headless_login_inputs,

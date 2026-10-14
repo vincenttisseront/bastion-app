@@ -16,7 +16,7 @@ from app.bastion.nginx_waf_export import (
 )
 from app.db.hot_store import HotStoreEndpoint, HotStoreError
 from app.models import OidcSession
-from app.oidc_bff import register_oidc_session, revoke_oidc_sessions_for_identity
+from app.auth.oidc_bff import register_oidc_session, revoke_oidc_sessions_for_identity
 from app.portal_settings_service import _normalize_smtp_fields
 
 

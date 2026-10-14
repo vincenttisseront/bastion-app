@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
 from fastapi import Request
 
-from app.breakglass import (
+from app.auth.breakglass import (
     COOKIE_NAME,
     GRACE_WINDOW_SECONDS,
     issue_breakglass_token,
@@ -253,7 +253,7 @@ def test_purge_removes_whole_chain_together(db_session):
     A superseded member past the cutoff must NOT be deleted alone while the tip
     is still within retention — and when the tip is past cutoff, every member goes.
     """
-    from app.breakglass import purge_expired_breakglass_sessions
+    from app.auth.breakglass import purge_expired_breakglass_sessions
     from app.models import utcnow
 
     now = utcnow()
@@ -400,7 +400,7 @@ def test_portal_page_rotates_breakglass_cookie(
     client: TestClient, db_session, monkeypatch
 ):
     monkeypatch.setattr(
-        "app.breakglass_cookie_middleware.ROTATION_MIN_INTERVAL_SECONDS", 0
+        "app.auth.breakglass_cookie_middleware.ROTATION_MIN_INTERVAL_SECONDS", 0
     )
     token, jti = issue_breakglass_token(
         db_session, "admin", "test-bg-jwt-secret", request=_request()

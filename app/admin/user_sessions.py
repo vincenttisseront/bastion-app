@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.audit import log_action
 from app.database import get_db
 from app.models import BastionAccount, RealmConfig
-from app.oidc_bff import revoke_oidc_sessions_for_identity
+from app.auth.oidc_bff import revoke_oidc_sessions_for_identity
 from app.rbac.keycloak_admin import (
     SSO_LOGOUT_RESIDUAL_NOTE,
     _admin_get,

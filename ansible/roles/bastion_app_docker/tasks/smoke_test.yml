@@ -424,7 +424,7 @@
     docker compose exec -T bastion-app python -c \
       "import app.admin.infrastructure as i; assert hasattr(i,'get_core_realm_for_oauth2_export')"
     docker compose exec -T bastion-app python -c \
-      "import pathlib, app.auth as a; t=pathlib.Path(a.__file__).read_text(); assert ('Do NOT apply RFC1918 bypass' in t) or ('Prefer SSO session' in t)"
+      "import pathlib, app.auth.auth_request as a; t=pathlib.Path(a.__file__).read_text(); assert ('Do NOT apply RFC1918 bypass' in t) or ('Prefer SSO session' in t)"
   args:
     executable: /bin/bash
   register: _auth_image_smoke

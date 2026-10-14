@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models import App, RealmConfig
-from app.oidc_bff import issue_oidc_session
+from app.auth.oidc_bff import issue_oidc_session
 from app.rbac.grants_service import AccessGrantCreate, create_grant
 from app.sso_settings import Settings, get_settings
 from app.web.user_context import UserContext
@@ -297,7 +297,7 @@ def test_auth_login_options_rejects_foreign_origin(client: TestClient):
 def test_sso_session_mirror_sets_host_only_bastion_session(
     client: TestClient, db_session: Session
 ):
-    from app.oidc_bff import issue_oidc_session
+    from app.auth.oidc_bff import issue_oidc_session
     from app.sso_settings import get_settings
 
     settings = _native_settings()

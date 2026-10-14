@@ -12,12 +12,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models import AuditLog, OidcSession
-from app.oidc_bff import (
+from app.auth.oidc_bff import (
     OIDC_LOGIN_MAX_FAILURES,
     issue_oidc_session,
     validate_oidc_session_cookie,
 )
-from app.oidc_bff_client import (
+from app.auth.oidc_bff_client import (
     InvalidCredentialsError,
     LoginStepResult,
     OidcTokenResult,
@@ -55,7 +55,7 @@ def oidc_settings(monkeypatch):
         oidc_native_session_enabled_realms="default",
     )
     get_settings.cache_clear()
-    monkeypatch.setattr("app.oidc_bff.get_settings", lambda: settings)
+    monkeypatch.setattr("app.auth.oidc_bff.get_settings", lambda: settings)
     from app.main import app
 
     app.dependency_overrides[get_settings] = lambda: settings
@@ -84,7 +84,7 @@ def test_oidc_login_success_sets_cookie_and_session(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
     with patch(
-        "app.oidc_bff.start_headless_login",
+        "app.auth.oidc_bff.start_headless_login",
         new=AsyncMock(return_value=_ok_step()),
     ):
         response = client.post(
@@ -125,7 +125,7 @@ def test_oidc_login_invalid_credentials_generic_401(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
     with patch(
-        "app.oidc_bff.start_headless_login",
+        "app.auth.oidc_bff.start_headless_login",
         new=AsyncMock(side_effect=InvalidCredentialsError("bad")),
     ):
         response = client.post(
@@ -144,7 +144,7 @@ def test_oidc_login_mfa_also_generic_401(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
     with patch(
-        "app.oidc_bff.start_headless_login",
+        "app.auth.oidc_bff.start_headless_login",
         new=AsyncMock(side_effect=UnsupportedAuthFlowError("MFA required")),
     ):
         response = client.post(
@@ -171,7 +171,7 @@ def test_html_unsupported_flow_shows_action_message(
 ):
     """HTML login must not masquerade required-action as invalid credentials."""
     with patch(
-        "app.oidc_bff.start_headless_login",
+        "app.auth.oidc_bff.start_headless_login",
         new=AsyncMock(
             side_effect=UnsupportedAuthFlowError(
                 "Flux Keycloak non supporté en headless: required action après login"
@@ -193,10 +193,10 @@ def test_html_unsupported_flow_shows_action_message(
 def test_html_bff_error_shows_oidc_message_and_audit_detail(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
-    from app.oidc_bff_client import OidcBffError
+    from app.auth.oidc_bff_client import OidcBffError
 
     with patch(
-        "app.oidc_bff.start_headless_login",
+        "app.auth.oidc_bff.start_headless_login",
         new=AsyncMock(
             side_effect=OidcBffError("JWT Keycloak invalide (signature/claims)")
         ),
@@ -232,7 +232,7 @@ def test_oidc_login_otp_required_json(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
     with patch(
-        "app.oidc_bff.start_headless_login",
+        "app.auth.oidc_bff.start_headless_login",
         new=AsyncMock(
             return_value=LoginStepResult(status="otp_required", attempt_id="att-1")
         ),
@@ -272,7 +272,7 @@ def test_oidc_login_rate_limit_429(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
     with patch(
-        "app.oidc_bff.start_headless_login",
+        "app.auth.oidc_bff.start_headless_login",
         new=AsyncMock(side_effect=InvalidCredentialsError("bad")),
     ):
         for _ in range(OIDC_LOGIN_MAX_FAILURES):
@@ -358,7 +358,7 @@ def test_oidc_logout_revokes_and_clears_cookie(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
     with patch(
-        "app.oidc_bff.start_headless_login",
+        "app.auth.oidc_bff.start_headless_login",
         new=AsyncMock(return_value=_ok_step()),
     ):
         login = client.post(
@@ -388,7 +388,7 @@ def test_portal_get_logout_clears_bastion_session(
 ):
     """User-menu link is GET /logout — must clear bastion_session (not only bg_session)."""
     with patch(
-        "app.oidc_bff.start_headless_login",
+        "app.auth.oidc_bff.start_headless_login",
         new=AsyncMock(return_value=_ok_step()),
     ):
         login = client.post(

@@ -8,9 +8,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.breakglass_store import set_breakglass_password
+from app.auth.breakglass_store import set_breakglass_password
 from app.models import RealmConfig
-from app.oidc_bff_client import InvalidCredentialsError, LoginStepResult, OidcTokenResult
+from app.auth.oidc_bff_client import InvalidCredentialsError, LoginStepResult, OidcTokenResult
 from app.secret_crypto import encrypt_secret
 from app.sso_settings import Settings, get_settings
 from app.testing_framework.throttle import reset_throttles
@@ -67,7 +67,7 @@ def native_settings(monkeypatch):
         sso_portal_default_realm_slug="default",
     )
     get_settings.cache_clear()
-    monkeypatch.setattr("app.oidc_bff.get_settings", lambda: settings)
+    monkeypatch.setattr("app.auth.oidc_bff.get_settings", lambda: settings)
     from app.main import app
 
     app.dependency_overrides[get_settings] = lambda: settings
@@ -121,7 +121,7 @@ def test_html_post_login_success_redirects(
         claims={"sub": "kc-sub-1"},
     )
     with patch(
-        "app.oidc_bff.start_headless_login",
+        "app.auth.oidc_bff.start_headless_login",
         new=AsyncMock(return_value=LoginStepResult(status="success", tokens=tokens)),
     ):
         response = client.post(
@@ -145,7 +145,7 @@ def test_html_post_login_invalid_shows_generic_error(
 ):
     _add_realm(db_session)
     with patch(
-        "app.oidc_bff.start_headless_login",
+        "app.auth.oidc_bff.start_headless_login",
         new=AsyncMock(side_effect=InvalidCredentialsError("bad")),
     ):
         response = client.post(
@@ -205,7 +205,7 @@ def multi_native_settings(monkeypatch):
         sso_portal_default_realm_slug="default",
     )
     get_settings.cache_clear()
-    monkeypatch.setattr("app.oidc_bff.get_settings", lambda: settings)
+    monkeypatch.setattr("app.auth.oidc_bff.get_settings", lambda: settings)
     from app.main import app
 
     app.dependency_overrides[get_settings] = lambda: settings
@@ -299,7 +299,7 @@ def test_html_post_keeps_selected_realm_on_error(
     _add_realm(db_session)
     _add_client_realm(db_session)
     with patch(
-        "app.oidc_bff.start_headless_login",
+        "app.auth.oidc_bff.start_headless_login",
         new=AsyncMock(side_effect=InvalidCredentialsError("bad")),
     ):
         response = client.post(

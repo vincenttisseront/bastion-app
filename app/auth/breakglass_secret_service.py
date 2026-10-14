@@ -161,7 +161,7 @@ def generate_or_rotate_ui_breakglass_secret(
         ip_address=ip_address,
     )
 
-    from app.breakglass import resolve_breakglass_signing_secret_with_source
+    from app.auth.breakglass import resolve_breakglass_signing_secret_with_source
 
     secret, source = resolve_breakglass_signing_secret_with_source(settings, db=db)
     return build_breakglass_secret_status(

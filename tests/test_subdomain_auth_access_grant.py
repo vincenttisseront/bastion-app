@@ -6,7 +6,7 @@ import respx
 from httpx import Response
 from sqlalchemy.orm import Session
 
-from app.breakglass import COOKIE_NAME, create_breakglass_token
+from app.auth.breakglass import COOKIE_NAME, create_breakglass_token
 from app.models import AccessGrant, App, AuditLog, RealmConfig
 from app.rbac.grants_service import AccessGrantCreate, create_grant, delete_grant
 from app.secret_crypto import encrypt_secret
@@ -419,7 +419,7 @@ def _native_settings() -> Settings:
 @respx.mock
 def test_subdomain_auth_accepts_native_bastion_session(client, db_session):
     """Native SSO: bastion_session must authorize subdomain apps (not Keycloak)."""
-    from app.oidc_bff import issue_oidc_session
+    from app.auth.oidc_bff import issue_oidc_session
 
     settings = _native_settings()
     _override_settings(client, settings)
@@ -468,7 +468,7 @@ def test_subdomain_auth_accepts_native_bastion_session(client, db_session):
 
 @respx.mock
 def test_subdomain_auth_native_without_grant_returns_403(client, db_session):
-    from app.oidc_bff import issue_oidc_session
+    from app.auth.oidc_bff import issue_oidc_session
 
     settings = _native_settings()
     _override_settings(client, settings)
@@ -503,7 +503,7 @@ def test_subdomain_auth_native_without_grant_returns_403(client, db_session):
 @respx.mock
 def test_subdomain_auth_accepts_native_via_x_bastion_session_header(client, db_session):
     """CrushFTP upstream Cookie filter must not starve auth_request of bastion_session."""
-    from app.oidc_bff import issue_oidc_session
+    from app.auth.oidc_bff import issue_oidc_session
 
     settings = _native_settings()
     _override_settings(client, settings)
@@ -552,7 +552,7 @@ def test_subdomain_auth_accepts_native_via_x_bastion_session_header(client, db_s
 
 @respx.mock
 def test_subdomain_auth_resolves_app_from_host_header_fallback(client, db_session):
-    from app.oidc_bff import issue_oidc_session
+    from app.auth.oidc_bff import issue_oidc_session
 
     settings = _native_settings()
     _override_settings(client, settings)
@@ -625,7 +625,7 @@ def test_har_transfer_loop_crushauth_cookie_x_bastion_session_accepts(
     (CrushFTP upstream filter must not starve subdomain-auth).
     """
     from app.models import RBACGroup
-    from app.oidc_bff import issue_oidc_session
+    from app.auth.oidc_bff import issue_oidc_session
 
     settings = _native_settings()
     _override_settings(client, settings)
@@ -680,7 +680,7 @@ def test_har_transfer_loop_crushauth_cookie_x_bastion_session_accepts(
 def test_har_transfer_loop_accepts_session_from_jar_header(client, db_session):
     """Regex extract header when $cookie_bastion_session is empty on auth subrequest."""
     from app.models import RBACGroup
-    from app.oidc_bff import issue_oidc_session
+    from app.auth.oidc_bff import issue_oidc_session
 
     settings = _native_settings()
     _override_settings(client, settings)
@@ -734,7 +734,7 @@ def test_har_garbled_starlette_cookie_falls_back_to_x_bastion_header(
     client, db_session
 ):
     """Invalid candidate must not prevent a later valid bastion_session source."""
-    from app.oidc_bff import issue_oidc_session
+    from app.auth.oidc_bff import issue_oidc_session
 
     settings = _native_settings()
     _override_settings(client, settings)

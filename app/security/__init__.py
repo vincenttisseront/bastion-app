@@ -40,7 +40,9 @@ def require_internal_token(
 ) -> str:
     if not settings.vault_portal_internal_token:
         raise HTTPException(status_code=503, detail="Internal token not configured")
-    if credentials.credentials != settings.vault_portal_internal_token:
+    if not secrets.compare_digest(
+        credentials.credentials.encode(), settings.vault_portal_internal_token.encode()
+    ):
         raise HTTPException(status_code=403, detail="Invalid internal token")
     return credentials.credentials
 

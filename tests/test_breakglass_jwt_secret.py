@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 
-from app.breakglass import (
+from app.auth.breakglass import (
     create_breakglass_token,
     decode_breakglass_token,
     decode_breakglass_token_with_fallback,

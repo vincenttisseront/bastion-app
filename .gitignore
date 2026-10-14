@@ -33,3 +33,6 @@ data/sso-portal/uploads/
 # Local secrets (Atlassian, etc.)
 .secrets/
 
+# Audit reports name real infra — they live in the private bastion-docs repo
+/rapport-audit-*
+

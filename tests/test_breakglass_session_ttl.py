@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 
-from app.breakglass import (
+from app.auth.breakglass import (
     COOKIE_MAX_AGE,
     IDLE_TIMEOUT_SECONDS,
     create_breakglass_token,
@@ -14,7 +14,7 @@ from app.breakglass import (
     encode_breakglass_claims,
     validate_breakglass_cookie,
 )
-from app.breakglass_cookie_middleware import _rotation_due
+from app.auth.breakglass_cookie_middleware import _rotation_due
 
 SECRET = "test-breakglass-secret-for-pytest"
 

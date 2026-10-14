@@ -90,6 +90,7 @@ def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
         db,
         keycloak_user_id=user.keycloak_user_id,
         group_names=user.groups,
+        realm_slug=user.realm_slug,
     )
     tiles: list[dict] = []
     for entry in entries:
@@ -98,6 +99,7 @@ def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
             entry.app,
             user.keycloak_user_id,
             group_names=user.groups,
+            realm_slug=user.realm_slug,
         )
         can_launch = entry.can_launch and not needs_credential_setup
         cred_mode = normalize_credential_mode(entry.app.credential_mode)
@@ -565,6 +567,7 @@ async def app_launch_ping(
         db,
         keycloak_user_id=user.keycloak_user_id,
         group_names=user.groups,
+        realm_slug=user.realm_slug,
     )
     match = next((e for e in entries if e.app.id == app_id), None)
     if match is None:
@@ -596,6 +599,7 @@ def _accessible_app_or_error(db: Session, user: UserContext, app_id: int):
         db,
         keycloak_user_id=user.keycloak_user_id,
         group_names=user.groups,
+        realm_slug=user.realm_slug,
     )
     return next((e for e in entries if e.app.id == app_id), None)
 

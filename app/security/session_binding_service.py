@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from fastapi import Request
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
@@ -364,21 +365,15 @@ def binding_summary_for_sso_user(
     candidates.discard("")
     if not candidates:
         return None
-    rows = (
+    best = (
         db.query(SsoSessionAnchor)
-        .filter(SsoSessionAnchor.username.isnot(None))
-        .order_by(SsoSessionAnchor.last_seen.desc())
-        .limit(50)
-        .all()
+        .filter(func.lower(func.trim(SsoSessionAnchor.username)).in_(candidates))
+        .order_by(
+            func.coalesce(SsoSessionAnchor.mismatch_count, 0).desc(),
+            SsoSessionAnchor.last_seen.desc(),
+        )
+        .first()
     )
-    best: SsoSessionAnchor | None = None
-    for row in rows:
-        uname = (row.username or "").strip().lower()
-        if uname in candidates:
-            if best is None or int(row.mismatch_count or 0) > int(
-                best.mismatch_count or 0
-            ):
-                best = row
     if best is None:
         return None
     count = int(best.mismatch_count or 0)

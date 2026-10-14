@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_login_headers_no_stack_fingerprint(client: TestClient, db_session: Session):
-    from app.breakglass_store import set_breakglass_password
+    from app.auth.breakglass_store import set_breakglass_password
     from app.models import RealmConfig
     from app.secret_crypto import encrypt_secret
     from app.sso_settings import Settings

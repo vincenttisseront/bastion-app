@@ -11,15 +11,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.breakglass import (
+from app.auth.breakglass import (
     BREAKGLASS_SESSION_RETENTION_DAYS,
     decode_breakglass_token_with_fallback,
     issue_breakglass_token,
     purge_expired_breakglass_sessions,
 )
-from app.breakglass_store import set_breakglass_password, verify_breakglass_password
+from app.auth.breakglass_store import set_breakglass_password, verify_breakglass_password
 from app.models import BreakGlassSession, OidcLoginAttempt, RealmConfig, utcnow
-from app.oidc_bff_client import (
+from app.auth.oidc_bff_client import (
     MAX_OTP_FAILURES,
     InvalidCredentialsError,
     OidcBffError,
@@ -27,8 +27,8 @@ from app.oidc_bff_client import (
     _interpret_post_password_response,
     submit_headless_otp,
 )
-from app.oidc_bff_config_service import OidcBffConfig
-from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+from app.auth.oidc_bff_config_service import OidcBffConfig
+from app.auth.oidc_native_session import is_oidc_native_session_enabled_for_realm
 from app.secret_crypto import encrypt_secret
 from app.sso_settings import Settings
 from tests.test_auth_login_flow import _add_default_idp
@@ -211,7 +211,7 @@ async def test_otp_refused_when_realm_client_changed(db_session: Session, monkey
     settings = _settings()
     _attempt(db_session, settings, client_id="old-client")
     monkeypatch.setattr(
-        "app.oidc_bff_config_service.get_headless_oidc_config",
+        "app.auth.oidc_bff_config_service.get_headless_oidc_config",
         lambda db, realm, s: OidcBffConfig(
             realm_slug="default",
             keycloak_base_url="https://idp.example.com",

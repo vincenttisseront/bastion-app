@@ -98,14 +98,13 @@ def main() -> int:
     finally:
         db.close()
 
+    counters = " ".join(
+        f"{name}={value}"
+        for name, value in report.to_audit_details().items()
+        if isinstance(value, int) and not isinstance(value, bool) and name != "total"
+    )
     print(
-        "OK: rotation success "
-        f"total={report.total} "
-        f"app_credentials={report.app_credentials} "
-        f"user_app_credentials={report.user_app_credentials} "
-        f"realm_client_secrets={report.realm_client_secrets} "
-        f"realm_oauth2_cookie_secrets={report.realm_oauth2_cookie_secrets} "
-        f"realm_admin_client_secrets={report.realm_admin_client_secrets} "
+        f"OK: rotation success total={report.total} {counters} "
         f"duration_ms={report.duration_ms:.1f}"
     )
     print(

@@ -7,7 +7,7 @@ import json
 
 import jwt
 
-from app.breakglass import decode_breakglass_token
+from app.auth.breakglass import decode_breakglass_token
 
 SECRET = "unit-test-breakglass-secret-not-used-on-staging"
 

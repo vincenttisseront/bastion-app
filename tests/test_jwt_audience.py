@@ -9,14 +9,14 @@ import jwt
 import pytest
 from sqlalchemy.orm import Session
 
-from app.breakglass import create_breakglass_token, decode_breakglass_token
-from app.jwt_audience import (
+from app.auth.breakglass import create_breakglass_token, decode_breakglass_token
+from app.auth.jwt_audience import (
     DEFAULT_BREAKGLASS_JWT_AUDIENCE,
     DEFAULT_OIDC_SESSION_JWT_AUDIENCE,
     jwt_audience_matches,
 )
 from app.models import OidcSession
-from app.oidc_bff import (
+from app.auth.oidc_bff import (
     create_oidc_session_token,
     issue_oidc_session,
     validate_oidc_session_cookie,

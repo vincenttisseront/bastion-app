@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.auth import is_rfc1918
-from app.breakglass_store import set_breakglass_password
+from app.auth.auth_request import is_rfc1918
+from app.auth.breakglass_store import set_breakglass_password
 from app.models import AuditLog
 from app.request_client_ip import client_ip_from_request
 from app.sso_settings import get_settings

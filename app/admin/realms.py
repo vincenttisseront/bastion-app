@@ -152,7 +152,7 @@ def _resolve_admin_client_secret(
 
 
 def _oidc_bff_form_values(realm: RealmConfig | None) -> dict[str, Any]:
-    from app.oidc_bff_config_service import oidc_bff_config_status
+    from app.auth.oidc_bff_config_service import oidc_bff_config_status
 
     if realm is None:
         return {
@@ -185,7 +185,7 @@ def _apply_oidc_bff_from_form(
     ip_address: str | None,
 ) -> str | None:
     """Persist BFF fields when any are submitted. Empty block = no-op. Returns error msg."""
-    from app.oidc_bff_config_service import AUDIT_BFF_CONFIG_SET, set_oidc_bff_config
+    from app.auth.oidc_bff_config_service import AUDIT_BFF_CONFIG_SET, set_oidc_bff_config
 
     base = (oidc_keycloak_base_url or "").strip()
     cid = (oidc_bff_client_id or "").strip()
@@ -1457,7 +1457,7 @@ def admin_realms_oidc_native_enable(
     csrf_token: str = Form(""),
 ):
     _require_csrf(request, settings, csrf_token)
-    from app.oidc_native_session import set_oidc_native_session_enabled
+    from app.auth.oidc_native_session import set_oidc_native_session_enabled
 
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if not realm:
@@ -1497,7 +1497,7 @@ def admin_realms_oidc_native_disable(
     csrf_token: str = Form(""),
 ):
     _require_csrf(request, settings, csrf_token)
-    from app.oidc_native_session import set_oidc_native_session_enabled
+    from app.auth.oidc_native_session import set_oidc_native_session_enabled
 
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if not realm:
@@ -1535,7 +1535,7 @@ async def admin_realms_oidc_bff_test(
     _user=Depends(require_admin),
 ):
     """Ping Keycloak discovery for the BFF base URL (no client secret, no login)."""
-    from app.oidc_bff_config_service import keycloak_realm_from_issuer, ping_oidc_discovery
+    from app.auth.oidc_bff_config_service import keycloak_realm_from_issuer, ping_oidc_discovery
 
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if not realm:
@@ -1559,7 +1559,7 @@ async def admin_realms_oidc_bff_test_draft(
     _user=Depends(require_admin),
 ):
     """Draft realm: ping discovery with posted base_url + issuer/slug (before save)."""
-    from app.oidc_bff_config_service import keycloak_realm_from_issuer, ping_oidc_discovery
+    from app.auth.oidc_bff_config_service import keycloak_realm_from_issuer, ping_oidc_discovery
 
     try:
         body = await request.json()

@@ -6,6 +6,7 @@ Only surfaces categories backed by real DB rows (never invents zero placeholders
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -23,8 +24,8 @@ def count_pending_users(db: Session) -> int:
     )
 
 
-def count_pending_hosts(db: Session) -> int:
-    """Pending unknown Hosts in the managed domain perimeter (excl. probes)."""
+def _pending_host_filter(db: Session) -> Callable[[str | None], bool]:
+    """True for hostnames in the managed domain perimeter (excl. infra probes)."""
     from app.bastion.pending_host_service import (
         hostname_is_managed,
         managed_domain_suffixes,
@@ -39,19 +40,20 @@ def count_pending_hosts(db: Session) -> int:
         portal_domain=get_effective_portal_domain(db, settings),
         extra_raw=getattr(portal_row, "managed_domain_suffixes", None),
     )
-    rows = (
-        db.query(PendingHost.hostname)
-        .filter(PendingHost.status == "pending")
-        .all()
-    )
-    count = 0
-    for (hostname,) in rows:
+
+    def listed(hostname: str | None) -> bool:
         if is_infra_discovery_probe(hostname):
-            continue
-        if suffixes and not hostname_is_managed(hostname, suffixes):
-            continue
-        count += 1
-    return count
+            return False
+        return not suffixes or hostname_is_managed(hostname, suffixes)
+
+    return listed
+
+
+def count_pending_hosts(db: Session) -> int:
+    """Pending unknown Hosts in the managed domain perimeter (excl. probes)."""
+    listed = _pending_host_filter(db)
+    rows = db.query(PendingHost.hostname).filter(PendingHost.status == "pending")
+    return sum(1 for (hostname,) in rows if listed(hostname))
 
 
 def count_pending_devices(db: Session) -> int:
@@ -204,20 +206,7 @@ def _append_pending_users(db: Session, items: list[dict[str, Any]], loc: str) ->
 
 
 def _append_pending_hosts(db: Session, items: list[dict[str, Any]], loc: str) -> None:
-    from app.bastion.pending_host_service import (
-        hostname_is_managed,
-        managed_domain_suffixes,
-    )
-    from app.portal_settings_service import ensure_portal_settings
-    from app.setup_wizard_service import get_effective_portal_domain
-    from app.sso_settings import get_settings
-
-    settings = get_settings()
-    portal_row = ensure_portal_settings(db, settings)
-    suffixes = managed_domain_suffixes(
-        portal_domain=get_effective_portal_domain(db, settings),
-        extra_raw=getattr(portal_row, "managed_domain_suffixes", None),
-    )
+    listed = _pending_host_filter(db)
     rows = []
     for r in (
         db.query(PendingHost)
@@ -226,9 +215,7 @@ def _append_pending_hosts(db: Session, items: list[dict[str, Any]], loc: str) ->
         .limit(400)
         .all()
     ):
-        if is_infra_discovery_probe(r.hostname):
-            continue
-        if suffixes and not hostname_is_managed(r.hostname, suffixes):
+        if not listed(r.hostname):
             continue
         rows.append(r)
         if len(rows) >= 200:

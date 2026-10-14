@@ -138,7 +138,6 @@ def admin_rbac_governance(
         active = roles[0]
 
     matrix = permissions_matrix_for_role(db, active.id)
-    db.commit()
 
     history = []
     from sqlalchemy import desc

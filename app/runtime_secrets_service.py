@@ -130,7 +130,7 @@ def ensure_portal_runtime_secrets(
     If env holds a value and DB is empty, copy env → DB (migrate off ``.env``).
     Never logs or returns plaintext.
     """
-    from app.breakglass_secret_service import get_ui_breakglass_secret
+    from app.auth.breakglass_secret_service import get_ui_breakglass_secret
 
     row = ensure_portal_settings(db, settings)
     created: list[str] = []

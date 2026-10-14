@@ -6,7 +6,7 @@ from fastapi import Request
 from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
 
-from app.breakglass import COOKIE_NAME, issue_breakglass_token
+from app.auth.breakglass import COOKIE_NAME, issue_breakglass_token
 from app.models import AuditLog, BreakGlassSession, SsoSessionAnchor
 from app.security.identity_binding import (
     classify_drift,

@@ -46,11 +46,6 @@ def realms_advertising_access_requests(db: Session) -> list[RealmConfig]:
     )
 
 
-def realms_accepting_access_requests(db: Session) -> list[RealmConfig]:
-    """Realms an admin can target on approve (opt-in + provisioning ready)."""
-    return [r for r in realms_advertising_access_requests(db) if realm_provisioning_ready(r)]
-
-
 def realms_for_access_request_approve(db: Session) -> list[RealmConfig]:
     """Enabled realms with provisioning ready — admin assigns one on approve."""
     rows = (

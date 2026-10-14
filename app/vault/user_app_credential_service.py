@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -27,7 +26,6 @@ from app.vault.app_credential_service import (
 )
 from app.vault.group_app_credential_service import resolve_group_credential_for_user
 
-logger = logging.getLogger(__name__)
 
 CredentialSource = Literal[
     "shared",
@@ -90,6 +88,7 @@ def get_effective_credential(
     keycloak_user_id: str | None,
     *,
     group_names: Sequence[str] | None = None,
+    realm_slug: str | None = None,
 ) -> tuple[VaultCredentialRow | None, CredentialSource | None]:
     """
     Resolve vault credential:
@@ -120,6 +119,7 @@ def get_effective_credential(
             app_slug=app_slug,
             keycloak_user_id=keycloak_user_id,
             group_names=group_names,
+            realm_slug=realm_slug,
         )
         if group_cred is not None:
             return group_cred, "group_shared"
@@ -141,6 +141,7 @@ def needs_individual_credential_setup(
     keycloak_user_id: str | None,
     *,
     group_names: Sequence[str] | None = None,
+    realm_slug: str | None = None,
 ) -> bool:
     """True when the user cannot open the app without a per-user override.
 
@@ -159,7 +160,7 @@ def needs_individual_credential_setup(
     ):
         return False
     _row, source = get_effective_credential(
-        db, app.slug, keycloak_user_id, group_names=group_names
+        db, app.slug, keycloak_user_id, group_names=group_names, realm_slug=realm_slug
     )
     if source in ("user_override", "group_shared", "shared"):
         return False
@@ -176,6 +177,7 @@ def resolve_credential(
     keycloak_user_id: str | None = None,
     *,
     group_names: Sequence[str] | None = None,
+    realm_slug: str | None = None,
 ) -> tuple[ResolvedCredential, str]:
     """
     Return (ResolvedCredential, plaintext_password).
@@ -184,7 +186,7 @@ def resolve_credential(
     """
     _require_encryption(settings)
     row, source = get_effective_credential(
-        db, app_slug, keycloak_user_id, group_names=group_names
+        db, app_slug, keycloak_user_id, group_names=group_names, realm_slug=realm_slug
     )
     if source == "group_excluded":
         raise GroupCredentialExcludedError(

@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import secrets
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
@@ -62,6 +63,7 @@ from app.rbac.organization_names import (
 )
 from app.pathutil import sanitize_log_value
 from app.sso_settings import Settings
+from app.vault.app_credential_service import VaultError
 from app.vault.user_app_credential_service import (
     resolve_credential,
     set_user_credential,
@@ -599,10 +601,17 @@ def _bastion_account_in_realm(
     email = (source_account.email or "").strip().lower()
     if not email:
         return target_account
-    for row in db.query(BastionAccount).filter_by(realm_id=realm_id).all():
-        if (row.email or "").strip().lower() == email and row.keycloak_user_id:
-            return row
-    return target_account
+    by_email = (
+        db.query(BastionAccount)
+        .filter(
+            BastionAccount.realm_id == realm_id,
+            func.lower(func.trim(BastionAccount.email)) == email,
+            BastionAccount.keycloak_user_id.is_not(None),
+            BastionAccount.keycloak_user_id != "",
+        )
+        .first()
+    )
+    return by_email or target_account
 
 
 async def remove_account_from_rbac_group(
@@ -831,7 +840,7 @@ async def push_keycloak_user_and_continue(
 
     initial_password = generate_initial_password()
     try:
-        from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+        from app.auth.oidc_native_session import is_oidc_native_session_enabled_for_realm
 
         # Native headless login cannot complete Keycloak UPDATE_PASSWORD pages.
         use_temporary = not is_oidc_native_session_enabled_for_realm(
@@ -1215,7 +1224,7 @@ async def reset_keycloak_user_password(
             "Provisioning non activé pour ce realm — requis pour reset Keycloak."
         )
 
-    from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+    from app.auth.oidc_native_session import is_oidc_native_session_enabled_for_realm
 
     label, to_email = await _resolve_reset_identity_labels(
         realm,
@@ -1401,7 +1410,7 @@ async def require_keycloak_configure_otp(
         raise AccountCreationError(
             "Provisioning non activé pour ce realm — requis pour modifier Keycloak."
         )
-    from app.oidc_native_session import is_oidc_mfa_enabled_for_realm
+    from app.auth.oidc_native_session import is_oidc_mfa_enabled_for_realm
 
     if not is_oidc_mfa_enabled_for_realm(db, realm.slug, realm=realm):
         raise AccountCreationError(
@@ -1748,12 +1757,23 @@ async def sync_vault_credential_to_app(
         )
     try:
         resolved, password = resolve_credential(
-            db, app.slug, settings, keycloak_user_id=account.keycloak_user_id
+            db,
+            app.slug,
+            settings,
+            keycloak_user_id=account.keycloak_user_id,
+            group_names=group_names,
+            realm_slug=account.realm.slug if account.realm else None,
         )
-    except Exception as exc:
+    except VaultError as exc:
         return ProvisioningResult(
             status=PROVISIONING_FAILED,
             detail=f"Vault : {exc}",
+        )
+    except Exception:
+        logger.exception("Vault credential resolution failed for app %s", app.slug)
+        return ProvisioningResult(
+            status=PROVISIONING_FAILED,
+            detail="Vault : erreur interne (voir les logs)",
         )
     credential = GeneratedCredential(
         username=resolved.robotic_username or account.username,

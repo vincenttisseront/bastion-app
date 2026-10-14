@@ -12,9 +12,9 @@ from sqlalchemy.orm import Session
 
 from tests.conftest import csrf_token_for
 from app.models import AuditLog, RealmConfig
-from app.oidc_bff import issue_oidc_session
-from app.oidc_bff_client import LoginStepResult, OidcTokenResult
-from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+from app.auth.oidc_bff import issue_oidc_session
+from app.auth.oidc_bff_client import LoginStepResult, OidcTokenResult
+from app.auth.oidc_native_session import is_oidc_native_session_enabled_for_realm
 from app.secret_crypto import encrypt_secret
 from app.sso_settings import Settings, get_settings
 
@@ -59,8 +59,8 @@ def _settings(**extra) -> Settings:
 def pilot_settings(monkeypatch):
     settings = _settings()
     get_settings.cache_clear()
-    monkeypatch.setattr("app.oidc_bff.get_settings", lambda: settings)
-    monkeypatch.setattr("app.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("app.auth.oidc_bff.get_settings", lambda: settings)
+    monkeypatch.setattr("app.auth.auth_request.get_settings", lambda: settings)
     from app.main import app
 
     app.dependency_overrides[get_settings] = lambda: settings
@@ -204,7 +204,7 @@ def test_login_rejects_non_pilot_realm(
 ):
     _add_realm(db_session, slug="default", is_default=True, native=False, port=4180)
     with patch(
-        "app.oidc_bff.start_headless_login",
+        "app.auth.oidc_bff.start_headless_login",
         new=AsyncMock(
             return_value=LoginStepResult(
                 status="success",

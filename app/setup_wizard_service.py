@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from app import re_safe
 from app.audit import log_action
-from app.auth_flow import get_default_idp_realm
-from app.breakglass_store import has_active_breakglass_account
+from app.auth.flow import get_default_idp_realm
+from app.auth.breakglass_store import has_active_breakglass_account
 from app.models import PortalSettings, utcnow
 from app.portal_settings_service import ensure_portal_settings
 from app.sso_settings import Settings

@@ -5,8 +5,8 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.breakglass import COOKIE_NAME
-from app.breakglass_store import set_breakglass_password
+from app.auth.breakglass import COOKIE_NAME
+from app.auth.breakglass_store import set_breakglass_password
 from app.models import BreakGlassSession
 from tests.test_auth_login_flow import _add_default_idp
 
@@ -57,7 +57,7 @@ def test_set_breakglass_cookie_shares_parent_domain_with_subdomains():
     """bg_session must reach wikijs.* like bastion_session (Domain=parent)."""
     from fastapi import Response
 
-    from app.breakglass import COOKIE_NAME, set_breakglass_cookie
+    from app.auth.breakglass import COOKIE_NAME, set_breakglass_cookie
     from app.sso_settings import Settings
 
     settings = Settings(

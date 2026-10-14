@@ -10,8 +10,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.admin.export import realm_oauth2_proxy_url
-from app.auth_flow import get_default_idp_realm
-from app.breakglass import (
+from app.auth.flow import get_default_idp_realm
+from app.auth.breakglass import (
     COOKIE_NAME,
     process_breakglass_auth_request,
 )
@@ -149,8 +149,8 @@ def _native_oidc_auth_response(
     Returns a 200 Response with X-Auth-Request-* headers, or None to fall through
     to the oauth2-proxy path (cookie absent, invalid, revoked, or realm not enabled).
     """
-    from app.oidc_bff import validate_oidc_session_cookie
-    from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+    from app.auth.oidc_bff import validate_oidc_session_cookie
+    from app.auth.oidc_native_session import is_oidc_native_session_enabled_for_realm
 
     claims = None
     for raw in iter_oidc_session_cookie_candidates(request, settings):

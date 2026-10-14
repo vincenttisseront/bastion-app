@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta, timezone
+from datetime import timedelta
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app import re_safe
 from app.audit import log_action
 from app.models import AccessGrant, ActiveSession, BastionAccount, PendingUser, utcnow
+from app.sql_like import LIKE_ESCAPE, escape_like
 from app.web.user_context import is_breakglass_email
 
 _UUID_RE = re_safe.compile(
@@ -18,14 +19,6 @@ _UUID_RE = re_safe.compile(
 )
 
 _PROTOCOL_BREAKGLASS = "BREAKGLASS"
-
-
-def _aware(dt):
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
 
 
 def _looks_like_email(value: str | None) -> bool:
@@ -117,18 +110,17 @@ def is_known_bastion_user(
     grant_q = db.query(AccessGrant).filter(AccessGrant.subject_type == "user")
     if kc and grant_q.filter(AccessGrant.keycloak_user_id == kc).first():
         return True
-    grants = grant_q.limit(500).all()
-    for g in grants:
-        disp = (g.user_display_cache or "").strip().lower()
-        if em and disp == em:
-            return True
-        if uname and (disp == uname or disp.startswith(uname + "@")):
-            return True
-        if em and disp and em.split("@", 1)[0] == disp:
-            return True
-        if kc and (g.keycloak_user_id or "") == kc:
-            return True
-    return False
+    display = func.lower(func.trim(AccessGrant.user_display_cache))
+    names = {n for n in (em, uname, em.split("@", 1)[0] if em else None) if n}
+    display_filters = [display.in_(names)] if names else []
+    if uname:
+        display_filters.append(
+            display.like(f"{escape_like(uname)}@%", escape=LIKE_ESCAPE)
+        )
+    return bool(
+        display_filters
+        and grant_q.filter(or_(*display_filters)).with_entities(AccessGrant.id).first()
+    )
 
 
 def prune_spurious_pending_users(db: Session) -> int:
@@ -363,6 +355,7 @@ def discover_recent_first_logins(db: Session, *, within_hours: int = 168) -> int
             func.max(ActiveSession.last_seen_at).label("last_at"),
         )
         .group_by(ActiveSession.user_email, ActiveSession.username)
+        .having(func.min(ActiveSession.started_at) >= cutoff)
         .all()
     )
     created = 0
@@ -370,9 +363,7 @@ def discover_recent_first_logins(db: Session, *, within_hours: int = 168) -> int
     seen_canonical: set[str] = set(known)
 
     for raw_email, username, first_at, last_at in rows:
-        first_at = _aware(first_at)
-        last_at = _aware(last_at)
-        if first_at is None or first_at < cutoff:
+        if first_at is None:
             continue
         uname = (username or "").strip() or None
         email = resolve_canonical_email(db, user_email=raw_email, username=uname)

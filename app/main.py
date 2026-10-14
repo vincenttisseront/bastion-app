@@ -24,18 +24,18 @@ from app.admin.realms import router as admin_realms_router
 from app.admin.user_sessions import router as admin_user_sessions_router
 from app.admin.waf import router as admin_waf_router
 from app.api_errors import api_error_from_detail, api_error_response
-from app.auth import router as auth_router
+from app.auth.auth_request import router as auth_router
 from app.bastion.unknown_host_routes import router as unknown_host_router
-from app.breakglass import admin_router as breakglass_admin_router
-from app.breakglass import router as breakglass_router
-from app.breakglass_cookie_middleware import BreakglassCookieRotationMiddleware
+from app.auth.breakglass import admin_router as breakglass_admin_router
+from app.auth.breakglass import router as breakglass_router
+from app.auth.breakglass_cookie_middleware import BreakglassCookieRotationMiddleware
 from app.database import engine
 from app.files.routes import router as files_browser_router
 from app.health_scheduler import start_health_scheduler, stop_health_scheduler
 from app.logging_config import configure_logging
 from app.logging_middleware import RequestIdMiddleware
 from app.models import Base
-from app.oidc_bff import router as oidc_bff_router
+from app.auth.oidc_bff import router as oidc_bff_router
 from app.realm_service import router as realm_router
 from app.robotic.client_open_action import router as robotic_router
 from app.robotic.session_cookie_hop import router as session_cookie_hop_router
@@ -54,7 +54,7 @@ from app.web.admin_logs import router as admin_logs_router
 from app.web.admin_setup_wizard import router as admin_setup_wizard_router
 from app.web.audit_service import router as audit_router
 from app.web.constants import APP_VERSION
-from app.web.csrf import CsrfCookieMiddleware
+from app.web.csrf import CrossOriginWriteMiddleware, CsrfCookieMiddleware
 from app.web.flash import base_template_context, flash_redirect
 from app.web.global_search import router as global_search_router
 from app.web.health_service import router as health_router
@@ -185,6 +185,7 @@ from app.security.banning.middleware import SecurityBanMiddleware  # noqa: E402
 app.add_middleware(SecurityBanMiddleware)
 app.add_middleware(LocaleMiddleware)
 app.add_middleware(CsrfCookieMiddleware)
+app.add_middleware(CrossOriginWriteMiddleware)
 
 # Neutral public aliases — registered before the /static mount.
 _PORTAL_STATIC_ALIASES = {

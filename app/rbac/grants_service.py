@@ -12,6 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import AccessGrant, App, FileResource, RBACGroup, RealmConfig
+from app.rbac.effective_access_service import ACCESS_LEVEL_RANK
 from app.rbac.keycloak_admin import fetch_group_members, fetch_user_groups
 
 logger = logging.getLogger(__name__)
@@ -364,10 +365,6 @@ async def list_sso_users_with_access(
         if isinstance(payload, Exception) or not payload:
             continue
         members = payload
-        try:
-            group.member_count = len(members)
-        except Exception:
-            pass
         label = group.name or f"groupe:{group.id}"
         for member in members:
             mid = str(member.get("id") or "").strip()
@@ -470,55 +467,61 @@ def serialize_application_grant_row(
     return row
 
 
+async def _group_members(db: Session, group: RBACGroup, settings) -> list[dict] | None:
+    """Live Keycloak members of a synced group, or None when unavailable."""
+    if not (group.keycloak_group_id and group.realm_id):
+        return None
+    realm = db.get(RealmConfig, group.realm_id)
+    if realm is None or not realm.groups_sync_enabled:
+        return None
+    try:
+        return await fetch_group_members(realm, group.keycloak_group_id, settings)
+    except Exception:  # noqa: BLE001 — the view falls back to the cached count
+        logger.warning("Members lookup failed for group %s", group.name, exc_info=True)
+        return None
+
+
+async def _build_access_view(
+    db: Session, grants: list[AccessGrant], settings
+) -> dict[str, Any]:
+    """Grant rows + deduplicated people coverage (read-only)."""
+    rows: list[dict[str, Any]] = []
+    people_sources: dict[str, list[str]] = defaultdict(list)
+
+    for grant in grants:
+        member_count: int | None = None
+        if grant.subject_type == "user" and grant.keycloak_user_id:
+            people_sources[str(grant.keycloak_user_id)].append("direct")
+        elif grant.subject_type == "group" and grant.rbac_group_id:
+            group = db.get(RBACGroup, grant.rbac_group_id)
+            members = await _group_members(db, group, settings) if group else None
+            if members is not None:
+                member_count = len(members)
+                for member in members:
+                    mid = str(member.get("id") or "").strip()
+                    if mid:
+                        people_sources[mid].append(f"via groupe {group.name}")
+        rows.append(serialize_application_grant_row(grant, db, member_count=member_count))
+
+    return {
+        "grants": rows,
+        "grant_count": len(rows),
+        "unique_people_count": len(people_sources),
+        "people_sources": {
+            uid: sorted(set(sources)) for uid, sources in people_sources.items()
+        },
+    }
+
+
 async def build_application_access_view(
     db: Session,
     application_id: int,
     settings,
 ) -> dict[str, Any]:
     """Grants for one app + deduplicated people coverage for admin UI."""
-    grants = list_grants(db, application_id=application_id)
-    rows: list[dict[str, Any]] = []
-    unique_people: set[str] = set()
-    people_sources: dict[str, list[str]] = defaultdict(list)
-
-    for grant in grants:
-        member_count: int | None = None
-        if grant.subject_type == "user" and grant.keycloak_user_id:
-            uid = str(grant.keycloak_user_id)
-            unique_people.add(uid)
-            people_sources[uid].append("direct")
-        elif grant.subject_type == "group" and grant.rbac_group_id:
-            group = db.query(RBACGroup).filter_by(id=grant.rbac_group_id).first()
-            if group and group.keycloak_group_id and group.realm_id:
-                realm = db.query(RealmConfig).filter_by(id=group.realm_id).first()
-                if realm and realm.groups_sync_enabled:
-                    try:
-                        members = await fetch_group_members(
-                            realm, group.keycloak_group_id, settings
-                        )
-                        member_count = len(members)
-                        group.member_count = member_count
-                        for member in members:
-                            mid = str(member.get("id") or "").strip()
-                            if mid:
-                                unique_people.add(mid)
-                                people_sources[mid].append(f"via groupe {group.name}")
-                    except Exception:
-                        member_count = group.member_count
-                else:
-                    member_count = group.member_count if group else None
-            else:
-                member_count = group.member_count if group else None
-        rows.append(serialize_application_grant_row(grant, db, member_count=member_count))
-
-    return {
-        "grants": rows,
-        "grant_count": len(rows),
-        "unique_people_count": len(unique_people),
-        "people_sources": {
-            uid: sorted(set(sources)) for uid, sources in people_sources.items()
-        },
-    }
+    return await _build_access_view(
+        db, list_grants(db, application_id=application_id), settings
+    )
 
 
 async def build_file_access_view(
@@ -527,49 +530,7 @@ async def build_file_access_view(
     settings,
 ) -> dict[str, Any]:
     """Grants for one file resource — same shape as application access view."""
-    grants = list_grants(db, file_id=file_id)
-    rows: list[dict[str, Any]] = []
-    unique_people: set[str] = set()
-    people_sources: dict[str, list[str]] = defaultdict(list)
-
-    for grant in grants:
-        member_count: int | None = None
-        if grant.subject_type == "user" and grant.keycloak_user_id:
-            uid = str(grant.keycloak_user_id)
-            unique_people.add(uid)
-            people_sources[uid].append("direct")
-        elif grant.subject_type == "group" and grant.rbac_group_id:
-            group = db.query(RBACGroup).filter_by(id=grant.rbac_group_id).first()
-            if group and group.keycloak_group_id and group.realm_id:
-                realm = db.query(RealmConfig).filter_by(id=group.realm_id).first()
-                if realm and realm.groups_sync_enabled:
-                    try:
-                        members = await fetch_group_members(
-                            realm, group.keycloak_group_id, settings
-                        )
-                        member_count = len(members)
-                        group.member_count = member_count
-                        for member in members:
-                            mid = str(member.get("id") or "").strip()
-                            if mid:
-                                unique_people.add(mid)
-                                people_sources[mid].append(f"via groupe {group.name}")
-                    except Exception:
-                        member_count = group.member_count
-                else:
-                    member_count = group.member_count if group else None
-            else:
-                member_count = group.member_count if group else None
-        rows.append(serialize_application_grant_row(grant, db, member_count=member_count))
-
-    return {
-        "grants": rows,
-        "grant_count": len(rows),
-        "unique_people_count": len(unique_people),
-        "people_sources": {
-            uid: sorted(set(sources)) for uid, sources in people_sources.items()
-        },
-    }
+    return await _build_access_view(db, list_grants(db, file_id=file_id), settings)
 
 
 def build_grants_matrix(db: Session) -> dict[str, Any]:
@@ -602,6 +563,33 @@ def build_grants_matrix(db: Session) -> dict[str, Any]:
 
 
 def create_grant(db: Session, data: AccessGrantCreate, granted_by: str) -> AccessGrant:
+    """Create a grant, or return the existing one for the same subject × resource.
+
+    An existing grant is only ever raised to a higher ``access_level``.
+    """
+    existing = (
+        db.query(AccessGrant)
+        .filter_by(
+            subject_type=data.subject_type,
+            rbac_group_id=data.rbac_group_id,
+            keycloak_user_id=data.keycloak_user_id,
+            resource_type=data.resource_type,
+            application_id=data.application_id,
+            system_role=data.system_role,
+            rbac_role_id=data.rbac_role_id,
+            file_id=data.file_id,
+            folder_id=data.folder_id,
+        )
+        .first()
+    )
+    if existing is not None:
+        if ACCESS_LEVEL_RANK.get(data.access_level or "", 0) > ACCESS_LEVEL_RANK.get(
+            existing.access_level or "", 0
+        ):
+            existing.access_level = data.access_level
+            existing.granted_by = granted_by
+            db.flush()
+        return existing
     grant = AccessGrant(
         subject_type=data.subject_type,
         rbac_group_id=data.rbac_group_id,
