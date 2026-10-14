@@ -11,10 +11,11 @@ at most once per ``ROTATION_MIN_INTERVAL_SECONDS``.
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import time
 
-import jwt
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -40,15 +41,30 @@ _SKIP_PREFIXES = (
 )
 
 
+def _unverified_payload(raw: str) -> dict | None:
+    """Decode the JWT middle segment without trusting it (rotation pre-filter only).
+
+    Signature and claims are verified later by ``process_breakglass_auth_request``.
+    """
+    try:
+        parts = raw.split(".")
+        if len(parts) < 2:
+            return None
+        pad = "=" * (-len(parts[1]) % 4)
+        value = json.loads(base64.urlsafe_b64decode(parts[1] + pad))
+    except (ValueError, json.JSONDecodeError, TypeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def _rotation_due(raw: str) -> bool:
     """Cheap pre-filter on the unverified ``last`` claim; full checks run after.
 
     Only rotation supersedes a cookie and it requires a stale ``last``, so a
     superseded cookie inside its grace window is never skipped here.
     """
-    try:
-        claims = jwt.decode(raw, options={"verify_signature": False})
-    except jwt.PyJWTError:
+    claims = _unverified_payload(raw)
+    if claims is None:
         return False
     try:
         last = int(claims.get("last") or claims.get("iat"))

@@ -569,7 +569,10 @@ def _breakglass_login_response(
     except Exception as exc:
         # Missing JWT secret / hot-path bugs must not become an opaque 500 —
         # break-glass is the recovery door when the rest of the stack is broken.
-        logger.exception("breakglass login issue_token failed user=%s", username)
+        logger.exception(
+            "breakglass login issue_token failed user=%s",
+            sanitize_log_value(username),
+        )
         try:
             db.rollback()
         except Exception:
