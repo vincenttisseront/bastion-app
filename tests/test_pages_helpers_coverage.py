@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.models import App
 from app.sso_settings import Settings, get_settings
-from app.web import pages
+from app.web import login_surface, pages
 
 
 def _settings() -> Settings:
@@ -143,10 +143,12 @@ def test_hot_store_flash_sets_cookie(monkeypatch):
         seen["level"] = level
         seen["token"] = token
 
-    monkeypatch.setattr(pages, "flash_redirect", fake_flash)
+    from app.web import admin_configuration
+
+    monkeypatch.setattr(admin_configuration, "flash_redirect", fake_flash)
     resp = object()
     settings = _settings()
-    out = pages._hot_store_flash(resp, "ok", "success", settings)
+    out = admin_configuration._hot_store_flash(resp, "ok", "success", settings)
     assert out is resp
     assert seen["message"] == "ok"
     assert seen["level"] == "success"
@@ -181,6 +183,6 @@ def test_ordered_enabled_realms_puts_default_first(db_session):
     )
     db_session.add_all([a, b])
     db_session.commit()
-    ordered = pages._ordered_enabled_realms(db_session, b)
+    ordered = login_surface._ordered_enabled_realms(db_session, b)
     assert ordered[0].slug == "default"
     assert {r.slug for r in ordered} == {"default", "alpha"}

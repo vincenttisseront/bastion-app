@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.audit import admin_actor
 from app.database import get_db
 from app.request_client_ip import client_ip_from_request
 from app.setup_wizard_service import (
@@ -16,16 +17,12 @@ from app.setup_wizard_service import (
 )
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
+from app.web.csrf import portal_signing_secret
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
-from app.web.csrf import portal_signing_secret
 
 router = APIRouter(tags=["admin-setup-wizard"], dependencies=[Depends(require_admin)])
-
-
-def _actor(user) -> str:
-    return getattr(user, "email", None) or getattr(user, "username", None) or "admin"
 
 
 @router.get("/admin/setup-wizard")
@@ -65,7 +62,7 @@ def setup_wizard_save_site(
             settings,
             portal_domain=portal_domain,
             default_realm_slug=default_realm_slug,
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request),
         )
         flash_redirect(
@@ -97,7 +94,7 @@ def setup_wizard_complete(
         mark_setup_wizard_complete(
             db,
             settings,
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request),
         )
         response = RedirectResponse(url="/admin/dashboard", status_code=303)

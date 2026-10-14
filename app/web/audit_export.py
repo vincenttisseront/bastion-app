@@ -1,101 +1,85 @@
-"""Audit log export (CSV/PDF) + integrity helpers shared with /admin/logs."""
+"""Audit log export (CSV/PDF) of the rows the Event Viewer shows."""
 
 from __future__ import annotations
 
+import csv
 import io
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from typing import Any
 
-import pandas as pd
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy.orm import Session
 
-from app.audit import compute_integrity, list_audit_entries
+EXPORT_MAX_ROWS = 5000
+_PDF_MAX_ROWS = 500
+_CSV_COLUMNS = ("timestamp", "event_code", "actor", "action", "target", "ip_address", "result")
+# Spreadsheets evaluate cells starting with these as formulas.
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 
-def parse_audit_date(value: str | None) -> datetime | None:
-    if not value:
+def _csv_cell(value: Any) -> str:
+    text = "" if value is None else str(value)
+    return "'" + text if text.startswith(_FORMULA_PREFIXES) else text
+
+
+def _truncation_note(shown: int, total: int) -> str | None:
+    if total <= shown:
         return None
-    try:
-        return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    except ValueError:
-        return None
+    return f"Export tronqué : {shown} lignes sur {total}. Affinez les filtres."
 
 
-def parse_audit_date_end(value: str | None) -> datetime | None:
-    dt = parse_audit_date(value)
-    if dt:
-        return dt.replace(hour=23, minute=59, second=59)
-    return None
-
-
-def build_audit_csv_export(
-    db: Session,
-    *,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    severity: str | None = None,
-    limit: int = 200,
-) -> StreamingResponse:
-    df = parse_audit_date(date_from)
-    dt = parse_audit_date_end(date_to)
-    entries, _total = list_audit_entries(
-        db, date_from=df, date_to=dt, severity=severity, limit=limit
-    )
-    data = [
-        {
-            "timestamp": e["timestamp"],
-            "actor": e["user"],
-            "action": e["action"],
-            "target": e["target"],
-            "severity": e["severity"],
-        }
-        for e in entries
-    ]
-    frame = pd.DataFrame(data)
+def build_audit_csv_export(entries: Sequence[dict[str, Any]], *, total: int) -> Response:
     buf = io.StringIO()
-    frame.to_csv(buf, index=False)
-    buf.seek(0)
-    return StreamingResponse(
-        iter([buf.getvalue()]),
+    writer = csv.writer(buf)
+    writer.writerow(_CSV_COLUMNS)
+    for entry in entries:
+        writer.writerow([_csv_cell(entry.get(col)) for col in _CSV_COLUMNS])
+    note = _truncation_note(len(entries), total)
+    if note:
+        writer.writerow([_csv_cell(note)])
+    return Response(
+        content=buf.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=audit-export.csv"},
+        headers={
+            "Content-Disposition": "attachment; filename=audit-export.csv",
+            "X-Export-Total": str(total),
+        },
     )
 
 
 def build_audit_pdf_export(
-    db: Session,
+    entries: Sequence[dict[str, Any]],
     *,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    severity: str | None = None,
-    limit: int = 200,
-) -> StreamingResponse:
-    df = parse_audit_date(date_from)
-    dt = parse_audit_date_end(date_to)
-    entries, _total = list_audit_entries(
-        db, date_from=df, date_to=dt, severity=severity, limit=limit
-    )
-    integrity = compute_integrity(db)
+    total: int,
+    integrity: dict[str, Any] | None,
+) -> Response:
+    shown = list(entries[:_PDF_MAX_ROWS])
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4)
     styles = getSampleStyleSheet()
-    story = [
+    story: list[Any] = [
         Paragraph("Bastion Pro — Journaux d'Audit", styles["Title"]),
         Spacer(1, 12),
-        Paragraph(
-            f"Intégrité: {integrity['score']}% — SHA256: {integrity['hash'][:32]}…",
-            styles["Normal"],
-        ),
-        Spacer(1, 12),
     ]
-    table_data = [["Horodatage", "Acteur", "Action", "Cible", "Sévérité"]]
-    for e in entries[:100]:
+    if integrity:
+        story.append(
+            Paragraph(
+                f"Intégrité: {integrity['score']}% — SHA256: {integrity['hash'][:32]}…",
+                styles["Normal"],
+            )
+        )
+        story.append(Spacer(1, 12))
+    note = _truncation_note(len(shown), total)
+    if note:
+        story.append(Paragraph(note, styles["Normal"]))
+        story.append(Spacer(1, 12))
+    table_data = [["Horodatage", "Acteur", "Action", "Cible", "Résultat"]]
+    for e in shown:
         table_data.append(
-            [e["timestamp"], e["user"], e["action"], e["target"], e["severity"]]
+            [e["timestamp"], e["actor"], e["action"], e["target"], e["result"]]
         )
     table = Table(table_data, repeatRows=1)
     table.setStyle(
@@ -110,9 +94,11 @@ def build_audit_pdf_export(
     )
     story.append(table)
     doc.build(story)
-    buf.seek(0)
-    return StreamingResponse(
-        buf,
+    return Response(
+        content=buf.getvalue(),
         media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=audit-export.pdf"},
+        headers={
+            "Content-Disposition": "attachment; filename=audit-export.pdf",
+            "X-Export-Total": str(total),
+        },
     )

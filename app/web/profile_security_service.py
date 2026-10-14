@@ -13,15 +13,12 @@ from sqlalchemy.orm import Session
 from app.audit import log_action
 from app.models import OidcSession, RealmConfig, utcnow
 from app.auth.oidc_bff import (
+    OidcSessionClaims,
     purge_expired_oidc_sessions,
     revoke_oidc_jti,
     validate_oidc_session_cookie,
 )
-from app.auth.oidc_bff_client import (
-    InvalidCredentialsError,
-    UnsupportedAuthFlowError,
-    verify_keycloak_password,
-)
+from app.auth.oidc_bff_client import InvalidCredentialsError, verify_keycloak_password
 from app.rbac.account_service import realm_provisioning_ready
 from app.rbac.keycloak_admin import (
     delete_keycloak_session,
@@ -31,7 +28,7 @@ from app.rbac.keycloak_admin import (
     reset_keycloak_password,
 )
 from app.sso_settings import Settings
-from app.web.password_policy import MIN_PASSWORD_LEN, validate_password_policy
+from app.web.password_policy import validate_password_policy
 from app.web.user_context import UserContext
 
 logger = logging.getLogger(__name__)
@@ -50,22 +47,28 @@ class ProfileSecurityError(ValueError):
     """User-facing validation or upstream failure."""
 
 
+def user_home_realm(
+    db: Session, user: UserContext, settings: Settings
+) -> RealmConfig | None:
+    """Enabled realm of the session, else the enabled default realm."""
+    enabled = db.query(RealmConfig).filter_by(enabled=True)
+    slug = (user.realm_slug or "").strip()
+    if slug:
+        realm = enabled.filter_by(slug=slug).first()
+        if realm is not None:
+            return realm
+    return (
+        enabled.filter_by(is_default=True).first()
+        or enabled.filter_by(slug=settings.sso_portal_default_realm_slug).first()
+    )
+
+
 def resolve_user_realm(
     db: Session, user: UserContext, settings: Settings
 ) -> RealmConfig | None:
     if user.is_breakglass or not (user.keycloak_user_id or "").strip():
         return None
-    slug = (user.realm_slug or "").strip()
-    if slug:
-        realm = db.query(RealmConfig).filter_by(slug=slug).first()
-        if realm is not None:
-            return realm
-    return (
-        db.query(RealmConfig).filter_by(is_default=True).first()
-        or db.query(RealmConfig)
-        .filter_by(slug=settings.sso_portal_default_realm_slug)
-        .first()
-    )
+    return user_home_realm(db, user, settings)
 
 
 def password_self_service_available(
@@ -128,7 +131,7 @@ async def _change_password_via_account_api(
 ) -> None:
     import httpx
 
-    from app.auth.oidc_bff_client import InvalidCredentialsError, start_headless_login
+    from app.auth.oidc_bff_client import start_headless_login
 
     login_id = (user.username or user.email or "").strip()
     result = await start_headless_login(
@@ -173,18 +176,29 @@ async def _change_password_via_account_api(
             "console identité."
         )
     if resp.status_code >= 400:
-        body = " ".join((resp.text or "").split())[:160]
+        logger.warning(
+            "keycloak password change refused status=%s body=%s",
+            resp.status_code,
+            " ".join((resp.text or "").split())[:300],
+        )
+        try:
+            payload = resp.json()
+        except ValueError:
+            payload = None
+        reason = payload.get("error_description") if isinstance(payload, dict) else None
+        reason = " ".join(str(reason).split())[:160] if reason else ""
         raise ProfileSecurityError(
             f"Keycloak a refusé le changement de mot de passe (HTTP {resp.status_code}). "
-            f"{body}".strip()
+            f"{reason}".strip()
         )
 
 
-def current_native_jti(request: Request, db: Session, settings: Settings) -> str | None:
+def current_native_session(
+    request: Request, db: Session, settings: Settings
+) -> OidcSessionClaims | None:
     cookie_name = (settings.oidc_session_cookie_name or "").strip() or "bastion_session"
     raw = request.cookies.get(cookie_name) or ""
-    claims = validate_oidc_session_cookie(raw, db=db, settings=settings)
-    return claims.jti if claims else None
+    return validate_oidc_session_cookie(raw, db=db, settings=settings)
 
 
 def list_portal_native_sessions(
@@ -266,11 +280,12 @@ async def list_user_sso_sessions(
     *,
     user: UserContext,
     settings: Settings,
-    current_jti: str | None,
+    current: OidcSessionClaims | None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = list_portal_native_sessions(
-        db, user=user, current_jti=current_jti
+        db, user=user, current_jti=current.jti if current else None
     )
+    current_kc_sid = current.kc_sid if current else None
     realm = resolve_user_realm(db, user, settings)
     uid = (user.keycloak_user_id or "").strip()
     if realm is None or not uid:
@@ -299,7 +314,7 @@ async def list_user_sso_sessions(
                 "started_at": _ms_to_dt(started_ms),
                 "last_access": _ms_to_dt(last_ms),
                 "expires_at": None,
-                "is_current": False,
+                "is_current": bool(current_kc_sid) and sid == current_kc_sid,
                 "clients": client_names or [],
             }
         )
@@ -308,7 +323,6 @@ async def list_user_sso_sessions(
 
 def session_list_summary(sessions: list[dict[str, Any]]) -> dict[str, Any]:
     """UI hints: only current, count of revokable others."""
-    current = [s for s in sessions if s.get("is_current")]
     others = [s for s in sessions if not s.get("is_current")]
     return {
         "total": len(sessions),
@@ -464,11 +478,17 @@ async def revoke_all_other_sessions(
     *,
     user: UserContext,
     settings: Settings,
-    current_jti: str | None,
+    current: OidcSessionClaims | None,
     actor: str,
     ip_address: str | None,
 ) -> int:
-    """Revoke all Keycloak SSO sessions + other native JWTs (keeps current native jti)."""
+    """Revoke the user's other Keycloak and native sessions.
+
+    The current login is kept when its Keycloak ``sid`` is known (portal BFF
+    login); behind oauth2-proxy it is unknown, so every SSO session goes.
+    """
+    current_jti = current.jti if current else None
+    current_kc_sid = current.kc_sid if current else None
     realm = resolve_user_realm(db, user, settings)
     uid = (user.keycloak_user_id or "").strip()
     count = 0
@@ -477,11 +497,15 @@ async def revoke_all_other_sessions(
             sessions = await list_keycloak_user_sessions(realm, uid, settings)
             for sess in sessions:
                 sid = str(sess.get("id") or "").strip()
-                if not sid:
+                if not sid or sid == current_kc_sid:
                     continue
                 await delete_keycloak_session(realm, sid, settings)
                 count += 1
         except ValueError:
+            if current_kc_sid:
+                raise ProfileSecurityError(
+                    "Sessions SSO indisponibles : réessayez plus tard."
+                ) from None
             await logout_keycloak_user(realm, uid, settings)
             count += 1
     purge_expired_oidc_sessions(db)

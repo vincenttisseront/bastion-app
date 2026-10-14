@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from app.models import App, RealmConfig
-from app.web import pages
+from app.web import login_surface, pages
 
 
 def test_auth_form_values_defaults():
@@ -55,17 +55,17 @@ def test_realm_is_login_ready():
         client_id="portal",
         show_on_login=True,
     )
-    assert pages._realm_is_login_ready(ready) is True
+    assert login_surface._realm_is_login_ready(ready) is True
     ready.enabled = False
-    assert pages._realm_is_login_ready(ready) is False
+    assert login_surface._realm_is_login_ready(ready) is False
 
 
 def test_select_login_realm_by_want_and_fallback():
     a = RealmConfig(slug="alpha", name="A", enabled=True)
     b = RealmConfig(slug="beta", name="B", enabled=True)
-    assert pages._select_login_realm([a, b], want="beta") is b
-    assert pages._select_login_realm([a, b], want="") is a
-    assert pages._select_login_realm([], want="x") is None
+    assert login_surface._select_login_realm([a, b], want="beta") is b
+    assert login_surface._select_login_realm([a, b], want="") is a
+    assert login_surface._select_login_realm([], want="x") is None
 
 
 def test_native_realm_option_dicts():
@@ -75,7 +75,7 @@ def test_native_realm_option_dicts():
         enabled=True,
         oidc_mfa_enabled=False,
     )
-    opts = pages._native_realm_option_dicts(
+    opts = login_surface._native_realm_option_dicts(
         MagicMock(),
         MagicMock(),
         [row],

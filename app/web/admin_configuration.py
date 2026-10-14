@@ -2,20 +2,27 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.admin.infra_host_apply import request_host_apply
+from app.audit import admin_actor, log_action
 from app.database import get_db
 from app.mail.smtp_service import smtp_configured
 from app.portal_settings_service import ensure_portal_settings, update_smtp_settings
 from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
+from app.web.admin_infrastructure import host_apply_wait_redirect
 from app.web.constants import APP_VERSION
+from app.web.csrf import portal_signing_secret
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
-from app.web.csrf import portal_signing_secret
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin-configuration"], dependencies=[Depends(require_admin)])
 
@@ -23,10 +30,6 @@ _CONFIG_SMTP = "/admin/configuration#smtp"
 _CONFIG_SIEM = "/admin/configuration#siem"
 _CONFIG_HOT_STORE = "/admin/configuration#hot-store"
 _CONFIG_MTA_STS = "/admin/configuration#mta-sts"
-
-
-def _actor(user) -> str:
-    return getattr(user, "email", None) or getattr(user, "username", None) or "admin"
 
 
 def _form_bool(value: str | None) -> bool:
@@ -95,7 +98,7 @@ def admin_configuration_page(
 
 
 @router.post("/admin/configuration")
-async def admin_configuration_save(
+def admin_configuration_save(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -118,7 +121,7 @@ async def admin_configuration_save(
         update_smtp_settings(
             db,
             settings,
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request),
             smtp_enabled=_form_bool(smtp_enabled),
             smtp_host=smtp_host,
@@ -151,7 +154,7 @@ def admin_configuration_smtp_test(
     ok, message = test_smtp_connection(
         db,
         settings,
-        actor=_actor(user),
+        actor=admin_actor(user),
         locale=get_request_locale(request),
     )
     response = RedirectResponse(url=_CONFIG_SMTP, status_code=302)
@@ -177,7 +180,7 @@ def admin_configuration_smtp_recap(
         db,
         settings,
         force=True,
-        actor=_actor(user),
+        actor=admin_actor(user),
     )
     ok = result.status == "sent"
     response = RedirectResponse(url=_CONFIG_SMTP, status_code=302)
@@ -213,7 +216,7 @@ def admin_configuration_mta_sts(
         update_mta_sts_settings(
             db,
             settings,
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request),
             enabled=_form_bool(mta_sts_enabled),
             mail_domain=mta_sts_mail_domain,
@@ -252,7 +255,7 @@ def admin_configuration_mta_sts_verify(
     ok = bool(result.get("ok"))
     log_action(
         db,
-        actor=_actor(user),
+        actor=admin_actor(user),
         action="mta_sts.verify_ok" if ok else "mta_sts.verify_failed",
         target="portal_settings",
         details={
@@ -337,7 +340,7 @@ def admin_configuration_siem(
             filter_actions=actions,
             retry_max_queue_size=retry_max_queue_size,
             retry_max_age_minutes=retry_max_age_minutes,
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request),
         )
     except ValueError as exc:
@@ -363,7 +366,7 @@ def admin_configuration_siem_test(
     ok, message, lines = run_connectivity_test(
         db,
         settings,
-        actor=_actor(user),
+        actor=admin_actor(user),
     )
     accept = (request.headers.get("accept") or "").lower()
     wants_json = "application/json" in accept
@@ -384,3 +387,306 @@ def admin_configuration_siem_test(
         portal_signing_secret(settings),
     )
     return response
+
+
+@router.post("/admin/configuration/hot-store/config")
+@router.post("/admin/security/hot-store/config")
+def admin_security_hot_store_config(
+    request: Request,
+    host: str = Form(""),
+    port: int = Form(5432),
+    database: str = Form("bastion_hot"),
+    user: str = Form("bastion_hot"),
+    password: str = Form(""),
+    sslmode: str = Form("prefer"),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    admin=Depends(require_admin),
+):
+    from app.db.hot_store import HotStoreError
+    from app.db.hot_store_service import save_hot_store_config
+
+    response = RedirectResponse(url=_CONFIG_HOT_STORE, status_code=302)
+    try:
+        save_hot_store_config(
+            db,
+            settings,
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            sslmode=sslmode,
+            actor=admin_actor(admin),
+            ip_address=client_ip_from_request(request),
+        )
+        return _hot_store_flash(response, "Connexion PostgreSQL enregistrée.", "success", settings)
+    except HotStoreError as exc:
+        return _hot_store_flash(response, str(exc), "error", settings)
+
+
+@router.post("/admin/configuration/hot-store/provision")
+@router.post("/admin/security/hot-store/provision")
+def admin_security_hot_store_provision(
+    request: Request,
+    host: str = Form(""),
+    port: int = Form(5432),
+    database: str = Form("bastion_hot"),
+    user: str = Form("bastion_hot"),
+    password: str = Form(""),
+    sslmode: str = Form("prefer"),
+    admin_user: str = Form("postgres"),
+    admin_password: str = Form(""),
+    admin_database: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    admin=Depends(require_admin),
+):
+    """Create/align PostgreSQL role + database, then save app credentials."""
+    from app.db.hot_store import HotStoreError
+    from app.db.hot_store_service import provision_hot_store
+
+    response = RedirectResponse(url=_CONFIG_HOT_STORE, status_code=302)
+    try:
+        result = provision_hot_store(
+            db,
+            settings,
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            sslmode=sslmode,
+            admin_user=admin_user,
+            admin_password=admin_password,
+            admin_database=admin_database,
+            actor=admin_actor(admin),
+            ip_address=client_ip_from_request(request),
+        )
+        parts = []
+        if result.get("role_created"):
+            parts.append("rôle créé")
+        elif result.get("role_password_set"):
+            parts.append("mot de passe rôle aligné")
+        if result.get("database_created"):
+            parts.append("base créée")
+        else:
+            parts.append("base OK")
+        detail = ", ".join(parts) if parts else "OK"
+        return _hot_store_flash(
+            response,
+            f"PostgreSQL provisionné ({detail}). Connexion enregistrée et testée.",
+            "success",
+            settings,
+        )
+    except HotStoreError as exc:
+        return _hot_store_flash(response, str(exc), "error", settings)
+    except Exception as exc:
+        logger.exception("hot store action failed: Échec provisionnement")
+        return _hot_store_flash(
+            response, f"Échec provisionnement : {type(exc).__name__} (voir les logs).", "error", settings
+        )
+
+
+@router.post("/admin/configuration/hot-store/test")
+@router.post("/admin/security/hot-store/test")
+def admin_security_hot_store_test(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    admin=Depends(require_admin),
+):
+    from app.db.hot_store import HotStoreError
+    from app.db.hot_store_service import test_hot_store_config
+
+    response = RedirectResponse(url=_CONFIG_HOT_STORE, status_code=302)
+    actor = admin_actor(admin)
+    try:
+        result = test_hot_store_config(
+            db,
+            settings,
+            actor=actor,
+            ip_address=client_ip_from_request(request),
+        )
+        ping = result.get("ping_ms")
+        msg = f"Connexion OK — {result.get('version', '')[:80]}"
+        if ping is not None:
+            msg += f" ({ping} ms)"
+        if result.get("can_create"):
+            msg += " (CREATE OK)"
+        return _hot_store_flash(response, msg, "success", settings)
+    except HotStoreError as exc:
+        return _hot_store_flash(response, str(exc), "error", settings)
+    except Exception as exc:
+        logger.exception("hot store action failed: Échec")
+        return _hot_store_flash(
+            response, f"Échec : {type(exc).__name__} (voir les logs).", "error", settings
+        )
+
+
+@router.post("/admin/configuration/hot-store/prepare")
+@router.post("/admin/security/hot-store/prepare")
+def admin_security_hot_store_prepare(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    admin=Depends(require_admin),
+):
+    from app.db.hot_store import HotStoreError
+    from app.db.hot_store_service import prepare_hot_store_schema
+
+    response = RedirectResponse(url=_CONFIG_HOT_STORE, status_code=302)
+    try:
+        prepare_hot_store_schema(
+            db,
+            settings,
+            actor=admin_actor(admin),
+            ip_address=client_ip_from_request(request),
+        )
+        return _hot_store_flash(response, "Schéma hot store initialisé.", "success", settings)
+    except HotStoreError as exc:
+        return _hot_store_flash(response, str(exc), "error", settings)
+    except Exception as exc:
+        logger.exception("hot store action failed: Échec schéma")
+        return _hot_store_flash(
+            response, f"Échec schéma : {type(exc).__name__} (voir les logs).", "error", settings
+        )
+
+
+@router.post("/admin/configuration/hot-store/migrate")
+@router.post("/admin/security/hot-store/migrate")
+def admin_security_hot_store_migrate(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    admin=Depends(require_admin),
+):
+    from app.db.hot_store import HotStoreError
+    from app.db.hot_store_service import run_hot_store_migrate
+
+    response = RedirectResponse(url=_CONFIG_HOT_STORE, status_code=302)
+    try:
+        counts = run_hot_store_migrate(
+            db,
+            settings,
+            actor=admin_actor(admin),
+            ip_address=client_ip_from_request(request),
+        )
+        total = sum(counts.values())
+        return _hot_store_flash(
+            response,
+            f"Migration terminée — {total} ligne(s) copiée(s).",
+            "success",
+            settings,
+        )
+    except HotStoreError as exc:
+        return _hot_store_flash(response, str(exc), "error", settings)
+    except Exception as exc:
+        logger.exception("hot store action failed: Échec migration")
+        return _hot_store_flash(
+            response, f"Échec migration : {type(exc).__name__} (voir les logs).", "error", settings
+        )
+
+
+@router.post("/admin/configuration/hot-store/skip-migrate")
+@router.post("/admin/security/hot-store/skip-migrate")
+def admin_security_hot_store_skip_migrate(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    admin=Depends(require_admin),
+):
+    from app.db.hot_store import HotStoreError
+    from app.db.hot_store_service import skip_hot_store_migrate
+
+    response = RedirectResponse(url=_CONFIG_HOT_STORE, status_code=302)
+    try:
+        skip_hot_store_migrate(
+            db,
+            settings,
+            actor=admin_actor(admin),
+            ip_address=client_ip_from_request(request),
+        )
+        return _hot_store_flash(
+            response,
+            "Étape migration passée — vous pouvez activer le hot store à neuf.",
+            "success",
+            settings,
+        )
+    except HotStoreError as exc:
+        return _hot_store_flash(response, str(exc), "error", settings)
+
+
+@router.post("/admin/configuration/hot-store/enable")
+@router.post("/admin/security/hot-store/enable")
+def admin_security_hot_store_enable(
+    request: Request,
+    enabled: str = Form("0"),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    admin=Depends(require_admin),
+):
+    from app.db.hot_store import HotStoreError
+    from app.db.hot_store_service import set_hot_store_enabled
+
+    response = RedirectResponse(url=_CONFIG_HOT_STORE, status_code=302)
+    want = str(enabled).strip().lower() in ("1", "true", "on", "yes")
+    try:
+        set_hot_store_enabled(
+            db,
+            settings,
+            want,
+            actor=admin_actor(admin),
+            ip_address=client_ip_from_request(request),
+        )
+        msg = (
+            "Hot store activé — écritures sessions/audit/anti-bruteforce sur PostgreSQL."
+            if want
+            else "Hot store désactivé — retour sur SQLite."
+        )
+        return _hot_store_flash(response, msg, "success", settings)
+    except HotStoreError as exc:
+        return _hot_store_flash(response, str(exc), "error", settings)
+
+
+@router.post("/admin/configuration/hot-store/realign")
+def admin_hot_store_realign(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    admin=Depends(require_admin),
+):
+    """Ask the host to recreate the containers so the role password is re-applied.
+
+    The entrypoint only aligns the role when the postgres container is created,
+    and `docker compose restart` does not re-read .env — so a correct .env can
+    sit next to a stale container indefinitely. This reuses the apply-infra
+    signal, whose host script already ends with `docker compose up -d`; nothing
+    new is granted, and no secret leaves the application.
+    """
+    response = RedirectResponse(url=_CONFIG_HOT_STORE, status_code=302)
+    signal = request_host_apply(settings)
+    if not signal.get("ok"):
+        return _hot_store_flash(
+            response,
+            (
+                f"Signal hôte en échec : {signal.get('message')}. "
+                "Lancez scripts/reset-hot-store-password.sh --keep sur l'hôte."
+            ),
+            "error",
+            settings,
+        )
+    log_action(
+        db,
+        actor=admin_actor(admin),
+        action="hot_store.realign_requested",
+        target="postgres",
+        ip_address=client_ip_from_request(request),
+        details={"channel": "apply-infra"},
+    )
+    return host_apply_wait_redirect(
+        next_path=_CONFIG_HOT_STORE,
+        context_label="Réalignement du mot de passe PostgreSQL",
+        audit_target="postgres",
+        audit_source="hot_store.realign",
+    )

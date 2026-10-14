@@ -69,6 +69,11 @@ def normalize_audit_actor(
     return raw, out
 
 
+def admin_actor(user: Any) -> str:
+    """Audit ``actor`` for an admin route: email, then username, else ``admin``."""
+    return getattr(user, "email", None) or getattr(user, "username", None) or "admin"
+
+
 def log_action(
     db: Session,
     actor: str,
@@ -169,7 +174,6 @@ def list_audit_entries(
     *,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
-    severity: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> tuple[list[dict[str, Any]], int]:
@@ -197,47 +201,44 @@ def list_audit_entries(
             "catalog_severity": getattr(row, "severity", None) or "",
         }
 
-    # Severity is derived in Python — only scan when filtering by it.
-    # Dashboard / default path must use SQL LIMIT (full table load → OOM/timeout → 500).
-    if severity:
-        rows = query.all()
-        entries = [e for e in (_row_to_entry(r) for r in rows) if e["severity"] == severity]
-        total = len(entries)
-        return entries[offset : offset + limit], total
-
     total = query.count()
     rows = query.offset(max(0, offset)).limit(max(1, min(limit, 500))).all()
     return [_row_to_entry(r) for r in rows], total
 
 
 def compute_integrity(db: Session) -> dict[str, Any]:
-    rows = db.query(AuditLog).order_by(AuditLog.id.asc()).all()
-    if not rows:
-        return {
-            "score": 100,
-            "ok": True,
-            "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        }
-
+    rows = (
+        db.query(
+            AuditLog.id,
+            AuditLog.actor,
+            AuditLog.action,
+            AuditLog.target,
+            AuditLog.created_at,
+            AuditLog.details,
+        )
+        .order_by(AuditLog.id.asc())
+        .yield_per(1000)
+    )
     chain = hashlib.sha256()
+    seen = False
+    tampered = False
     for row in rows:
+        seen = True
         payload = (
             f"{row.id}|{row.actor}|{row.action}|{row.target}|"
             f"{row.created_at.isoformat() if row.created_at else ''}"
         )
         chain.update(payload.encode())
         chain.update(chain.digest())
-
-    final_hash = chain.hexdigest()
-    ok = True
-    score = 100
-    for row in rows:
-        if row.details and isinstance(row.details, dict) and row.details.get("tampered"):
-            ok = False
-            score = 0
-            break
-
-    return {"score": score, "ok": ok, "hash": final_hash[:64]}
+        if isinstance(row.details, dict) and row.details.get("tampered"):
+            tampered = True
+    if not seen:
+        return {
+            "score": 100,
+            "ok": True,
+            "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        }
+    return {"score": 0 if tampered else 100, "ok": not tampered, "hash": chain.hexdigest()[:64]}
 
 
 __all__ = [

@@ -78,8 +78,8 @@
       {% endfor %}
       <span style="flex:1;"></span>
       <a class="btn btn-ghost btn-sm" href="/admin/logs/catalogue">{{ _('Catalogue') }}</a>
-      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=csv{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">{{ _('↓ CSV') }}</a>
-      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=pdf{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">{{ _('↓ PDF') }}</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=csv{% if export_query %}&amp;{{ export_query }}{% endif %}">{{ _('↓ CSV') }}</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=pdf{% if export_query %}&amp;{{ export_query }}{% endif %}">{{ _('↓ PDF') }}</a>
     </div>
 
     {% if uncatalogued_count %}
@@ -852,12 +852,12 @@
   function startAuditLive() {
     stopAuditLive();
     var q = auditFilterQuery();
-    var viewId = new URLSearchParams(window.location.search).get('view');
-    if (viewId) {
-      var p = new URLSearchParams(q);
-      p.set('view', viewId);
-      q = p.toString();
-    }
+    var pageParams = new URLSearchParams(window.location.search);
+    var p = new URLSearchParams(q);
+    ['view', 'id'].forEach(function (k) {
+      if (pageParams.get(k)) p.set(k, pageParams.get(k));
+    });
+    q = p.toString();
     auditEs = new EventSource('/admin/logs/stream' + (q ? ('?' + q) : ''));
     if (auditBtn) { auditBtn.setAttribute('aria-pressed', 'true'); auditBtn.textContent = '● Live ON'; }
     if (auditStatus) auditStatus.hidden = false;

@@ -215,7 +215,7 @@ def multi_native_settings(monkeypatch):
 
 
 def test_login_audience_labels():
-    from app.web.pages import _login_audience_label
+    from app.web.login_surface import login_audience_label as _login_audience_label
 
     assert (
         _login_audience_label(

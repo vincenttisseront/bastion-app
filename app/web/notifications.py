@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import Any
 from urllib.parse import quote
@@ -21,6 +22,8 @@ from app.models import (
     RealmConfig,
     utcnow,
 )
+
+logger = logging.getLogger(__name__)
 
 _DENIED_ACTIONS = (
     "access_denied_unknown_host",
@@ -274,6 +277,7 @@ def build_notification_feed(
         discover_recent_first_logins(db)
         db.commit()
     except Exception:
+        logger.exception("First-login discovery failed; pending users may be stale")
         db.rollback()
 
     pending_user_rows = (

@@ -31,7 +31,6 @@ PIP_DEPS=(
   "bcrypt>=5.0.0"
   "pyyaml>=6.0.3"
   "email-validator>=2.3.0"
-  "pandas>=2.2"
   "reportlab>=4.2"
   "alembic>=1.14.0"
   "apscheduler>=3.10.4"

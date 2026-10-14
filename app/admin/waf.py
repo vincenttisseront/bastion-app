@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session
 
+from app.audit import admin_actor
 from app.bastion.nginx_waf_export import ANOMALY_MAX, ANOMALY_MIN, VALID_MODES
 from app.bastion.nginx_waf_reality import build_waf_ui_context
 from app.bastion.waf_readability import format_waf_diagnostic_export_json
@@ -17,10 +18,10 @@ from app.request_client_ip import client_ip_from_request
 from app.security.waf import service as waf_service
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
+from app.web.csrf import portal_signing_secret
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
-from app.web.csrf import portal_signing_secret
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +35,6 @@ _WAF_ANCHOR_REACTIVATION = "#reactivation"
 
 def _ctx(request: Request, settings: Settings, **extra: Any) -> dict[str, Any]:
     return base_template_context(request, settings, APP_VERSION, **extra)
-
-
-def _actor(user) -> str:
-    return (getattr(user, "email", None) or getattr(user, "username", None) or "admin")
 
 
 def _flash_secret(settings: Settings) -> str:
@@ -170,7 +167,7 @@ def admin_waf_profile_post(
             portal_api_rate=int(portal_api_rate),
             portal_login_burst=int(portal_login_burst),
             portal_api_burst=int(portal_api_burst),
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request) or None,
         )
         flash_redirect(
@@ -211,7 +208,7 @@ def admin_waf_exclusion_add(
             target_name=target_name,
             uri_match=uri_match,
             allow_global=allow_global == "on",
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request) or None,
         )
         flash_redirect(
@@ -238,7 +235,7 @@ def admin_waf_exclusion_disable(
         waf_service.disable_exclusion(
             db,
             exclusion_id,
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request) or None,
         )
         flash_redirect(
@@ -265,7 +262,7 @@ def admin_waf_exclusion_delete(
         waf_service.delete_exclusion(
             db,
             exclusion_id,
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request) or None,
         )
         flash_redirect(
@@ -309,7 +306,7 @@ def admin_waf_ban_ip(
         permanent=permanent,
         ban_minutes=max(1, int(ban_minutes)),
         confirm_permanent=confirm_permanent == "on",
-        actor=_actor(user),
+        actor=admin_actor(user),
         ip_address=client_ip_from_request(request) or None,
     )
     if ban is None and permanent and confirm_permanent != "on":
@@ -372,7 +369,7 @@ def admin_waf_exclude_from_event(
             target_name=target_name,
             uri_match=uri_match or "exact",
             allow_global=False,
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request) or None,
         )
         flash_redirect(
@@ -484,7 +481,7 @@ def admin_waf_quick_toggle(
 ):
     """Toggle CRS or anti-bruteforce from Sentinel dashboard."""
     response = RedirectResponse(url=_WAF_URL_BILAN, status_code=302)
-    actor = _actor(user)
+    actor = admin_actor(user)
     ip = client_ip_from_request(request) or None
     turn_on = enabled == "on"
     handlers = {
@@ -525,7 +522,7 @@ def admin_waf_lift_ban(
     lift_ban(
         db,
         ban_id,
-        actor=_actor(user),
+        actor=admin_actor(user),
         ip_address=client_ip_from_request(request) or None,
     )
     response = RedirectResponse(url=_WAF_URL_BILAN, status_code=302)
@@ -548,7 +545,7 @@ def admin_waf_reactivate(
     result = reactivate_engine(
         db,
         settings,
-        actor=_actor(user),
+        actor=admin_actor(user),
         confirm=confirm_reactivate == "on",
     )
     # Succès → bilan (onglet Réactivation disparaît) ; échec → rester sur l'onglet.
@@ -556,7 +553,7 @@ def admin_waf_reactivate(
     response = RedirectResponse(url=f"/admin/security/waf{anchor}", status_code=302)
     log_action(
         db,
-        actor=_actor(user),
+        actor=admin_actor(user),
         action="security.waf.reactivate",
         target="portal",
         details={
@@ -604,14 +601,14 @@ def admin_waf_reactivate_subdomain(
     result = reactivate_subdomain_engine(
         db,
         settings,
-        actor=_actor(user),
+        actor=admin_actor(user),
         confirm=confirm_reactivate_subdomain == "on",
     )
     anchor = _WAF_ANCHOR_BILAN if result.get("ok") else _WAF_ANCHOR_REACTIVATION
     response = RedirectResponse(url=f"/admin/security/waf{anchor}", status_code=302)
     log_action(
         db,
-        actor=_actor(user),
+        actor=admin_actor(user),
         action="security.waf.reactivate_subdomain",
         target="subdomain",
         details={
@@ -659,14 +656,14 @@ def admin_waf_promote_subdomain_on(
     result = promote_subdomain_engine_to_on(
         db,
         settings,
-        actor=_actor(user),
+        actor=admin_actor(user),
         confirm=confirm_promote_subdomain_on == "on",
     )
     anchor = _WAF_ANCHOR_BILAN if result.get("ok") else _WAF_ANCHOR_REACTIVATION
     response = RedirectResponse(url=f"/admin/security/waf{anchor}", status_code=302)
     log_action(
         db,
-        actor=_actor(user),
+        actor=admin_actor(user),
         action="security.waf.promote_subdomain_on",
         target="subdomain",
         details={
@@ -725,10 +722,10 @@ def admin_waf_disarm(
     profile = ensure_active_profile(db)
     profile.mode = MODE_OFF
     db.commit()
-    result = disarm_engine(settings, actor=_actor(user), reason="ihm_disarm")
+    result = disarm_engine(settings, actor=admin_actor(user), reason="ihm_disarm")
     log_action(
         db,
-        actor=_actor(user),
+        actor=admin_actor(user),
         action="security.waf.disarm",
         target="portal",
         details={"ok": result.get("ok"), "sync": result.get("sync_detail")},
@@ -763,7 +760,7 @@ def admin_waf_apply(
     result = waf_service.apply_waf(
         db,
         settings,
-        actor=_actor(user),
+        actor=admin_actor(user),
         ip_address=client_ip_from_request(request) or None,
     )
     if result.get("ok"):

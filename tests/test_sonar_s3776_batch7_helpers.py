@@ -490,7 +490,7 @@ def test_fetch_live_audit_entries_filters(monkeypatch):
         },
         entry_matches_live_filters=_match,
     )
-    assert out == [{"id": 10, "action": "login"}]
+    assert out == ([{"id": 10, "action": "login"}], 10)
     session.close.assert_called_once()
 
 

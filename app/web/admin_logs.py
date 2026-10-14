@@ -8,6 +8,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
@@ -19,6 +20,7 @@ from app.audit.event_catalog import DOMAINS, EVENTS, Severity
 from app.database import SessionLocal, get_db
 from app.db.hot_store import hot_read
 from app.models import AdminLogsUserPrefs, AuditLog, SavedLogView, utcnow
+from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
 from app.web.admin_logs_query import (
     DEFAULT_COLUMNS,
@@ -33,15 +35,13 @@ from app.web.admin_logs_query import (
 )
 from app.web.openapi_responses import (
     RESP_400,
-    RESP_401,
-    RESP_403,
-    RESP_404,
-    RESP_409,
-    RESP_422,
-    RESP_500,
     RESP_503,
 )
-from app.web.audit_export import build_audit_csv_export, build_audit_pdf_export
+from app.web.audit_export import (
+    EXPORT_MAX_ROWS,
+    build_audit_csv_export,
+    build_audit_pdf_export,
+)
 from app.web.constants import APP_VERSION
 from app.i18n.middleware import get_request_locale
 from app.web.container_logs_settings import get_container_logs_config
@@ -132,6 +132,34 @@ def _parse_date_end(value: str | None) -> datetime | None:
     if dt:
         return dt.replace(hour=23, minute=59, second=59)
     return None
+
+
+def _export_query(request: Request) -> str:
+    """Current filters as a query string, for export links."""
+    return urlencode(
+        [(k, v) for k, v in request.query_params.multi_items() if k not in ("page", "export")]
+    )
+
+
+def _export_audit(request: Request, db: Session, user, fmt: str, fetch):
+    result = hot_read(fetch, default=None, what="audit log export", db=db)
+    if result is None:
+        raise HTTPException(status_code=503, detail="Journal d'audit indisponible")
+    entries, total, _choices = result
+    log_action(
+        db,
+        actor=user.email or user.username or "admin",
+        action="audit_exported",
+        target=fmt,
+        ip_address=client_ip_from_request(request) or None,
+        details={"rows": len(entries), "total": total, "query": _export_query(request)},
+    )
+    if fmt == "csv":
+        return build_audit_csv_export(entries, total=total)
+    integrity = hot_read(
+        lambda: compute_integrity(db), default=None, what="log integrity", db=db
+    )
+    return build_audit_pdf_export(entries, total=total, integrity=integrity)
 
 
 def _client_ip(request: Request) -> str | None:
@@ -398,11 +426,6 @@ def admin_logs_page(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    if export == "csv":
-        return build_audit_csv_export(db, date_from=date_from, date_to=date_to)
-    if export == "pdf":
-        return build_audit_pdf_export(db, date_from=date_from, date_to=date_to)
-
     user_key = _user_key(user)
     _ensure_system_views(db, user_key)
     (
@@ -449,12 +472,9 @@ def admin_logs_page(
         sev_min = None
     df = _parse_date(date_from)
     dt = _parse_date_end(date_to)
-    offset = (page - 1) * _PAGE_SIZE
-    # audit_logs is a hot table: without it this page has nothing to show, but
-    # it must still say so rather than 500 — and rather than show "no results",
-    # which would read as "nothing happened".
-    result = hot_read(
-        lambda: list_admin_log_entries(
+
+    def _entries(limit: int, offset: int):
+        return list_admin_log_entries(
             db,
             action=action or None,
             actor=actor or None,
@@ -469,10 +489,19 @@ def admin_logs_page(
             domains=domains,
             severities=severities,
             severity_min=sev_min,
-            limit=_PAGE_SIZE,
+            limit=limit,
             offset=offset,
             locale=get_request_locale(request),
-        ),
+        )
+
+    if export in ("csv", "pdf"):
+        return _export_audit(request, db, user, export, lambda: _entries(EXPORT_MAX_ROWS, 0))
+
+    # audit_logs is a hot table: without it this page has nothing to show, but
+    # it must still say so rather than 500 — and rather than show "no results",
+    # which would read as "nothing happened".
+    result = hot_read(
+        lambda: _entries(_PAGE_SIZE, (page - 1) * _PAGE_SIZE),
         default=None,
         what="audit log entries",
         db=db,
@@ -522,6 +551,7 @@ def admin_logs_page(
         total_pages=total_pages,
         action_choices=action_choices,
         filters=filters,
+        export_query=_export_query(request),
         active_chips=_active_chips(filters),
         focus_audit_id=audit_id,
         visible_columns=col_list,
@@ -549,7 +579,8 @@ def _fetch_live_audit_entries(
     locale: str | None,
     filters: dict[str, Any],
     entry_matches_live_filters,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], int]:
+    """New matching rows and the highest id scanned (matching or not)."""
     db = SessionLocal()
     try:
         qset = apply_audit_filters(
@@ -562,8 +593,10 @@ def _fetch_live_audit_entries(
             q=filters.get("q") or None,
             detail_kw=filters.get("detail") or None,
             event_code=filters.get("event_code") or None,
+            audit_id=filters.get("audit_id"),
         )
         rows = qset.order_by(AuditLog.id.asc()).limit(50).all()
+        scanned = max((r.id for r in rows), default=last_id)
         entries = [serialize_audit_row(r, locale=locale) for r in rows]
         return [
             e
@@ -581,7 +614,7 @@ def _fetch_live_audit_entries(
                 severities=filters.get("severities"),
                 severity_min=filters.get("sev_min"),
             )
-        ]
+        ], scanned
     finally:
         db.close()
 
@@ -602,6 +635,7 @@ async def admin_logs_stream(
     severity_min: str | None = None,
     event_code: str | None = None,
     view: int | None = None,
+    audit_id: int | None = Query(None, alias="id", ge=1),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
     db: Session = Depends(get_db),
@@ -668,6 +702,7 @@ async def admin_logs_stream(
         "domains": domains,
         "severities": severities,
         "sev_min": sev_min,
+        "audit_id": audit_id,
     }
 
     _db0 = SessionLocal()
@@ -685,14 +720,14 @@ async def admin_logs_stream(
             while time.monotonic() - started < timeout:
                 if await request.is_disconnected():
                     break
-                entries = _fetch_live_audit_entries(
+                entries, last_id = await asyncio.to_thread(
+                    _fetch_live_audit_entries,
                     last_id=last_id,
                     locale=locale,
                     filters=live_filters,
                     entry_matches_live_filters=entry_matches_live_filters,
                 )
                 for entry in entries:
-                    last_id = max(last_id, int(entry["id"]))
                     yield f"id: {entry['id']}\ndata: {json.dumps(entry, ensure_ascii=False)}\n\n"
                 yield ": keepalive\n\n"
                 try:
@@ -1014,7 +1049,7 @@ async def admin_app_access_logs_snapshot(
     tail: int = Query(200, ge=1, le=5000),
 ):
     safe = assert_loggable_slug(db, slug)
-    text = read_access_log_tail(settings, safe, lines=tail)
+    text = await asyncio.to_thread(read_access_log_tail, settings, safe, lines=tail)
     meta = describe_access_log(settings, safe)
     log_action(
         db,

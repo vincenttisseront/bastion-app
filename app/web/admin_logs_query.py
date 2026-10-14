@@ -21,7 +21,7 @@ from app.audit.event_catalog import (
 )
 from app.models import AuditLog
 from app.sql_like import LIKE_ESCAPE, contains_pattern
-from app.web.log_masking import format_details_for_display
+from app.web.log_masking import format_details_for_display, mask_secrets
 
 DEFAULT_COLUMNS = [
     "timestamp",
@@ -206,15 +206,13 @@ def _audit_event_fields(
     return event_code, ev, domain, event_label, event_title_fr, runbook, ecs_category
 
 
-def _audit_extras(row: AuditLog, details: dict[str, Any]) -> dict[str, str]:
-    extras: dict[str, str] = {}
-    for key in OPTIONAL_DETAIL_COLUMNS:
-        if key == "target":
-            extras["target"] = row.target or ""
-            continue
-        if key in details and details[key] is not None:
-            extras[key] = str(details[key])
-    return extras
+def _audit_extras(details: dict[str, Any]) -> dict[str, str]:
+    masked = mask_secrets(details)
+    return {
+        key: str(masked[key])
+        for key in OPTIONAL_DETAIL_COLUMNS
+        if masked.get(key) is not None
+    }
 
 
 def serialize_audit_row(row: AuditLog, *, locale: str | None = None) -> dict[str, Any]:
@@ -238,7 +236,7 @@ def serialize_audit_row(row: AuditLog, *, locale: str | None = None) -> dict[str
     event_code, _ev, domain, event_label, event_title_fr, runbook, ecs_category = (
         _audit_event_fields(row, action, loc)
     )
-    extras = _audit_extras(row, details)
+    extras = _audit_extras(details)
     target_display, target_title = resolve_audit_target_display(
         action,
         row.target,
@@ -356,15 +354,20 @@ def apply_audit_filters(
     if q and q.strip():
         terms = [t for t in q.strip().split() if t]
         for term in terms:
-            like = f"%{term}%"
+            like = contains_pattern(term)
             query = query.filter(
                 or_(
-                    AuditLog.actor.ilike(like),
-                    AuditLog.action.ilike(like),
-                    AuditLog.target.ilike(like),
-                    AuditLog.ip_address.ilike(like),
-                    AuditLog.event_code.ilike(like),
-                    detail_text.ilike(like),
+                    *(
+                        col.ilike(like, escape=LIKE_ESCAPE)
+                        for col in (
+                            AuditLog.actor,
+                            AuditLog.action,
+                            AuditLog.target,
+                            AuditLog.ip_address,
+                            AuditLog.event_code,
+                            detail_text,
+                        )
+                    )
                 )
             )
     return query
@@ -542,8 +545,7 @@ def entry_matches_live_filters(
         blob = (entry.get("detail_full") or "") + json.dumps(entry.get("extras") or {})
         if detail_kw.lower() not in blob.lower():
             return False
-    if q:
-        term = q.lower()
+    if q and q.strip():
         hay = " ".join(
             [
                 str(entry.get("actor") or ""),
@@ -554,6 +556,6 @@ def entry_matches_live_filters(
                 str(entry.get("detail_full") or ""),
             ]
         ).lower()
-        if term not in hay:
+        if any(term.lower() not in hay for term in q.split()):
             return False
     return True

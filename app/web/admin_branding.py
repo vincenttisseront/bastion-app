@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.audit import admin_actor
 from app.branding import (
+    MAX_FAVICON_BYTES,
     clear_branding_asset,
     ensure_branding_dir,
     get_branding_settings,
@@ -17,20 +19,16 @@ from app.branding import (
 from app.database import get_db
 from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
-from app.web.app_logos import LogoValidationError
+from app.web.app_logos import MAX_LOGO_BYTES, LogoValidationError
 from app.web.constants import APP_VERSION
+from app.web.csrf import portal_signing_secret
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
-from app.web.csrf import portal_signing_secret
 
 _ADMIN_BRANDING_PATH = '/admin/branding'
 
 router = APIRouter(tags=["admin-branding"], dependencies=[Depends(require_admin)])
-
-
-def _actor(user) -> str:
-    return getattr(user, "email", None) or getattr(user, "username", None) or "admin"
 
 
 @router.get(_ADMIN_BRANDING_PATH)
@@ -47,7 +45,7 @@ def admin_branding_page(
 
 
 @router.post(_ADMIN_BRANDING_PATH)
-async def admin_branding_save(
+def admin_branding_save(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -68,7 +66,7 @@ async def admin_branding_save(
     try:
         update_branding_settings(
             db,
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request),
             company_name=company_name,
             page_title=page_title,
@@ -97,12 +95,12 @@ async def admin_branding_logo_upload(
 ):
     token = portal_signing_secret(settings)
     response = RedirectResponse(url=_ADMIN_BRANDING_PATH, status_code=302)
-    raw = await file.read()
+    raw = await file.read(MAX_LOGO_BYTES + 1)
     try:
         save_branding_logo(
             db,
             raw,
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request),
             settings=settings,
         )
@@ -122,12 +120,12 @@ async def admin_branding_favicon_upload(
 ):
     token = portal_signing_secret(settings)
     response = RedirectResponse(url=_ADMIN_BRANDING_PATH, status_code=302)
-    raw = await file.read()
+    raw = await file.read(MAX_FAVICON_BYTES + 1)
     try:
         save_branding_favicon(
             db,
             raw,
-            actor=_actor(user),
+            actor=admin_actor(user),
             ip_address=client_ip_from_request(request),
             settings=settings,
         )
@@ -138,7 +136,7 @@ async def admin_branding_favicon_upload(
 
 
 @router.post("/admin/branding/logo/delete")
-async def admin_branding_logo_delete(
+def admin_branding_logo_delete(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -149,7 +147,7 @@ async def admin_branding_logo_delete(
     clear_branding_asset(
         db,
         kind="logo",
-        actor=_actor(user),
+        actor=admin_actor(user),
         ip_address=client_ip_from_request(request),
         settings=settings,
     )
@@ -158,7 +156,7 @@ async def admin_branding_logo_delete(
 
 
 @router.post("/admin/branding/favicon/delete")
-async def admin_branding_favicon_delete(
+def admin_branding_favicon_delete(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -169,7 +167,7 @@ async def admin_branding_favicon_delete(
     clear_branding_asset(
         db,
         kind="favicon",
-        actor=_actor(user),
+        actor=admin_actor(user),
         ip_address=client_ip_from_request(request),
         settings=settings,
     )

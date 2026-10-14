@@ -59,6 +59,7 @@ from app.rbac.user_identity import (
     format_identity_first_name,
     format_identity_last_name,
 )
+from app.request_client_ip import client_ip_from_request
 from app.secret_crypto import decrypt_secret, encrypt_secret
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
@@ -67,10 +68,7 @@ from app.web.templates import render
 from app.web.user_context import require_admin
 from app.web.openapi_responses import (
     RESP_400,
-    RESP_401,
-    RESP_403,
     RESP_404,
-    RESP_409,
 )
 from app.web.csrf import portal_signing_secret
 
@@ -183,7 +181,7 @@ def _ctx(request: Request, settings: Settings, **extra):
 
 
 def _client_ip(request: Request) -> str:
-    return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+    return client_ip_from_request(request)
 
 
 def _wants_json(request: Request) -> bool:

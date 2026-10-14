@@ -46,6 +46,7 @@ from app.rbac.keycloak_admin import (
     fetch_user_groups,
     search_keycloak_users_fuzzy,
 )
+from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
 from app.vault.app_credential_service import VaultError
 from app.vault.group_app_credential_service import (
@@ -61,10 +62,7 @@ from app.web.templates import render
 from app.web.user_context import require_admin
 from app.web.openapi_responses import (
     RESP_400,
-    RESP_401,
-    RESP_403,
     RESP_404,
-    RESP_409,
 )
 from app.web.csrf import portal_signing_secret
 
@@ -211,7 +209,7 @@ def _log_grant_mutation(
 
 
 def _client_ip(request: Request) -> str:
-    return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+    return client_ip_from_request(request)
 
 
 def _safe_redirect_url(raw: str | None, fallback: str) -> str:

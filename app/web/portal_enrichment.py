@@ -1,33 +1,12 @@
-"""Portal UI enrichment — status badges, recent sessions, filter keys."""
+"""Portal UI enrichment — status badges and section grouping."""
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
-
-from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode
 from app.bastion.bastion_fields import normalize_auth_mode, vault_enabled_for_app
-from app.models import App, AuditLog
-from app.web.sessions_service import (
-    identity_match_keys,
-    list_active_app_sessions_for_identity,
-)
-from app.web.user_context import UserContext
-
-# Legacy chip filters (kept for tests / callers); /apps now uses named sections.
-PORTAL_FILTERS: tuple[tuple[str, str], ...] = (
-    ("all", "Tous"),
-    ("web", "Web"),
-    ("proxy", "Proxy"),
-    ("vault", "Vault"),
-)
-
-# Portal body sections (Accès rapides is added separately in build_apps_sections).
-PORTAL_SECTIONS: tuple[tuple[str, str], ...] = (
-    ("applications", "Applications"),
-)
+from app.models import App
 
 # Internal protocol_filter keys → display label in tile menu (no Proxy/Vault UX).
 SECTION_LABELS: dict[str, str] = {
@@ -91,7 +70,6 @@ def build_apps_sections(
     *,
     favorite_ids: list[int] | None = None,
     show_empty_favorites: bool = True,
-    recent_sessions: list[dict[str, Any]] | None = None,
     locale: str | None = None,
 ) -> list[dict[str, Any]]:
     """
@@ -100,14 +78,11 @@ def build_apps_sections(
     - Accès rapides: user-pinned favorites (may also appear under Applications).
     - Applications: all accessible apps (no Proxy / Vault / Web type split).
 
-    ``recent_sessions`` is accepted for backward compatibility but ignored;
-    Accès rapides is driven only by favorites.
     """
     from app.i18n.catalog import t
     from app.i18n.resolve import DEFAULT_LOCALE
 
     loc = locale or DEFAULT_LOCALE
-    _ = recent_sessions  # legacy kwarg — favorites replaced auto-recent
     sections: list[dict[str, Any]] = []
     by_id = {t_tile["id"]: t_tile for t_tile in tiles if t_tile.get("id") is not None}
 
@@ -148,116 +123,3 @@ def build_apps_sections(
             }
         )
     return sections
-
-
-def _fmt_relative(dt: datetime | None, *, locale: str | None = None) -> str:
-    if dt is None:
-        return "—"
-    try:
-        from app.i18n.catalog import t
-        from app.i18n.resolve import DEFAULT_LOCALE
-        from app.models import utcnow
-
-        loc = locale or DEFAULT_LOCALE
-        now = utcnow()
-        if dt.tzinfo is None and now.tzinfo is not None:
-            from datetime import timezone
-
-            dt = dt.replace(tzinfo=timezone.utc)
-        delta = now - dt
-        secs = int(delta.total_seconds())
-        if secs < 60:
-            return t("à l'instant", loc)
-        if secs < 3600:
-            return t("il y a {m} min", loc, m=secs // 60)
-        if secs < 86400:
-            return t("il y a {h} h", loc, h=secs // 3600)
-        return t("il y a {d} j", loc, d=secs // 86400)
-    except Exception:
-        return dt.isoformat() if hasattr(dt, "isoformat") else "—"
-
-
-def recent_sessions_for_user(
-    db: Session,
-    user: UserContext,
-    *,
-    apps_by_slug: dict[str, dict[str, Any]] | None = None,
-    limit: int = 8,
-    locale: str | None = None,
-) -> list[dict[str, Any]]:
-    """
-    Recent app sessions for the portal sidebar.
-    Primary: ActiveSession kind=app; fallback: recent app_launch audit rows.
-    """
-    emails, usernames = identity_match_keys(
-        email=user.email, username=user.username
-    )
-    apps_by_slug = apps_by_slug or {}
-    out: list[dict[str, Any]] = []
-    seen: set[str] = set()
-
-    rows = list_active_app_sessions_for_identity(
-        db, emails=emails, usernames=usernames
-    )
-    for row in rows:
-        slug = (row.target or "").strip()
-        if not slug or slug in seen:
-            continue
-        seen.add(slug)
-        tile = apps_by_slug.get(slug)
-        details = row.details if isinstance(row.details, dict) else {}
-        label = (
-            (details.get("app_label") if details else None)
-            or (tile.get("label") if tile else None)
-            or slug
-        )
-        out.append(
-            {
-                "slug": slug,
-                "label": label,
-                "protocol": (row.protocol or "WEB").upper(),
-                "last_seen_label": _fmt_relative(row.last_seen_at, locale=locale),
-                "launch_url": tile.get("launch_url") if tile else None,
-                "can_launch": bool(tile and tile.get("can_launch")),
-                "app_id": tile.get("id") if tile else None,
-                "source": "session",
-            }
-        )
-        if len(out) >= limit:
-            return out
-
-    # Fallback: audit app_launch for this actor
-    actors = {a for a in (user.email, user.username) if a}
-    if actors and len(out) < limit:
-        audits = (
-            db.query(AuditLog)
-            .filter(
-                AuditLog.action == "app_launch",
-                AuditLog.actor.in_(actors),
-            )
-            .order_by(AuditLog.id.desc())
-            .limit(limit * 2)
-            .all()
-        )
-        for entry in audits:
-            slug = (entry.target or "").strip()
-            if not slug or slug in seen:
-                continue
-            seen.add(slug)
-            tile = apps_by_slug.get(slug)
-            out.append(
-                {
-                    "slug": slug,
-                    "label": tile.get("label") if tile else slug,
-                    "protocol": "WEB",
-                    "last_seen_label": _fmt_relative(entry.created_at, locale=locale),
-                    "launch_url": tile.get("launch_url") if tile else None,
-                    "can_launch": bool(tile and tile.get("can_launch")),
-                    "app_id": tile.get("id") if tile else None,
-                    "source": "audit",
-                }
-            )
-            if len(out) >= limit:
-                break
-
-    return out

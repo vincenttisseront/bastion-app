@@ -81,17 +81,13 @@ def _search_applications(db: Session, user: UserContext, q: str) -> list[dict[st
 
 
 def _search_groups(db: Session, q: str) -> list[dict[str, str]]:
-    groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
-    realms = {
-        r.id: r for r in db.query(RealmConfig).all()
-    }
+    groups = db.query(
+        RBACGroup.id, RBACGroup.name, RBACGroup.path, RBACGroup.realm_id, RBACGroup.realm_slug
+    ).order_by(RBACGroup.name)
+    realm_slugs = dict(db.query(RealmConfig.id, RealmConfig.slug).all())
     scored: list[tuple[float, dict[str, str]]] = []
     for g in groups:
-        realm_slug = ""
-        if g.realm_id and g.realm_id in realms:
-            realm_slug = realms[g.realm_id].slug or ""
-        elif g.realm_slug:
-            realm_slug = g.realm_slug
+        realm_slug = realm_slugs.get(g.realm_id) or g.realm_slug or ""
         score = score_query_against_fields(
             q,
             [g.name or "", g.path or "", realm_slug],

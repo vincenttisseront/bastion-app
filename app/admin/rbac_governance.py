@@ -19,15 +19,10 @@ from app.rbac.governance_service import (
     permissions_matrix_for_role,
     serialize_role,
 )
+from app.request_client_ip import client_ip_from_request
 from app.web.openapi_responses import (
-    RESP_400,
-    RESP_401,
-    RESP_403,
     RESP_404,
-    RESP_409,
-    RESP_422,
     RESP_500,
-    RESP_503,
 )
 from app.rbac.permission_seed import seed_governance_rbac
 from app.sso_settings import Settings, get_settings
@@ -47,7 +42,7 @@ def _wants_json(request: Request) -> bool:
 
 
 def _client_ip(request: Request) -> str:
-    return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+    return client_ip_from_request(request)
 
 
 def _mode_is_total(mode: str) -> bool:
