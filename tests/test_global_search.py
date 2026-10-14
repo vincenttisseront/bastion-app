@@ -29,7 +29,7 @@ ADMIN_HEADERS = {
     "X-Portal-Realm-Slug": "default",
 }
 
-ADMIN_CATEGORY_KEYS = ("users", "groups", "sessions", "realms", "audit")
+ADMIN_CATEGORY_KEYS = ("hosts", "users", "groups", "sessions", "realms", "audit")
 
 
 def _app(db: Session, *, slug: str, label: str, **kwargs) -> App:
@@ -74,6 +74,20 @@ def _grant_app(db: Session, app: App, group: RBACGroup) -> None:
 def test_fold_and_score_shared():
     assert fold_text("Café") == "cafe"
     assert score_query_against_fields("grafna", ["Grafana"]) >= 0.52
+    # FQDN / URL host labels must match the typed subdomain.
+    assert (
+        score_query_against_fields(
+            "sonarqube", ["sonarqube.portal.example.com"]
+        )
+        >= 0.9
+    )
+    assert (
+        score_query_against_fields(
+            "sonarqube", ["https://sonarqube.example.com/dashboard"]
+        )
+        >= 0.9
+    )
+    assert score_query_against_fields("sonar", ["SonarQube"]) >= 0.85
 
 
 def test_global_search_short_query_skips_subsearches(client, db_session):
@@ -301,3 +315,71 @@ def test_search_applications_anchor_uses_app_prefix(client, db_session):
     hits = _search_applications(db_session, user, "grafana")
     assert hits
     assert hits[0]["url"] == "/apps#app-grafana"
+
+
+def test_admin_finds_app_by_public_fqdn_without_grant(client, db_session):
+    """Admins search the full catalogue by FQDN even without a personal grant."""
+    _app(
+        db_session,
+        slug="code-quality",
+        label="Code Quality",
+        description="Analyse statique",
+        public_fqdn="sonarqube.portal.example.com",
+        access_mode="subdomain_proxy",
+    )
+    resp = client.get(
+        "/api/search?q=sonarqube",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+    )
+    assert resp.status_code == 200
+    apps = resp.json()["results"].get("applications") or []
+    assert apps
+    assert apps[0]["label"] == "Code Quality"
+    assert "sonarqube.portal.example.com" in (apps[0].get("sublabel") or "")
+    assert apps[0]["url"] == "/admin/apps/code-quality/edit"
+
+
+def test_user_finds_granted_app_by_fqdn(client, db_session):
+    group = _group(db_session)
+    app = _app(
+        db_session,
+        slug="code-quality",
+        label="Code Quality",
+        public_fqdn="sonarqube.portal.example.com",
+        access_mode="subdomain_proxy",
+    )
+    _grant_app(db_session, app, group)
+    resp = client.get(
+        "/api/search?q=sonarqube",
+        headers={**USER_HEADERS, "Accept": "application/json"},
+    )
+    assert resp.status_code == 200
+    apps = resp.json()["results"].get("applications") or []
+    assert any(r["url"] == "/apps#app-code-quality" for r in apps)
+
+
+def test_admin_finds_pending_host_subdomain(client, db_session):
+    from app.models import PendingHost
+
+    db_session.add(
+        PendingHost(
+            hostname="sonarqube.portal.example.com",
+            status="pending",
+            hit_count=3,
+            last_uri="/",
+        )
+    )
+    db_session.commit()
+    resp = client.get(
+        "/api/search?q=sonarqube",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+    )
+    assert resp.status_code == 200
+    hosts = resp.json()["results"].get("hosts") or []
+    assert any(h["label"] == "sonarqube.portal.example.com" for h in hosts)
+    for forbidden in ("hosts",):
+        user_resp = client.get(
+            "/api/search?q=sonarqube",
+            headers={**USER_HEADERS, "Accept": "application/json"},
+        )
+        assert forbidden not in user_resp.json()["results"]
