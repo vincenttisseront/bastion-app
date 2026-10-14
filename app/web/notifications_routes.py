@@ -42,6 +42,26 @@ def list_notifications(
     )
 
 
+@router.get("/badge")
+def notifications_badge(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_admin),
+) -> dict:
+    """Lightweight poll target for the topbar badge (no denied row details)."""
+    feed = build_notification_feed(
+        db,
+        user_email=user.email,
+        locale=get_request_locale(request),
+        refresh_pending_users=False,
+        include_denied_details=False,
+    )
+    return {
+        "count": int(feed.get("count") or 0),
+        "generated_at": feed.get("generated_at"),
+    }
+
+
 @router.post("/dismiss", responses=RESP_400)
 def dismiss_one(
     request: Request,

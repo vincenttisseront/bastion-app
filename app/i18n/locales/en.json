@@ -3027,5 +3027,6 @@
   "Jamais synchronisé": "Never synced",
   "Importer les groupes Keycloak et relire les effectifs (users)": "Import Keycloak groups and refresh member counts (users)",
   "Configurer le compte de service Keycloak": "Configure the Keycloak service account",
-  "Dernière sync en erreur": "Last sync failed"
+  "Dernière sync en erreur": "Last sync failed",
+  "Version déployée": "Deployed version"
 }

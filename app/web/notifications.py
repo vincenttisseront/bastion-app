@@ -105,11 +105,30 @@ def _dismissal_map(db: Session, user_email: str | None) -> dict[str, str]:
     return {r.item_id: (r.fingerprint or "") for r in rows}
 
 
+def _set_fingerprint(prefix: str, keys: list[str]) -> str:
+    """Stable fingerprint for an aggregate queue (order-independent).
+
+    Hit counters and timestamps must *not* enter the fingerprint — otherwise
+    every probe bump revives a dismissed notification and the badge never drops.
+    """
+    normalized = sorted({(k or "").strip().lower() for k in keys if (k or "").strip()})
+    return f"{prefix}:" + ",".join(normalized)
+
+
 def _is_dismissed(item: dict[str, Any], dismissed: dict[str, str]) -> bool:
     item_id = str(item.get("id") or "")
     if not item_id or item_id not in dismissed:
         return False
-    return dismissed[item_id] == str(item.get("fingerprint") or "")
+    stored = dismissed[item_id]
+    current = str(item.get("fingerprint") or "")
+    mode = str(item.get("dismiss_mode") or "exact")
+    if mode == "watermark":
+        # Dismissed while no newer event than the watermark at dismiss time.
+        try:
+            return int(current) <= int(stored)
+        except (TypeError, ValueError):
+            return stored == current
+    return stored == current
 
 
 def dismiss_notification(
@@ -202,6 +221,8 @@ def build_notification_feed(
     *,
     user_email: str | None = None,
     locale: str | None = None,
+    refresh_pending_users: bool = True,
+    include_denied_details: bool = True,
 ) -> dict[str, Any]:
     """Build badge count + actionable items for the notification panel."""
     loc = locale or DEFAULT_LOCALE
@@ -238,19 +259,17 @@ def build_notification_feed(
     if pending_count:
         latest = pending_rows[0]
         sample = ""
-        fp_bits = [str(pending_count)]
         if latest:
             sample = latest.hostname
             if latest.last_uri:
                 sample = f"{latest.hostname}{latest.last_uri}"
-            fp_bits.append(latest.hostname or "")
-            fp_bits.append(str(int(latest.hit_count or 0)))
-            if latest.last_seen_at:
-                fp_bits.append(latest.last_seen_at.isoformat())
         items.append(
             {
                 "id": "pending-hosts",
-                "fingerprint": "|".join(fp_bits),
+                "fingerprint": _set_fingerprint(
+                    "hosts", [r.hostname or "" for r in pending_rows]
+                ),
+                "dismiss_mode": "set",
                 "severity": "warn",
                 "category": "discovery",
                 "title": (
@@ -273,12 +292,13 @@ def build_notification_feed(
 
     from app.web.pending_user_service import discover_recent_first_logins
 
-    try:
-        discover_recent_first_logins(db)
-        db.commit()
-    except Exception:
-        logger.exception("First-login discovery failed; pending users may be stale")
-        db.rollback()
+    if refresh_pending_users:
+        try:
+            discover_recent_first_logins(db)
+            db.commit()
+        except Exception:
+            logger.exception("First-login discovery failed; pending users may be stale")
+            db.rollback()
 
     pending_user_rows = (
         db.query(PendingUser)
@@ -290,17 +310,13 @@ def build_notification_feed(
     pending_user_count = len(pending_user_rows)
     if pending_user_count:
         latest_u = pending_user_rows[0]
-        fp_u = [
-            str(pending_user_count),
-            latest_u.user_email or "",
-            str(int(latest_u.hit_count or 0)),
-        ]
-        if latest_u.last_seen_at:
-            fp_u.append(latest_u.last_seen_at.isoformat())
         items.append(
             {
                 "id": "pending-users",
-                "fingerprint": "|".join(fp_u),
+                "fingerprint": _set_fingerprint(
+                    "users", [r.user_email or "" for r in pending_user_rows]
+                ),
+                "dismiss_mode": "set",
                 "severity": "info",
                 "category": "identity",
                 "title": (
@@ -331,18 +347,14 @@ def build_notification_feed(
     pending_device_count = len(pending_device_rows)
     if pending_device_count:
         latest_d = pending_device_rows[0]
-        fp_d = [
-            str(pending_device_count),
-            latest_d.user_key or "",
-            latest_d.device_id or "",
-            str(int(latest_d.request_count or 0)),
-        ]
-        if latest_d.last_seen_at:
-            fp_d.append(latest_d.last_seen_at.isoformat())
         items.append(
             {
                 "id": "pending-devices",
-                "fingerprint": "|".join(fp_d),
+                "fingerprint": _set_fingerprint(
+                    "devices",
+                    [f"{r.user_key or ''}|{r.device_id or ''}" for r in pending_device_rows],
+                ),
+                "dismiss_mode": "set",
                 "severity": "info",
                 "category": "identity",
                 "title": (
@@ -373,17 +385,14 @@ def build_notification_feed(
     access_count = len(access_rows)
     if access_count:
         latest_ar = access_rows[0]
-        fp_ar = [
-            str(access_count),
-            latest_ar.username or "",
-            latest_ar.email or "",
-        ]
-        if latest_ar.created_at:
-            fp_ar.append(latest_ar.created_at.isoformat())
         items.append(
             {
                 "id": "access-requests",
-                "fingerprint": "|".join(fp_ar),
+                "fingerprint": _set_fingerprint(
+                    "access",
+                    [str(r.id) for r in access_rows if r.id is not None],
+                ),
+                "dismiss_mode": "set",
                 "severity": "info",
                 "category": "identity",
                 "title": (
@@ -433,7 +442,9 @@ def build_notification_feed(
         items.append(
             {
                 "id": "access-denied-summary",
-                "fingerprint": f"{last.id}|{_fmt_time(last.created_at)}|{denied_total}",
+                # Watermark: stay dismissed until a newer denial appears.
+                "fingerprint": str(int(last.id)),
+                "dismiss_mode": "watermark",
                 "severity": "error",
                 "category": "security",
                 "title": t(
@@ -453,28 +464,31 @@ def build_notification_feed(
                 "dismissible": True,
             }
         )
-        for row in denied_rows[:_DENIED_DISPLAY_LIMIT]:
-            details = row.details if isinstance(row.details, dict) else {}
-            uri = details.get("uri") or ""
-            body_parts = [p for p in (row.target, uri) if p]
-            items.append(
-                {
-                    "id": f"audit-{row.id}",
-                    "fingerprint": str(row.id),
-                    "severity": derive_severity(row.action),
-                    "category": "security",
-                    "title": row.action,
-                    "body": " · ".join(str(p) for p in body_parts) or (row.actor or ""),
-                    "href": (
-                        f"/admin/logs?q={quote(str(row.action or ''), safe='')}"
-                        "&status=error"
-                    ),
-                    "time": _fmt_time(row.created_at),
-                    "count": 1,
-                    "counts_for_badge": False,
-                    "dismissible": True,
-                }
-            )
+        if include_denied_details:
+            for row in denied_rows[:_DENIED_DISPLAY_LIMIT]:
+                details = row.details if isinstance(row.details, dict) else {}
+                uri = details.get("uri") or ""
+                body_parts = [p for p in (row.target, uri) if p]
+                items.append(
+                    {
+                        "id": f"audit-{row.id}",
+                        "fingerprint": str(row.id),
+                        "dismiss_mode": "exact",
+                        "severity": derive_severity(row.action),
+                        "category": "security",
+                        "title": row.action,
+                        "body": " · ".join(str(p) for p in body_parts)
+                        or (row.actor or ""),
+                        "href": (
+                            f"/admin/logs?q={quote(str(row.action or ''), safe='')}"
+                            "&status=error"
+                        ),
+                        "time": _fmt_time(row.created_at),
+                        "count": 1,
+                        "counts_for_badge": False,
+                        "dismissible": True,
+                    }
+                )
 
     bad_realms = (
         db.query(RealmConfig)
@@ -492,6 +506,7 @@ def build_notification_feed(
             {
                 "id": f"realm-{realm.slug}",
                 "fingerprint": f"{realm.slug}|{realm.last_test_status}",
+                "dismiss_mode": "exact",
                 "severity": "warn",
                 "category": "config",
                 "title": t(

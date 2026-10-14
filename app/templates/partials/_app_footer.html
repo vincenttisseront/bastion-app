@@ -1,0 +1,15 @@
+{# Fixed chrome footer — copyright for everyone; deployed version for admins only. #}
+<footer class="app-footer" role="contentinfo">
+  <span class="app-footer-copy">
+    {% if branding and branding.footer_text %}
+      {{ branding.footer_text }}
+    {% elif branding and branding.company_name and not branding.show_product_branding %}
+      © {{ (now or '')[:4] }} {{ branding.company_name }}
+    {% else %}
+      © {{ (now or '')[:4] }} Bastion Pro
+    {% endif %}
+  </span>
+  {% if is_admin and app_version %}
+    <span class="app-footer-version" title="{{ _('Version déployée') }}">v{{ app_version }}</span>
+  {% endif %}
+</footer>
