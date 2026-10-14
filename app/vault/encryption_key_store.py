@@ -9,6 +9,8 @@ Resolution order at boot (ensure_encryption_key):
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
 import os
 import shutil
@@ -25,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.audit import log_action
 from app.models import EncryptionKeyVersion, utcnow
 from app.sso_settings import Settings
+from app.vault.keyfile import write_secret_file
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +97,7 @@ def get_key_by_version(settings: Settings, version: int) -> str:
     path = key_path(resolve_keys_dir(settings), version)
     if not path.is_file():
         raise EncryptionKeyStoreError(f"key file for version {version} not found")
-    return path.read_text(encoding="ascii").strip()
+    return as_fernet_key(path.read_text(encoding="ascii"))
 
 
 def _set_active_cache(material: str, version: int) -> None:
@@ -130,11 +133,10 @@ def _ensure_keys_dir(keys_dir: Path) -> None:
 
 
 def _write_key_file(path: Path, material: str) -> None:
-    path.write_text(material.strip() + "\n", encoding="ascii")
     try:
-        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 0600
+        write_secret_file(path, material)
     except OSError as exc:
-        raise EncryptionKeyStoreError(f"cannot set permissions on {path}") from exc
+        raise EncryptionKeyStoreError(f"cannot write key file {path}") from exc
 
 
 def _read_current_version(keys_dir: Path) -> int | None:
@@ -149,18 +151,43 @@ def _read_current_version(keys_dir: Path) -> int | None:
 
 def _write_current_version(keys_dir: Path, version: int) -> None:
     pointer = current_pointer_path(keys_dir)
-    pointer.write_text(f"{version}\n", encoding="utf-8")
     try:
-        os.chmod(pointer, stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
+        write_secret_file(pointer, str(version))
+    except OSError as exc:
+        raise EncryptionKeyStoreError(f"cannot write version pointer {pointer}") from exc
 
 
-def _env_key_material(settings: Settings) -> str:
-    raw = (settings.portal_secret_encryption_key or "").strip()
-    if not raw:
-        raw = (settings.vault_portal_vault_fernet_key or "").strip()
-    return raw
+def env_key_material(settings: Settings) -> str:
+    """Legacy env delivery — primary variable, then the vault-provided one."""
+    return (
+        (settings.portal_secret_encryption_key or "").strip()
+        or (settings.vault_portal_vault_fernet_key or "").strip()
+    )
+
+
+def derive_legacy_fernet_key(passphrase: str) -> str:
+    """Fernet key historically derived from a non-Fernet env passphrase.
+
+    Kept bit-for-bit so ciphertexts written before the key store still decrypt.
+    """
+    digest = hashlib.sha256(passphrase.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii")
+
+
+def is_fernet_key(material: str) -> bool:
+    try:
+        Fernet(material.encode("ascii"))
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
+def as_fernet_key(material: str) -> str:
+    """Return ``material`` as a real Fernet key (legacy passphrases are derived)."""
+    material = (material or "").strip()
+    if not material:
+        raise EncryptionKeyStoreError("empty key material")
+    return material if is_fernet_key(material) else derive_legacy_fernet_key(material)
 
 
 def _upsert_version_row(
@@ -207,9 +234,13 @@ def ensure_encryption_key(db: Session, settings: Settings) -> int:
             raise EncryptionKeyStoreError(
                 f"current_version={version} but missing file {path.name}"
             )
-        material = path.read_text(encoding="ascii").strip()
-        if not material:
+        stored = path.read_text(encoding="ascii").strip()
+        if not stored:
             raise EncryptionKeyStoreError(f"empty key file: {path}")
+        material = as_fernet_key(stored)
+        if material != stored:
+            _write_key_file(path, material)
+            logger.info("legacy passphrase key normalized to Fernet key version=%s", version)
         _set_active_cache(material, version)
         _upsert_version_row(
             db, version=version, status=STATUS_ACTIVE, source="loaded", activated=True
@@ -217,8 +248,9 @@ def ensure_encryption_key(db: Session, settings: Settings) -> int:
         logger.info("encryption key loaded from store version=%s", version)
         return version
 
-    env_material = _env_key_material(settings)
-    if env_material:
+    env_raw = env_key_material(settings)
+    if env_raw:
+        env_material = as_fernet_key(env_raw)
         version = 1
         _write_key_file(key_path(keys_dir, version), env_material)
         _write_current_version(keys_dir, version)
@@ -411,8 +443,6 @@ def export_active_key_backup(_settings: Settings, passphrase: str) -> bytes:
         salt=salt,
         iterations=PBKDF2_ITERATIONS,
     )
-    import base64
-
     wrap = Fernet(base64.urlsafe_b64encode(kdf.derive(phrase.encode("utf-8"))))
     token = wrap.encrypt(material)
     version = get_active_version() or 0

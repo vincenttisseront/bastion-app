@@ -10,18 +10,19 @@ PRAGMA key is applied via SQLAlchemy connect event — never in the URL.
 
 from __future__ import annotations
 
+import importlib.util
 import logging
-import os
-import stat
 from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import NullPool
 
 from app import re_safe
-from app.sso_settings import Settings
+from app.sso_settings import Settings, get_settings
 from app.vault.encryption_key_store import resolve_keys_dir
+from app.vault.keyfile import ensure_private_dir, write_secret_file
 
 logger = logging.getLogger(__name__)
 
@@ -65,12 +66,9 @@ def _import_sqlcipher():
 
 def normalize_db_encryption_key(raw: str) -> str:
     """Return lowercase 64-char hex key, or raise DbEncryptionError."""
-    material = (raw or "").strip()
-    if material.startswith(("x'", "X'")) and material.endswith("'"):
+    material = "".join((raw or "").split())
+    if material[:2].lower() == "x'" and material.endswith("'"):
         material = material[2:-1]
-    if material.lower().startswith("x'") and material.endswith("'"):
-        material = material[2:-1]
-    material = material.replace(" ", "").replace("\n", "")
     if not _HEX64.fullmatch(material):
         raise DbEncryptionError(
             "DB encryption key must be 64 hex characters (32 bytes). "
@@ -85,21 +83,16 @@ def db_encryption_key_path(settings: Settings) -> Path:
 
 def _ensure_keys_dir_perms(keys_dir: Path) -> None:
     try:
-        keys_dir.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(keys_dir)
     except OSError as exc:
         raise DbEncryptionError(f"cannot create keys directory: {keys_dir}") from exc
-    try:
-        os.chmod(keys_dir, stat.S_IRWXU)  # 0700
-    except OSError:
-        pass
 
 
 def _write_key_file(path: Path, key_hex: str) -> None:
-    path.write_text(key_hex + "\n", encoding="ascii")
     try:
-        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 0600
+        write_secret_file(path, key_hex)
     except OSError as exc:
-        raise DbEncryptionError(f"cannot set permissions on {path}") from exc
+        raise DbEncryptionError(f"cannot write DB encryption key file {path}") from exc
 
 
 def resolve_db_encryption_key(settings: Settings) -> str | None:
@@ -173,10 +166,6 @@ def create_portal_engine(database_url: str, settings: Settings | None = None, **
     Non-sqlite URLs skip SQLCipher / check_same_thread / busy_timeout — prefer
     ``app.db.hot_store.create_hot_engine`` for the Postgres hot store.
     """
-    from sqlalchemy.pool import NullPool
-
-    from app.sso_settings import get_settings
-
     cfg = settings or get_settings()
     is_sqlite = _is_sqlite_url(database_url)
     key_hex = resolve_db_encryption_key(cfg) if is_sqlite else None
@@ -227,9 +216,9 @@ def create_portal_engine(database_url: str, settings: Settings | None = None, **
 
 
 def sqlite_path_from_url(database_url: str) -> Path:
-    if not database_url.startswith("sqlite"):
+    if not _is_sqlite_url(database_url):
         raise DbEncryptionError(f"Only sqlite DATABASE_URL supported, got: {database_url}")
-    if ":memory:" in database_url or database_url.rstrip("/") in ("sqlite:", "sqlite://"):
+    if is_memory_database_url(database_url):
         raise DbEncryptionError("in-memory sqlite URL has no filesystem path")
     return Path(database_url.split("///", 1)[-1])
 
@@ -282,35 +271,24 @@ def assert_db_cipher_state(database_url: str, key_hex: str | None) -> None:
             "Run scripts/encrypt_portal_db.py before starting the app / Alembic."
         )
 
-def _sqlcipher_available() -> bool:
-    try:
-        import importlib.util
 
-        return importlib.util.find_spec("sqlcipher3") is not None
-    except Exception:
-        return False
+def _sqlcipher_available() -> bool:
+    return importlib.util.find_spec("sqlcipher3") is not None
 
 
 def _probe_encryption_key(
     settings: Settings,
 ) -> tuple[Path, bool, bool, bool, str | None]:
-    keys_dir = resolve_keys_dir(settings)
-    key_path = keys_dir / DB_ENCRYPTION_KEY_FILENAME
-    key_file_present = False
-    if key_path.is_file():
-        try:
-            key_file_present = bool(key_path.read_text(encoding="ascii").strip())
-        except OSError:
-            key_file_present = False
+    key_path = db_encryption_key_path(settings)
+    try:
+        key_file_present = key_path.is_file() and bool(
+            key_path.read_text(encoding="ascii").strip()
+        )
+    except OSError:
+        key_file_present = False
     env_configured = bool((settings.vault_portal_db_encryption_key or "").strip())
-    enabled = key_file_present or env_configured
-    if key_file_present:
-        source: str | None = "file"
-    elif env_configured:
-        source = "env"
-    else:
-        source = None
-    return keys_dir, key_file_present, env_configured, enabled, source
+    source = "file" if key_file_present else "env" if env_configured else None
+    return key_path.parent, key_file_present, env_configured, source is not None, source
 
 
 def _probe_db_file(

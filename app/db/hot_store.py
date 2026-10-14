@@ -13,6 +13,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any, Iterable, Sequence
 from urllib.parse import quote_plus
 
@@ -33,6 +34,7 @@ from app.models import (
     SecurityRateEvent,
     SiemOutboxEntry,
     SsoSessionAnchor,
+    utcnow,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,10 +71,18 @@ _lock = threading.RLock()
 _hot_engine: Engine | None = None
 _hot_engine_dsn: str | None = None
 _hot_enabled_cache: bool = False
-_hot_enabled_checked_at: float = 0.0
-_HOT_ENABLED_TTL_SEC = 5.0
+# Each worker re-reads portal_settings at most this often; admin writes in another
+# worker therefore take up to this long to be seen here.
+_HOT_SYNC_TTL_SEC = 5.0
+_hot_synced_at: float | None = None
+_password_fallback_warned = False
 
 HOT_SCHEMA_VERSION = 1
+HOT_DEFAULT_PORT = 5432
+HOT_DEFAULT_NAME = "bastion_hot"
+HOT_DEFAULT_SSLMODE = "prefer"
+HOT_SSLMODES = frozenset({"disable", "allow", "prefer", "require", "verify-ca", "verify-full"})
+_FINGERPRINT_FALLBACK_KEY = "dev-insecure"
 
 # Safe SQL identifiers for CREATE ROLE / CREATE DATABASE (no quoting gymnastics).
 _PG_IDENT_RE = re_safe.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,62}$")
@@ -228,40 +238,32 @@ def ensure_hot_engine(dsn: str) -> Engine:
 
 
 def set_hot_enabled_cache(enabled: bool) -> None:
-    global _hot_enabled_cache, _hot_enabled_checked_at
+    global _hot_enabled_cache
     with _lock:
         _hot_enabled_cache = bool(enabled)
-        _hot_enabled_checked_at = time.monotonic()
 
 
 def invalidate_hot_enabled_cache() -> None:
-    global _hot_enabled_checked_at
+    """Force the next request of this worker to re-read portal_settings."""
+    global _hot_synced_at
     with _lock:
-        _hot_enabled_checked_at = 0.0
+        _hot_synced_at = None
 
 
-def _read_hot_enabled_from_config_session(db: Session) -> bool:
-    from app.models import PortalSettings
-    from app.portal_settings_service import PORTAL_SETTINGS_ID
-
-    row = db.query(PortalSettings).filter_by(id=PORTAL_SETTINGS_ID).first()
-    return bool(row and getattr(row, "hot_store_enabled", False))
-
-
-def hot_store_runtime_enabled(config_db: Session | None = None) -> bool:
-    """Fast path: cached flag. Optional config_db refreshes cache when stale."""
-    global _hot_enabled_cache, _hot_enabled_checked_at
-    now = time.monotonic()
+def hot_store_runtime_enabled() -> bool:
     with _lock:
-        fresh = (now - _hot_enabled_checked_at) < _HOT_ENABLED_TTL_SEC
-        if fresh:
-            return _hot_enabled_cache
-    if config_db is None:
-        with _lock:
-            return _hot_enabled_cache
-    enabled = _read_hot_enabled_from_config_session(config_db)
-    set_hot_enabled_cache(enabled)
-    return enabled
+        return _hot_enabled_cache
+
+
+def refresh_hot_engine_if_stale(config_db: Session, settings) -> None:
+    """Re-sync the hot engine from portal_settings at most once per TTL."""
+    global _hot_synced_at
+    with _lock:
+        now = time.monotonic()
+        if _hot_synced_at is not None and now - _hot_synced_at < _HOT_SYNC_TTL_SEC:
+            return
+        _hot_synced_at = now
+    sync_hot_engine_from_config(config_db, settings)
 
 
 # Auth-source labels for admin status (not credentials — names avoid S2068 false positives).
@@ -281,7 +283,7 @@ def password_fingerprint(value: str, *, key: str) -> str:
     if not value:
         return ""
     digest = hmac.new(
-        (key or "dev-insecure").encode("utf-8"), value.encode("utf-8"), hashlib.sha256
+        (key or _FINGERPRINT_FALLBACK_KEY).encode("utf-8"), value.encode("utf-8"), hashlib.sha256
     )
     return digest.hexdigest()[:8]
 
@@ -294,41 +296,93 @@ def resolve_hot_password(row: Any, *, decrypt_password, env_password: str = "") 
     source. The encrypted column is only a fallback for deployments predating
     that variable; it is precisely the second source that can drift unnoticed.
     """
+    global _password_fallback_warned
     env_password = (env_password or "").strip()
     if env_password:
         return env_password
-    enc = getattr(row, "hot_store_password_encrypted", None)
+    enc = row.hot_store_password_encrypted
     if not enc:
         return ""
-    logger.warning(
-        "hot store: HOT_STORE_PG_PASSWORD unset, falling back to the stored "
-        "password — postgres syncs its role from that variable, so the two can "
-        "drift and authentication will fail after a postgres restart"
-    )
+    if not _password_fallback_warned:
+        _password_fallback_warned = True
+        logger.warning(
+            "hot store: HOT_STORE_PG_PASSWORD unset, falling back to the stored "
+            "password — postgres syncs its role from that variable, so the two can "
+            "drift and authentication will fail after a postgres restart"
+        )
     return decrypt_password(enc) or ""
+
+
+@dataclass(frozen=True)
+class HotStoreEndpoint:
+    """Normalized hot-store connection target (everything but the password)."""
+
+    host: str
+    port: int = HOT_DEFAULT_PORT
+    database: str = HOT_DEFAULT_NAME
+    user: str = HOT_DEFAULT_NAME
+    sslmode: str = HOT_DEFAULT_SSLMODE
+
+    @classmethod
+    def parse(
+        cls,
+        *,
+        host: str | None,
+        port: Any = None,
+        database: str | None = None,
+        user: str | None = None,
+        sslmode: str | None = None,
+    ) -> HotStoreEndpoint:
+        host_n = (host or "").strip()
+        if not host_n:
+            raise HotStoreError("Hôte PostgreSQL requis")
+        try:
+            port_i = int(port or HOT_DEFAULT_PORT)
+        except (TypeError, ValueError) as exc:
+            raise HotStoreError("Port PostgreSQL invalide") from exc
+        ssl = (sslmode or "").strip() or HOT_DEFAULT_SSLMODE
+        if ssl not in HOT_SSLMODES:
+            raise HotStoreError(f"sslmode invalide : {ssl}")
+        return cls(
+            host=host_n,
+            port=port_i,
+            database=(database or "").strip() or HOT_DEFAULT_NAME,
+            user=(user or "").strip() or HOT_DEFAULT_NAME,
+            sslmode=ssl,
+        )
+
+    @classmethod
+    def from_row(cls, row: Any) -> HotStoreEndpoint | None:
+        if not (row.hot_store_host or "").strip():
+            return None
+        return cls.parse(
+            host=row.hot_store_host,
+            port=row.hot_store_port,
+            database=row.hot_store_database,
+            user=row.hot_store_user,
+            sslmode=row.hot_store_sslmode,
+        )
+
+    def dsn(self, password: str, *, database: str | None = None, user: str | None = None) -> str:
+        return build_hot_dsn(
+            host=self.host,
+            port=self.port,
+            database=database or self.database,
+            user=user or self.user,
+            password=password,
+            sslmode=self.sslmode,
+        )
 
 
 def resolve_hot_dsn_from_settings_row(
     row: Any, *, decrypt_password, env_password: str = ""
 ) -> str | None:
     """Build DSN from PortalSettings row; ``decrypt_password`` decrypts Fernet blob."""
-    host = (getattr(row, "hot_store_host", None) or "").strip()
-    if not host:
+    endpoint = HotStoreEndpoint.from_row(row)
+    if endpoint is None:
         return None
-    port = int(getattr(row, "hot_store_port", None) or 5432)
-    database = (getattr(row, "hot_store_database", None) or "").strip() or "bastion_hot"
-    user = (getattr(row, "hot_store_user", None) or "").strip() or "bastion_hot"
-    sslmode = (getattr(row, "hot_store_sslmode", None) or "prefer").strip() or "prefer"
-    password = resolve_hot_password(
-        row, decrypt_password=decrypt_password, env_password=env_password
-    )
-    return build_hot_dsn(
-        host=host,
-        port=port,
-        database=database,
-        user=user,
-        password=password,
-        sslmode=sslmode,
+    return endpoint.dsn(
+        resolve_hot_password(row, decrypt_password=decrypt_password, env_password=env_password)
     )
 
 
@@ -342,8 +396,7 @@ def sync_hot_engine_from_config(config_db: Session, settings) -> Engine | None:
         set_hot_enabled_cache(False)
         dispose_hot_engine()
         return None
-    enabled = bool(getattr(row, "hot_store_enabled", False))
-    set_hot_enabled_cache(enabled)
+    set_hot_enabled_cache(bool(row.hot_store_enabled))
     try:
         dsn = resolve_hot_dsn_from_settings_row(
             row,
@@ -403,71 +456,53 @@ def reset_hot_table_sequences(engine: Engine) -> None:
                 )
 
 
+def _scalar_or(conn, sql: str, params: dict[str, Any] | None = None, *, default=None):
+    """Run one probe in its own savepoint.
+
+    On Postgres a failed statement aborts the enclosing transaction, so without
+    the savepoint one missing table would turn every later probe into an error.
+    """
+    try:
+        with conn.begin_nested():
+            value = conn.execute(text(sql), params or {}).scalar()
+    except SQLAlchemyError:
+        return default
+    return default if value is None else value
+
+
 def collect_hot_store_stats(engine: Engine) -> dict[str, Any]:
     """Row counts, 24h activity, and approximate DB size for the admin résumé."""
-    from datetime import timedelta
-
-    from app.models import utcnow
-
-    counts: dict[str, int] = {}
-    audit_24h: int | None = None
-    rate_24h: int | None = None
+    since = {"since": utcnow() - timedelta(hours=24)}
     db_size_bytes: int | None = None
     db_size_pretty: str | None = None
-    since = utcnow() - timedelta(hours=24)
 
     with engine.connect() as conn:
-        for name in HOT_TABLE_NAMES:
-            try:
-                counts[name] = int(
-                    conn.execute(text(f'SELECT count(*) FROM "{name}"')).scalar() or 0
-                )
-            except Exception:
-                counts[name] = -1
-        try:
-            audit_24h = int(
-                conn.execute(
-                    text(
-                        "SELECT count(*) FROM audit_logs WHERE created_at >= :since"
-                    ),
-                    {"since": since},
-                ).scalar()
-                or 0
-            )
-        except Exception:
-            audit_24h = None
-        try:
-            rate_24h = int(
-                conn.execute(
-                    text(
-                        "SELECT count(*) FROM security_rate_events "
-                        "WHERE occurred_at >= :since"
-                    ),
-                    {"since": since},
-                ).scalar()
-                or 0
-            )
-        except Exception:
-            rate_24h = None
+        counts = {
+            name: int(_scalar_or(conn, f'SELECT count(*) FROM "{name}"', default=-1))
+            for name in HOT_TABLE_NAMES
+        }
+        audit_24h = _scalar_or(
+            conn, "SELECT count(*) FROM audit_logs WHERE created_at >= :since", since
+        )
+        rate_24h = _scalar_or(
+            conn,
+            "SELECT count(*) FROM security_rate_events WHERE occurred_at >= :since",
+            since,
+        )
         if engine.dialect.name == "postgresql":
-            try:
-                row = conn.execute(
-                    text(
-                        "SELECT pg_database_size(current_database()), "
-                        "pg_size_pretty(pg_database_size(current_database()))"
-                    )
-                ).one()
-                db_size_bytes = int(row[0] or 0)
-                db_size_pretty = str(row[1] or "")
-            except Exception:
-                pass
+            size = _scalar_or(conn, "SELECT pg_database_size(current_database())")
+            if size is not None:
+                db_size_bytes = int(size)
+                db_size_pretty = str(
+                    _scalar_or(conn, "SELECT pg_size_pretty(pg_database_size(current_database()))")
+                    or ""
+                )
 
-    total = sum(v for v in counts.values() if isinstance(v, int) and v >= 0)
     return {
         "table_counts": counts,
-        "table_total": total,
-        "audit_logs_24h": audit_24h,
-        "security_rate_events_24h": rate_24h,
+        "table_total": sum(v for v in counts.values() if v >= 0),
+        "audit_logs_24h": None if audit_24h is None else int(audit_24h),
+        "security_rate_events_24h": None if rate_24h is None else int(rate_24h),
         "db_size_bytes": db_size_bytes,
         "db_size_pretty": db_size_pretty,
     }
@@ -479,6 +514,13 @@ def prepare_hot_schema(engine: Engine) -> None:
     Base.metadata.create_all(bind=engine, tables=tables, checkfirst=True)
     dialect = engine.dialect.name
     with engine.begin() as conn:
+        # create_all(checkfirst=True) skips existing tables, indexes included.
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_security_rate_events_kind_key_at "
+                "ON security_rate_events (kind, key, occurred_at)"
+            )
+        )
         if dialect == "postgresql":
             conn.execute(
                 text(
@@ -553,35 +595,23 @@ def _pg_ident(name: str) -> str:
 
 
 def _connect_admin_engine(
+    endpoint: HotStoreEndpoint,
     *,
-    host: str,
-    port: int,
-    sslmode: str,
     admin_user: str,
     admin_password: str,
     admin_database: str | None = None,
-    fallback_database: str | None = None,
 ) -> tuple[Engine, str]:
     """Open an admin connection to a maintenance DB (postgres / template1 / …)."""
     candidates: list[str] = []
     if (admin_database or "").strip():
         candidates.append(admin_database.strip())
-    for name in ("postgres", "template1"):
+    for name in ("postgres", "template1", endpoint.database):
         if name not in candidates:
             candidates.append(name)
-    if (fallback_database or "").strip() and fallback_database.strip() not in candidates:
-        candidates.append(fallback_database.strip())
 
     last_exc: Exception | None = None
     for dbname in candidates:
-        dsn = build_hot_dsn(
-            host=host,
-            port=port,
-            database=dbname,
-            user=admin_user,
-            password=admin_password,
-            sslmode=sslmode,
-        )
+        dsn = endpoint.dsn(admin_password, database=dbname, user=admin_user)
         engine = create_hot_engine(dsn, poolclass=NullPool)
         try:
             with _autocommit_connect(engine) as conn:
@@ -621,31 +651,31 @@ def provision_hot_role_and_database(
     then ensures ``user`` exists with ``password``, and ``database`` exists
     owned by that role. Does not log passwords.
     """
-    params = _normalize_provision_params(
-        host=host,
-        port=port,
-        sslmode=sslmode,
-        admin_user=admin_user,
-        database=database,
-        user=user,
-        password=password,
+    endpoint = HotStoreEndpoint.parse(
+        host=host, port=port, database=database, user=user, sslmode=sslmode
     )
+    validate_pg_identifier(endpoint.database, label="Base")
+    validate_pg_identifier(endpoint.user, label="Utilisateur")
+    admin_user_n = validate_pg_identifier(admin_user, label="Utilisateur admin")
+    password_n = password or ""
+    if not password_n.strip():
+        raise HotStoreError("Mot de passe du rôle hot store requis pour le provisionnement")
+    admin_password_n = admin_password or ""
+
     engine, connected_db = _connect_admin_engine(
-        host=params["host"],
-        port=params["port"],
-        sslmode=params["sslmode"],
-        admin_user=params["admin_user"],
-        admin_password=admin_password if admin_password is not None else "",
+        endpoint,
+        admin_user=admin_user_n,
+        admin_password=admin_password_n,
         admin_database=admin_database,
-        fallback_database=params["database"],
     )
     try:
         return _run_hot_provision(
             engine=engine,
             connected_db=connected_db,
-            params=params,
-            admin_user=params["admin_user"],
-            admin_password=admin_password if admin_password is not None else "",
+            endpoint=endpoint,
+            password=password_n,
+            admin_user=admin_user_n,
+            admin_password=admin_password_n,
         )
     except HotStoreError:
         raise
@@ -655,74 +685,25 @@ def provision_hot_role_and_database(
         engine.dispose()
 
 
-def _normalize_provision_params(
-    *,
-    host: str,
-    port: int,
-    sslmode: str,
-    admin_user: str,
-    database: str,
-    user: str,
-    password: str,
-) -> dict[str, Any]:
-    host_n = host.strip() if host else ""
-    if not host_n:
-        raise HotStoreError("Hôte PostgreSQL requis")
-    admin_user_n = validate_pg_identifier(admin_user, label="Utilisateur admin")
-    database_n = validate_pg_identifier(database, label="Base")
-    user_n = validate_pg_identifier(user, label="Utilisateur")
-    password_n = password if password is not None else ""
-    if not password_n.strip():
-        raise HotStoreError("Mot de passe du rôle hot store requis pour le provisionnement")
-    ssl_n = sslmode.strip() if sslmode else "prefer"
-    if not ssl_n:
-        ssl_n = "prefer"
-    try:
-        port_i = int(port) if port is not None else 5432
-    except (TypeError, ValueError) as exc:
-        raise HotStoreError("Port PostgreSQL invalide") from exc
-    return {
-        "host": host_n,
-        "port": port_i,
-        "sslmode": ssl_n,
-        "admin_user": admin_user_n,
-        "database": database_n,
-        "user": user_n,
-        "password": password_n,
-    }
-
-
 def _run_hot_provision(
     *,
-    engine: Any,
+    engine: Engine,
     connected_db: str,
-    params: dict[str, Any],
+    endpoint: HotStoreEndpoint,
+    password: str,
     admin_user: str,
     admin_password: str,
 ) -> dict[str, Any]:
-    host = params["host"]
-    port_i = params["port"]
-    sslmode = params["sslmode"]
-    database = params["database"]
-    user = params["user"]
-    password = params["password"]
-
     with _autocommit_connect(engine) as conn:
         role_exists, role_created, role_password_set, role_sql = (
-            _provision_create_role(conn, user=user, password=password)
+            _provision_create_role(conn, user=endpoint.user, password=password)
         )
         database_created = _provision_ensure_database(
-            conn, database=database, role_sql=role_sql
+            conn, database=endpoint.database, role_sql=role_sql
         )
 
     _provision_grant_schema(
-        host=host,
-        port_i=port_i,
-        database=database,
-        admin_user=admin_user,
-        admin_password=admin_password,
-        sslmode=sslmode,
-        role_sql=role_sql,
+        endpoint.dsn(admin_password, user=admin_user), role_sql=role_sql
     )
 
     if role_exists:
@@ -730,15 +711,7 @@ def _run_hot_provision(
             engine, password=password, role_sql=role_sql
         )
 
-    app_dsn = build_hot_dsn(
-        host=host,
-        port=port_i,
-        database=database,
-        user=user,
-        password=password,
-        sslmode=sslmode,
-    )
-    verify = test_hot_connection(app_dsn)
+    verify = test_hot_connection(endpoint.dsn(password))
     if not verify.get("ok"):
         raise HotStoreError(
             "Rôle/base créés mais la connexion applicative a échoué après alignement"
@@ -749,8 +722,8 @@ def _run_hot_provision(
         "role_created": role_created,
         "role_password_set": role_password_set,
         "database_created": database_created,
-        "database": database,
-        "user": user,
+        "database": endpoint.database,
+        "user": endpoint.user,
         "ping_ms": verify.get("ping_ms"),
         "version": verify.get("version"),
     }
@@ -796,45 +769,21 @@ def _provision_ensure_database(
     db_sql = _pg_ident(database)
     if not db_exists:
         conn.exec_driver_sql(f"CREATE DATABASE {db_sql} OWNER {role_sql}")
-        conn.exec_driver_sql(
-            f"GRANT ALL PRIVILEGES ON DATABASE {db_sql} TO {role_sql}"
-        )
-        return True
-    conn.exec_driver_sql(
-        f"GRANT ALL PRIVILEGES ON DATABASE {db_sql} TO {role_sql}"
-    )
-    try:
-        conn.exec_driver_sql(f"ALTER DATABASE {db_sql} OWNER TO {role_sql}")
-    except Exception:
-        logger.debug(
-            "hot store: ALTER DATABASE OWNER skipped (insufficient privilege)",
-            exc_info=True,
-        )
-    conn.exec_driver_sql(
-        f"GRANT ALL PRIVILEGES ON DATABASE {db_sql} TO {role_sql}"
-    )
-    return False
+    else:
+        try:
+            conn.exec_driver_sql(f"ALTER DATABASE {db_sql} OWNER TO {role_sql}")
+        except SQLAlchemyError:
+            logger.debug(
+                "hot store: ALTER DATABASE OWNER skipped (insufficient privilege)",
+                exc_info=True,
+            )
+    conn.exec_driver_sql(f"GRANT ALL PRIVILEGES ON DATABASE {db_sql} TO {role_sql}")
+    return not db_exists
 
 
-def _provision_grant_schema(
-    *,
-    host: str,
-    port_i: int,
-    database: str,
-    admin_user: str,
-    admin_password: str,
-    sslmode: str,
-    role_sql: str,
-) -> None:
-    target_dsn = build_hot_dsn(
-        host=host,
-        port=port_i,
-        database=database,
-        user=admin_user,
-        password=admin_password,
-        sslmode=sslmode,
-    )
-    target_engine = create_hot_engine(target_dsn, poolclass=NullPool)
+def _provision_grant_schema(admin_dsn: str, *, role_sql: str) -> None:
+    """Grant schema rights on the hot database itself (admin login, target DB)."""
+    target_engine = create_hot_engine(admin_dsn, poolclass=NullPool)
     try:
         with _autocommit_connect(target_engine) as conn:
             conn.exec_driver_sql(f"GRANT ALL ON SCHEMA public TO {role_sql}")
@@ -1044,31 +993,23 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
             ),
         )
 
-    host = (getattr(row, "hot_store_host", None) or "").strip() or None
+    host = (row.hot_store_host or "").strip() or None
     configured = bool(host)
-    enabled = bool(getattr(row, "hot_store_enabled", False))
-    password_set = bool(getattr(row, "hot_store_password_encrypted", None))
-    last_at = getattr(row, "hot_store_last_migrate_at", None)
-    last_summary = getattr(row, "hot_store_last_migrate_summary", None)
-    schema_at = getattr(row, "hot_store_schema_prepared_at", None)
-    schema_by = getattr(row, "hot_store_schema_prepared_by", None)
-    last_test_at = getattr(row, "hot_store_last_test_at", None)
-    last_test_ok = getattr(row, "hot_store_last_test_ok", None)
-    last_test_ms = getattr(row, "hot_store_last_test_ms", None)
-    last_test_error = getattr(row, "hot_store_last_test_error", None)
-    migrate_skipped_at = getattr(row, "hot_store_migrate_skipped_at", None)
-    migrate_skipped_by = getattr(row, "hot_store_migrate_skipped_by", None)
+    enabled = bool(row.hot_store_enabled)
+    password_set = bool(row.hot_store_password_encrypted)
+    last_at = row.hot_store_last_migrate_at
+    schema_at = row.hot_store_schema_prepared_at
+    last_test_ok = row.hot_store_last_test_ok
+    last_test_ms = row.hot_store_last_test_ms
 
     env_password = (getattr(settings, "hot_store_pg_password", "") or "").strip()
     stored_password = ""
     if password_set:
         try:
-            stored_password = decrypt_secret(
-                getattr(row, "hot_store_password_encrypted", None), settings
-            ) or ""
+            stored_password = decrypt_secret(row.hot_store_password_encrypted, settings) or ""
         except Exception:
             logger.exception("hot store: stored password could not be decrypted")
-    fp_key = getattr(settings, "vault_portal_internal_token", "") or "dev-insecure"
+    fp_key = getattr(settings, "vault_portal_internal_token", "") or _FINGERPRINT_FALLBACK_KEY
     env_fp = password_fingerprint(env_password, key=fp_key)
     stored_fp = password_fingerprint(stored_password, key=fp_key)
     if env_password:
@@ -1098,12 +1039,6 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
                     conn.execute(text("SELECT 1"))
                 ping_ms = round((time.perf_counter() - t0) * 1000, 1)
                 engine_ready = True
-                # Self-heal sequences left behind by an older migrate (duplicate pkey).
-                if enabled:
-                    try:
-                        reset_hot_table_sequences(eng)
-                    except Exception:
-                        logger.exception("hot store: sequence realign failed")
                 try:
                     stats = collect_hot_store_stats(eng)
                     counts = stats.get("table_counts") or {}
@@ -1134,7 +1069,7 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
         last_test_ok=last_test_ok if last_test_ok is None else bool(last_test_ok),
         schema_prepared=bool(schema_at or last_at),
         migrate_done=bool(last_at),
-        migrate_skipped=bool(migrate_skipped_at),
+        migrate_skipped=bool(row.hot_store_migrate_skipped_at),
         enabled=enabled,
     )
 
@@ -1142,10 +1077,10 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
         configured=configured,
         enabled=enabled,
         host=host,
-        port=int(getattr(row, "hot_store_port", None) or 5432) if configured else None,
-        database=(getattr(row, "hot_store_database", None) or None) if configured else None,
-        user=(getattr(row, "hot_store_user", None) or None) if configured else None,
-        sslmode=(getattr(row, "hot_store_sslmode", None) or "prefer") if configured else None,
+        port=int(row.hot_store_port or HOT_DEFAULT_PORT) if configured else None,
+        database=(row.hot_store_database or None) if configured else None,
+        user=(row.hot_store_user or None) if configured else None,
+        sslmode=(row.hot_store_sslmode or HOT_DEFAULT_SSLMODE) if configured else None,
         password_set=password_set,
         engine_ready=engine_ready,
         ping_ms=ping_ms,
@@ -1153,16 +1088,16 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
         table_counts=counts,
         status_badge=badge,
         status_label=label,
-        last_migrate_at=last_at.isoformat() if last_at else None,
-        last_migrate_summary=last_summary,
+        last_migrate_at=_iso(last_at),
+        last_migrate_summary=row.hot_store_last_migrate_summary,
         schema_prepared_at=_iso(schema_at),
-        schema_prepared_by=(schema_by or None),
-        last_test_at=_iso(last_test_at),
+        schema_prepared_by=(row.hot_store_schema_prepared_by or None),
+        last_test_at=_iso(row.hot_store_last_test_at),
         last_test_ok=bool(last_test_ok) if last_test_ok is not None else None,
         last_test_ms=float(last_test_ms) if last_test_ms is not None else None,
-        last_test_error=(last_test_error or None),
-        migrate_skipped_at=_iso(migrate_skipped_at),
-        migrate_skipped_by=(migrate_skipped_by or None),
+        last_test_error=(row.hot_store_last_test_error or None),
+        migrate_skipped_at=_iso(row.hot_store_migrate_skipped_at),
+        migrate_skipped_by=(row.hot_store_migrate_skipped_by or None),
         wizard_steps=wizard_steps,
         table_total=table_total,
         audit_logs_24h=audit_logs_24h,
@@ -1212,10 +1147,7 @@ def copy_table_rows(
     batch_size: int = 500,
 ) -> int:
     """Copy all rows of ``model`` from source session into dest engine. Returns count."""
-    from sqlalchemy.orm import sessionmaker as _sm
-
-    DestSession = _sm(bind=dest_engine, autoflush=False, autocommit=False)
-    dest = DestSession()
+    dest = sessionmaker(bind=dest_engine, autoflush=False, autocommit=False)()
     copied = 0
     try:
         # Clear destination table first (full replace semantics for migrate).

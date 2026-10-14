@@ -13,7 +13,7 @@ from app.bastion.nginx_waf_export import (
     _drop_unsafe_secrule_lines,
     _sanitize_generated_rules,
 )
-from app.db.hot_store_service import HotStoreError, _normalize_hot_store_fields
+from app.db.hot_store import HotStoreEndpoint, HotStoreError
 from app.oidc_bff import _oidc_row_matches_identity
 from app.portal_settings_service import _normalize_smtp_fields
 
@@ -81,18 +81,18 @@ def test_clamp_recap_hour_and_optional_str():
 
 
 def test_normalize_hot_store_fields():
-    out = _normalize_hot_store_fields(
+    out = HotStoreEndpoint.parse(
         host=" pg.example.com ",
         port=5432,
         database="",
         user="",
         sslmode="prefer",
     )
-    assert out["host"] == "pg.example.com"
-    assert out["database"] == "bastion_hot"
-    assert out["user"] == "bastion_hot"
+    assert out.host == "pg.example.com"
+    assert out.database == "bastion_hot"
+    assert out.user == "bastion_hot"
     with pytest.raises(HotStoreError, match="sslmode"):
-        _normalize_hot_store_fields(
+        HotStoreEndpoint.parse(
             host="pg.example.com",
             port=5432,
             database="db",
@@ -100,7 +100,7 @@ def test_normalize_hot_store_fields():
             sslmode="weird",
         )
     with pytest.raises(HotStoreError, match="Hôte"):
-        _normalize_hot_store_fields(
+        HotStoreEndpoint.parse(
             host="  ",
             port=5432,
             database="db",

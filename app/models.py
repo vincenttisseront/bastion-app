@@ -10,18 +10,46 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.types import TypeDecorator
 
 Base = declarative_base()
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class UTCDateTime(TypeDecorator):
+    """Timezone-aware UTC datetimes on every backend.
+
+    SQLite drops tzinfo on storage and returns naive values while Postgres (hot
+    store) returns aware ones; normalising here keeps both comparable with
+    ``utcnow()``. Naive inputs are taken as UTC.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):  # noqa: ANN001
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    def process_result_value(self, value, dialect):  # noqa: ANN001
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
 
 _FK_REALM_CONFIGS_ID = "realm_configs.id"
@@ -32,6 +60,64 @@ _FK_APPS_SLUG = "apps.slug"
 _FK_FILE_FOLDERS_ID = "file_folders.id"
 _FK_FILE_RESOURCES_ID = "file_resources.id"
 _FK_RBAC_ROLES_ID = "rbac_roles.id"
+
+
+class RevocationMixin:
+    """Admin revocation of a session registry row (jti / anchor)."""
+
+    revoked = Column(Boolean, nullable=False, default=False)
+    revoked_at = Column(UTCDateTime, nullable=True)
+    revoked_by = Column(String, nullable=True)
+    revoked_reason = Column(String, nullable=True)
+
+
+class IdentityBindingMixin:
+    """Login anchor vs latest sighting, used to detect a stolen session cookie."""
+
+    first_ip_subnet = Column(String, nullable=True)
+    first_fingerprint_hash = Column(String, nullable=True)
+    last_ip_subnet = Column(String, nullable=True)
+    last_fingerprint_hash = Column(String, nullable=True)
+
+
+class VaultCredentialMixin:
+    """Fernet-encrypted robotic credential shared by the app / user / group vaults."""
+
+    robotic_username = Column(String, nullable=False)
+    encrypted_password = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    updated_at = Column(UTCDateTime, default=utcnow, onupdate=utcnow)
+    rotated_at = Column(UTCDateTime, nullable=True)
+
+
+def subject_exclusive_check(name: str) -> CheckConstraint:
+    """Exactly one of group / user identifies the subject of a grant-like row."""
+    return CheckConstraint(
+        "(subject_type = 'group' AND rbac_group_id IS NOT NULL AND keycloak_user_id IS NULL) OR "
+        "(subject_type = 'user' AND keycloak_user_id IS NOT NULL AND rbac_group_id IS NULL)",
+        name=name,
+    )
+
+
+# AccessGrant.resource_type → the only target column allowed to be set.
+ACCESS_GRANT_TARGET_COLUMNS: dict[str, str] = {
+    "application": "application_id",
+    "system_role": "system_role",
+    "rbac_role": "rbac_role_id",
+    "file": "file_id",
+    "folder": "folder_id",
+}
+
+
+def _access_grant_resource_exclusive_sql() -> str:
+    clauses = []
+    for resource_type, column in ACCESS_GRANT_TARGET_COLUMNS.items():
+        others = " AND ".join(
+            f"{other} IS NULL" for other in ACCESS_GRANT_TARGET_COLUMNS.values() if other != column
+        )
+        clauses.append(f"(resource_type = '{resource_type}' AND {column} IS NOT NULL AND {others})")
+    return " OR ".join(clauses)
+
 
 class App(Base):
     """Application registered in the catalogue."""
@@ -45,7 +131,7 @@ class App(Base):
     realm_slug = Column(String, nullable=True)
     access_mode = Column(String, default="sso_gate", nullable=False)
     public_fqdn = Column(String, nullable=True)
-    auth_mode = Column(String, default="sso")
+    auth_mode = Column(String, default="sso", nullable=False)
     # When auth_mode=sso: trusted_headers | app_oidc (how the target consumes SSO).
     sso_bridge = Column(String, default="trusted_headers", nullable=False)
     robotic_driver = Column(String, nullable=True)
@@ -74,7 +160,7 @@ class App(Base):
     allow_activesync = Column(Boolean, default=False, nullable=False)
     # EAS per-device gate: only approved devices sync. Meaningless without allow_activesync.
     activesync_device_control = Column(Boolean, default=False, nullable=False)
-    activesync_device_control_enabled_at = Column(DateTime(timezone=True), nullable=True)
+    activesync_device_control_enabled_at = Column(UTCDateTime, nullable=True)
     # Machine-to-machine on subdomain_proxy (declarative — no product-name heuristics).
     # Basic/Bearer: same URL as browser SSO; upstream validates the credential.
     m2m_accept_basic = Column(Boolean, default=False, nullable=False)
@@ -86,18 +172,18 @@ class App(Base):
     # Verify upstream TLS cert from bastion (robotic httpx + nginx). Off for LAN/self-signed.
     upstream_tls_verify = Column(Boolean, default=False, nullable=False)
     healthcheck_url = Column(String, nullable=True)
-    enabled = Column(Boolean, default=True)
+    enabled = Column(Boolean, default=True, nullable=False)
     tile_icon = Column(String, nullable=True)
     description = Column(String(140), nullable=True)
     logo_path = Column(String, nullable=True)  # filename under PORTAL_DATA_DIR/uploads/app-logos/
     last_probe_status = Column(String, nullable=True)
     last_probe_http_code = Column(Integer, nullable=True)
     last_probe_latency_ms = Column(Integer, nullable=True)
-    last_probe_at = Column(DateTime(timezone=True), nullable=True)
+    last_probe_at = Column(UTCDateTime, nullable=True)
     last_probe_error = Column(String, nullable=True)
-    probe_enabled = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), default=utcnow)
-    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    probe_enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(UTCDateTime, default=utcnow)
+    updated_at = Column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
     credentials = relationship(
         "AppCredential",
@@ -123,7 +209,7 @@ class RBACGroup(Base):
     keycloak_group_id = Column(String, nullable=True, index=True)
     path = Column(String, nullable=True)
     member_count = Column(Integer, nullable=True)
-    synced_at = Column(DateTime(timezone=True), nullable=True)
+    synced_at = Column(UTCDateTime, nullable=True)
     # Optional UI metadata (RBAC UI v2 — Stitch alignment).
     group_tag = Column(String, nullable=True)  # e.g. Critical Access, Audit-Only
     description = Column(String, nullable=True)
@@ -165,8 +251,8 @@ class RbacRole(Base):
     name = Column(String, unique=True, nullable=False, index=True)
     inherits_from_id = Column(Integer, ForeignKey(_FK_RBAC_ROLES_ID), nullable=True)
     is_critical = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=utcnow)
-    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime, default=utcnow)
+    updated_at = Column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
     inherits_from = relationship("RbacRole", remote_side=[id], uselist=False)
     permissions = relationship(
@@ -192,7 +278,7 @@ class RolePermission(Base):
     can_delete = Column(Boolean, default=False, nullable=False)
     can_execute = Column(Boolean, default=False, nullable=False)
     locked = Column(Boolean, default=False, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    updated_at = Column(UTCDateTime, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 
     role = relationship("RbacRole", back_populates="permissions", foreign_keys=[role_id])
@@ -222,7 +308,7 @@ class AccessGrant(Base):
     folder_id = Column(Integer, ForeignKey(_FK_FILE_FOLDERS_ID), nullable=True)
 
     access_level = Column(String, default="view", nullable=False)
-    granted_at = Column(DateTime(timezone=True), default=utcnow)
+    granted_at = Column(UTCDateTime, default=utcnow)
     granted_by = Column(String, nullable=False)
 
     rbac_group = relationship(
@@ -236,22 +322,9 @@ class AccessGrant(Base):
     folder = relationship("FileFolder", foreign_keys=[folder_id])
 
     __table_args__ = (
+        subject_exclusive_check("ck_access_grant_subject_exclusive"),
         CheckConstraint(
-            "(subject_type = 'group' AND rbac_group_id IS NOT NULL AND keycloak_user_id IS NULL) OR "
-            "(subject_type = 'user' AND keycloak_user_id IS NOT NULL AND rbac_group_id IS NULL)",
-            name="ck_access_grant_subject_exclusive",
-        ),
-        CheckConstraint(
-            "(resource_type = 'application' AND application_id IS NOT NULL "
-            "AND system_role IS NULL AND rbac_role_id IS NULL AND file_id IS NULL AND folder_id IS NULL) OR "
-            "(resource_type = 'system_role' AND system_role IS NOT NULL "
-            "AND application_id IS NULL AND rbac_role_id IS NULL AND file_id IS NULL AND folder_id IS NULL) OR "
-            "(resource_type = 'rbac_role' AND rbac_role_id IS NOT NULL "
-            "AND application_id IS NULL AND system_role IS NULL AND file_id IS NULL AND folder_id IS NULL) OR "
-            "(resource_type = 'file' AND file_id IS NOT NULL "
-            "AND application_id IS NULL AND system_role IS NULL AND rbac_role_id IS NULL AND folder_id IS NULL) OR "
-            "(resource_type = 'folder' AND folder_id IS NOT NULL "
-            "AND application_id IS NULL AND system_role IS NULL AND rbac_role_id IS NULL AND file_id IS NULL)",
+            _access_grant_resource_exclusive_sql(),
             name="ck_access_grant_resource_exclusive",
         ),
     )
@@ -267,7 +340,7 @@ class FileFolder(Base):
         Integer, ForeignKey(_FK_FILE_FOLDERS_ID, ondelete="CASCADE"), nullable=True, index=True
     )
     name = Column(String, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=utcnow)
+    created_at = Column(UTCDateTime, default=utcnow)
     created_by = Column(String, nullable=False)
 
     parent = relationship("FileFolder", remote_side=[id], backref="children")
@@ -291,8 +364,8 @@ class FileResource(Base):
     description = Column(Text, nullable=True)
     category = Column(String, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=utcnow)
-    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime, default=utcnow)
+    updated_at = Column(UTCDateTime, default=utcnow, onupdate=utcnow)
     created_by = Column(String, nullable=False)
 
     folder = relationship("FileFolder", foreign_keys=[folder_id])
@@ -335,7 +408,7 @@ class FileVersion(Base):
     checksum_sha256 = Column(String, nullable=False)
     storage_path = Column(String, nullable=False, unique=True)
     encrypted = Column(Boolean, nullable=False, default=True)
-    uploaded_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    uploaded_at = Column(UTCDateTime, default=utcnow, nullable=False)
     uploaded_by = Column(String, nullable=False)
     changelog = Column(Text, nullable=True)
 
@@ -379,7 +452,7 @@ class FileChannelAssignment(Base):
     keycloak_user_id = Column(String, nullable=True, index=True)
     user_display_cache = Column(String, nullable=True)
     channel = Column(String, nullable=False, default="beta")
-    assigned_at = Column(DateTime(timezone=True), default=utcnow)
+    assigned_at = Column(UTCDateTime, default=utcnow)
     assigned_by = Column(String, nullable=False)
 
     file_resource = relationship(
@@ -400,15 +473,11 @@ class FileChannelAssignment(Base):
             "channel = 'beta'",
             name="ck_file_channel_assignment_beta_only",
         ),
-        CheckConstraint(
-            "(subject_type = 'group' AND rbac_group_id IS NOT NULL AND keycloak_user_id IS NULL) OR "
-            "(subject_type = 'user' AND keycloak_user_id IS NOT NULL AND rbac_group_id IS NULL)",
-            name="ck_file_channel_assignment_subject_exclusive",
-        ),
+        subject_exclusive_check("ck_file_channel_assignment_subject_exclusive"),
     )
 
 
-class AppCredential(Base):
+class AppCredential(VaultCredentialMixin, Base):
     """Encrypted robotic service-account credential (Fernet) — portal vault."""
 
     __tablename__ = "app_credentials"
@@ -421,17 +490,12 @@ class AppCredential(Base):
         unique=True,
         index=True,
     )
-    robotic_username = Column(String, nullable=False)
-    encrypted_password = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=utcnow)
-    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
-    rotated_at = Column(DateTime(timezone=True), nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(UTCDateTime, default=utcnow)
 
     app = relationship("App", back_populates="credentials", foreign_keys=[app_slug])
 
 
-class UserAppCredential(Base):
+class UserAppCredential(VaultCredentialMixin, Base):
     """Per-user vault override for an application (Fernet) — optional."""
 
     __tablename__ = "user_app_credentials"
@@ -444,12 +508,7 @@ class UserAppCredential(Base):
         index=True,
     )
     keycloak_user_id = Column(String, nullable=False, index=True)
-    robotic_username = Column(String, nullable=False)
-    encrypted_password = Column(Text, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
-    rotated_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(UTCDateTime, default=utcnow, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
@@ -475,7 +534,7 @@ class UserAppFavorite(Base):
         nullable=False,
         index=True,
     )
-    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_at = Column(UTCDateTime, default=utcnow, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
@@ -505,7 +564,7 @@ class UserPublicAppLink(Base):
         nullable=False,
         index=True,
     )
-    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_at = Column(UTCDateTime, default=utcnow, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
@@ -518,7 +577,7 @@ class UserPublicAppLink(Base):
     app = relationship("App", foreign_keys=[application_id])
 
 
-class GroupAppCredential(Base):
+class GroupAppCredential(VaultCredentialMixin, Base):
     """Vault credential shared by all members of an RBAC group for one app.
 
     Priority is explicit: when a user belongs to several groups with a credential
@@ -540,13 +599,8 @@ class GroupAppCredential(Base):
         nullable=False,
         index=True,
     )
-    robotic_username = Column(String, nullable=False)
-    encrypted_password = Column(Text, nullable=False)
     priority = Column(Integer, nullable=False, default=100)
-    is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
-    rotated_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(UTCDateTime, default=utcnow, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
@@ -579,7 +633,7 @@ class GroupAppCredentialExclusion(Base):
         index=True,
     )
     keycloak_user_id = Column(String, nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_at = Column(UTCDateTime, default=utcnow, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
@@ -611,8 +665,8 @@ class RealmConfig(Base):
     scopes = Column(String, nullable=False, default="openid profile email")
     oauth2_proxy_port = Column(Integer, unique=True, nullable=False)
     oauth2_cookie_secret_encrypted = Column(String, nullable=True)
-    is_default = Column(Boolean, default=False)
-    enabled = Column(Boolean, default=False)
+    is_default = Column(Boolean, default=False, nullable=False)
+    enabled = Column(Boolean, default=False, nullable=False)
     # Pilot rollout: accept/issue bastion_session for this realm (Admin toggle).
     oidc_native_session_enabled = Column(Boolean, nullable=False, default=False)
     # Bastion-side MFA for native OIDC: enrollment UI + admin « Configurer OTP ».
@@ -629,17 +683,17 @@ class RealmConfig(Base):
     oidc_bff_redirect_uri = Column(String, nullable=True)
     last_test_status = Column(String, nullable=True)
     last_test_detail = Column(Text, nullable=True)
-    last_tested_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=utcnow)
-    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    last_tested_at = Column(UTCDateTime, nullable=True)
+    created_at = Column(UTCDateTime, default=utcnow)
+    updated_at = Column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
     # Keycloak Admin API service account (per realm) for RBAC groups sync.
     keycloak_admin_client_id = Column(String, nullable=True)
     keycloak_admin_client_secret_encrypted = Column(String, nullable=True)
-    groups_sync_enabled = Column(Boolean, default=False)
+    groups_sync_enabled = Column(Boolean, default=False, nullable=False)
     # Optional allowlist: one group name or path per line. Empty = sync all groups.
     groups_sync_include = Column(Text, nullable=True)
-    last_groups_sync_at = Column(DateTime(timezone=True), nullable=True)
+    last_groups_sync_at = Column(UTCDateTime, nullable=True)
     last_groups_sync_status = Column(String, nullable=True)  # "ok" | "error"
     last_groups_sync_error = Column(String, nullable=True)
 
@@ -652,16 +706,6 @@ class RealmConfig(Base):
     keycloak_provision_client_secret_encrypted = Column(String, nullable=True)
     provisioning_enabled = Column(Boolean, default=False, nullable=False)
 
-    # Legacy per-realm SMTP columns (unused — config is global on PortalSettings).
-    # Kept for migration/backfill compatibility; do not write from the admin UI.
-    smtp_enabled = Column(Boolean, default=False, nullable=False)
-    smtp_host = Column(String, nullable=True)
-    smtp_port = Column(Integer, nullable=True)
-    smtp_use_tls = Column(Boolean, default=True, nullable=False)
-    smtp_username = Column(String, nullable=True)
-    smtp_password_encrypted = Column(Text, nullable=True)
-    smtp_from_email = Column(String, nullable=True)
-    smtp_from_name = Column(String, nullable=True)
     # Public « Demander un accès » form on the login page → AccessRequest queue.
     access_request_enabled = Column(Boolean, default=False, nullable=False)
     # Auto-email the temporary Keycloak password after create / reset (needs global SMTP).
@@ -726,8 +770,8 @@ class BastionAccount(Base):
     pending_application_ids = Column(JSON, nullable=True)
 
     created_by = Column(String, nullable=False)  # bastion admin (email)
-    created_at = Column(DateTime(timezone=True), default=utcnow)
-    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime, default=utcnow)
+    updated_at = Column(UTCDateTime, default=utcnow, onupdate=utcnow)
     last_error = Column(String, nullable=True)  # last blocking error message
 
     realm = relationship("RealmConfig", foreign_keys=[realm_id])
@@ -759,7 +803,7 @@ class BastionAccountProvisioning(Base):
     status = Column(String, default="pending", nullable=False)
     # Driver message (success or precise error) — NEVER a plaintext secret.
     detail = Column(String, nullable=True)
-    attempted_at = Column(DateTime(timezone=True), default=utcnow)
+    attempted_at = Column(UTCDateTime, default=utcnow)
 
     account = relationship(
         "BastionAccount", back_populates="provisionings", foreign_keys=[bastion_account_id]
@@ -783,12 +827,12 @@ class BreakGlassAccount(Base):
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True, nullable=False)
     hashed_password = Column(Text, nullable=False)
-    is_active = Column(Boolean, default=True)
-    last_used_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=utcnow)
+    is_active = Column(Boolean, default=True, nullable=False)
+    last_used_at = Column(UTCDateTime, nullable=True)
+    created_at = Column(UTCDateTime, default=utcnow)
 
 
-class BreakGlassSession(Base):
+class BreakGlassSession(RevocationMixin, IdentityBindingMixin, Base):
     """Break-glass JWT session registry (jti denylist for targeted revocation).
 
     The JWT remains the source of truth for identity/expiry. This table stores
@@ -805,26 +849,18 @@ class BreakGlassSession(Base):
     id = Column(Integer, primary_key=True)
     jti = Column(String, unique=True, nullable=False, index=True)
     username = Column(String, nullable=False, index=True)
-    issued_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
-    revoked = Column(Boolean, nullable=False, default=False)
-    revoked_at = Column(DateTime(timezone=True), nullable=True)
-    revoked_by = Column(String, nullable=True)
-    revoked_reason = Column(String, nullable=True)
-    # Login anchor (nullable for rows created before identity-binding deploy).
-    first_ip_subnet = Column(String, nullable=True)
-    first_fingerprint_hash = Column(String, nullable=True)
-    last_ip_subnet = Column(String, nullable=True)
-    last_fingerprint_hash = Column(String, nullable=True)
+    issued_at = Column(UTCDateTime, nullable=False, default=utcnow)
+    expires_at = Column(UTCDateTime, nullable=False)
+    # Identity-binding columns are nullable for rows created before that deploy.
     mismatch_count = Column(Integer, nullable=True, default=0)
     # Rotation chain (anti-replay): same chain_id across jti rotations from one login.
     chain_id = Column(String, nullable=True, index=True)
     superseded_by = Column(String, nullable=True, index=True)
-    superseded_at = Column(DateTime(timezone=True), nullable=True)
+    superseded_at = Column(UTCDateTime, nullable=True)
     chain_revoked = Column(Boolean, nullable=False, default=False)
 
 
-class SsoSessionAnchor(Base):
+class SsoSessionAnchor(IdentityBindingMixin, Base):
     """SSO (oauth2-proxy) identity binding keyed by cookie hash (never plaintext)."""
 
     __tablename__ = "sso_session_anchors"
@@ -832,16 +868,12 @@ class SsoSessionAnchor(Base):
     id = Column(Integer, primary_key=True)
     cookie_hash = Column(String, unique=True, nullable=False, index=True)
     username = Column(String, nullable=True, index=True)
-    first_ip_subnet = Column(String, nullable=True)
-    first_fingerprint_hash = Column(String, nullable=True)
-    last_ip_subnet = Column(String, nullable=True)
-    last_fingerprint_hash = Column(String, nullable=True)
     mismatch_count = Column(Integer, nullable=False, default=0)
-    first_seen = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    last_seen = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    first_seen = Column(UTCDateTime, nullable=False, default=utcnow)
+    last_seen = Column(UTCDateTime, nullable=False, default=utcnow)
 
 
-class OidcSession(Base):
+class OidcSession(RevocationMixin, Base):
     """Native bastion OIDC session registry (distinct from oauth2-proxy cookies).
 
     Mirrors ``BreakGlassSession``: JWT ``jti`` is the revocation key; identity-binding
@@ -855,12 +887,8 @@ class OidcSession(Base):
     sub = Column(String, nullable=False, index=True)
     username = Column(String, nullable=True)
     realm = Column(String, nullable=False)
-    issued_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
-    revoked = Column(Boolean, nullable=False, default=False)
-    revoked_at = Column(DateTime(timezone=True), nullable=True)
-    revoked_by = Column(String, nullable=True)
-    revoked_reason = Column(String, nullable=True)
+    issued_at = Column(UTCDateTime, nullable=False, default=utcnow)
+    expires_at = Column(UTCDateTime, nullable=False)
     # Identity binding (nullable until first successful bind).
     ip_subnet = Column(String, nullable=True)
     fingerprint_hash = Column(String, nullable=True)
@@ -886,8 +914,8 @@ class OidcLoginAttempt(Base):
     client_id = Column(String, nullable=False)
     redirect_uri = Column(String, nullable=False)
     otp_failures = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
+    expires_at = Column(UTCDateTime, nullable=False, index=True)
 
 
 class AuditLog(Base):
@@ -904,7 +932,7 @@ class AuditLog(Base):
     # Catalogue-derived fields (nullable for historical rows pre-event-codes).
     event_code = Column(String, nullable=True, index=True)
     severity = Column(String, nullable=True, index=True)
-    created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
+    created_at = Column(UTCDateTime, default=utcnow, index=True)
 
 
 class SavedLogView(Base):
@@ -921,7 +949,7 @@ class SavedLogView(Base):
     filters_json = Column(JSON, nullable=False, default=dict)
     columns_json = Column(JSON, nullable=False, default=list)
     is_system = Column(Boolean, nullable=False, default=False, server_default="0")
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
 
 
 class AdminLogsUserPrefs(Base):
@@ -931,7 +959,7 @@ class AdminLogsUserPrefs(Base):
 
     user_email = Column(String, primary_key=True)
     columns_json = Column(JSON, nullable=False, default=list)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class ActiveSession(Base):
@@ -948,10 +976,10 @@ class ActiveSession(Base):
     target = Column(String, nullable=False)
     source_ip = Column(String, nullable=True)
     status = Column(String, nullable=False, default="active")
-    started_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
-    last_seen_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    started_at = Column(UTCDateTime, default=utcnow, nullable=False)
+    last_seen_at = Column(UTCDateTime, default=utcnow, nullable=False)
     details = Column(JSON, nullable=True)  # cookie diagnostics, credential source, …
-    last_verified_at = Column(DateTime(timezone=True), nullable=True)
+    last_verified_at = Column(UTCDateTime, nullable=True)
     last_verified_status = Column(String, nullable=True)  # active | invalid | unknown
 
 
@@ -980,16 +1008,16 @@ class PortalSettings(Base):
     hot_store_user = Column(String, nullable=True)
     hot_store_password_encrypted = Column(Text, nullable=True)
     hot_store_sslmode = Column(String, nullable=True)  # prefer | require | disable
-    hot_store_last_migrate_at = Column(DateTime(timezone=True), nullable=True)
+    hot_store_last_migrate_at = Column(UTCDateTime, nullable=True)
     hot_store_last_migrate_summary = Column(Text, nullable=True)
     # Guided wizard state (schema lock + test/migrate skip).
-    hot_store_schema_prepared_at = Column(DateTime(timezone=True), nullable=True)
+    hot_store_schema_prepared_at = Column(UTCDateTime, nullable=True)
     hot_store_schema_prepared_by = Column(String, nullable=True)
-    hot_store_last_test_at = Column(DateTime(timezone=True), nullable=True)
+    hot_store_last_test_at = Column(UTCDateTime, nullable=True)
     hot_store_last_test_ok = Column(Boolean, nullable=True)
     hot_store_last_test_ms = Column(Float, nullable=True)
     hot_store_last_test_error = Column(Text, nullable=True)
-    hot_store_migrate_skipped_at = Column(DateTime(timezone=True), nullable=True)
+    hot_store_migrate_skipped_at = Column(UTCDateTime, nullable=True)
     hot_store_migrate_skipped_by = Column(String, nullable=True)
 
     # Global outbound SMTP (Admin → Général → Configuration). Used for
@@ -1007,12 +1035,12 @@ class PortalSettings(Base):
     daily_recap_enabled = Column(Boolean, nullable=False, default=False)
     daily_recap_email = Column(String, nullable=True)
     daily_recap_hour = Column(Integer, nullable=False, default=7)  # 0–23, Europe/Paris
-    daily_recap_last_sent_at = Column(DateTime(timezone=True), nullable=True)
+    daily_recap_last_sent_at = Column(UTCDateTime, nullable=True)
 
     # Site identity (Admin setup wizard) — preferred over .env when set.
     portal_domain = Column(String, nullable=True)
     default_realm_slug = Column(String, nullable=True)
-    setup_wizard_completed_at = Column(DateTime(timezone=True), nullable=True)
+    setup_wizard_completed_at = Column(UTCDateTime, nullable=True)
     # Extra apex / parent domains for unknown-Host discovery (newline or CSV).
     # Always combined with the portal parent (portal.example.com → example.com).
     managed_domain_suffixes = Column(Text, nullable=True)
@@ -1024,14 +1052,14 @@ class PortalSettings(Base):
     mta_sts_mode = Column(String, nullable=False, default="testing")  # testing|enforce|none
     mta_sts_mx_hosts = Column(Text, nullable=True)  # newline-separated MX patterns
     mta_sts_max_age = Column(Integer, nullable=False, default=604800)
-    mta_sts_published_at = Column(DateTime(timezone=True), nullable=True)
+    mta_sts_published_at = Column(UTCDateTime, nullable=True)
     # When false, public Internet discovery uses mta_sts_public_mail_domain (split DNS).
     mta_sts_same_public_domain = Column(Boolean, nullable=False, default=True)
     mta_sts_public_mail_domain = Column(String, nullable=True)
     # Newline/comma-separated public recursive DNS IPs used by Admin → Vérifier.
     mta_sts_public_dns_resolvers = Column(Text, nullable=True)
 
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 
 
@@ -1059,7 +1087,7 @@ class BrandingSettings(Base):
     # False = hide product name on public pages (default for internet-facing installs).
     show_product_branding = Column(Boolean, nullable=False, default=False)
 
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 
 
@@ -1073,7 +1101,7 @@ class SecurityPolicy(Base):
     # Empty allow list = keep default RFC1918 LAN gate. Deny always wins.
     breakglass_allow_cidrs = Column(Text, nullable=False, default="")
     breakglass_deny_cidrs = Column(Text, nullable=False, default="")
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 
 
@@ -1096,7 +1124,7 @@ class SecurityBanRule(Base):
     ban_permanent = Column(Boolean, nullable=False, default=False)
     # Extra JSON (e.g. {"usernames": ["admin","root"]} for hack_username).
     config_json = Column(JSON, nullable=True)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class SecurityBan(Base):
@@ -1111,11 +1139,11 @@ class SecurityBan(Base):
     reason = Column(String, nullable=False, default="")
     # hammering | failed_login | hack_username | manual | concurrent_connections
     rule_type = Column(String, nullable=True)
-    banned_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    banned_at = Column(UTCDateTime, nullable=False, default=utcnow)
     # null + permanent=True → permanent; null + permanent=False should not occur
-    expires_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(UTCDateTime, nullable=True)
     permanent = Column(Boolean, nullable=False, default=False)
-    lifted_at = Column(DateTime(timezone=True), nullable=True)
+    lifted_at = Column(UTCDateTime, nullable=True)
     lifted_by = Column(String, nullable=True)
     created_by = Column(String, nullable=True)
 
@@ -1147,8 +1175,8 @@ class WafProfile(Base):
     ip_geoloc_enabled = Column(Boolean, nullable=False, default=True)
     is_active = Column(Boolean, nullable=False, default=False, index=True)
     created_by = Column(String, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class WafExclusion(Base):
@@ -1169,7 +1197,7 @@ class WafExclusion(Base):
     reason = Column(String, nullable=False)
     active = Column(Boolean, nullable=False, default=True, index=True)
     created_by = Column(String, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
 
 
 class SecurityAllowlistEntry(Base):
@@ -1185,7 +1213,7 @@ class SecurityAllowlistEntry(Base):
     entry_type = Column(String, nullable=False, index=True)
     value = Column(String, nullable=False)
     comment = Column(String, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
     created_by = Column(String, nullable=True)
 
 
@@ -1193,12 +1221,17 @@ class SecurityRateEvent(Base):
     """Sliding-window rate events shared across workers (SQLite / SQLCipher)."""
 
     __tablename__ = "security_rate_events"
+    # Same name as migration 044 so create_all (tests, Postgres hot store) and
+    # Alembic produce the index the sliding-window queries rely on.
+    __table_args__ = (
+        Index("ix_security_rate_events_kind_key_at", "kind", "key", "occurred_at"),
+    )
 
     id = Column(Integer, primary_key=True)
     # hammer | hammer_login | fail_ip | fail_user | success_ip
-    kind = Column(String, nullable=False, index=True)
-    key = Column(String, nullable=False, index=True)
-    occurred_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, index=True)
+    kind = Column(String, nullable=False)
+    key = Column(String, nullable=False)
+    occurred_at = Column(UTCDateTime, nullable=False, default=utcnow, index=True)
 
 
 class ContainerLogsSettings(Base):
@@ -1213,7 +1246,7 @@ class ContainerLogsSettings(Base):
     # JSON list of Compose service / container names allowed in the UI.
     allowed_containers = Column(JSON, nullable=False, default=list)
     tail_lines = Column(Integer, nullable=False, default=200)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 
 
@@ -1235,9 +1268,9 @@ class SiemForwardingSettings(Base):
     syslog_ca_subject = Column(String, nullable=True)
     syslog_ca_issuer = Column(String, nullable=True)
     syslog_ca_fingerprint_sha256 = Column(String, nullable=True)
-    syslog_ca_not_before = Column(DateTime(timezone=True), nullable=True)
-    syslog_ca_not_after = Column(DateTime(timezone=True), nullable=True)
-    syslog_ca_uploaded_at = Column(DateTime(timezone=True), nullable=True)
+    syslog_ca_not_before = Column(UTCDateTime, nullable=True)
+    syslog_ca_not_after = Column(UTCDateTime, nullable=True)
+    syslog_ca_uploaded_at = Column(UTCDateTime, nullable=True)
     syslog_ca_uploaded_by = Column(String, nullable=True)
     webhook_url = Column(String, nullable=False, default="")
     # none | bearer | basic
@@ -1250,8 +1283,8 @@ class SiemForwardingSettings(Base):
     filter_actions = Column(JSON, nullable=False, default=list)
     retry_max_queue_size = Column(Integer, nullable=False, default=5000)
     retry_max_age_minutes = Column(Integer, nullable=False, default=1440)
-    last_success_at = Column(DateTime(timezone=True), nullable=True)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    last_success_at = Column(UTCDateTime, nullable=True)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 
 
@@ -1266,9 +1299,9 @@ class SiemOutboxEntry(Base):
     # Snapshot of serialize_audit_row at enqueue time (already masked details).
     payload_json = Column(JSON, nullable=False)
     attempts = Column(Integer, nullable=False, default=0)
-    next_attempt_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, index=True)
+    next_attempt_at = Column(UTCDateTime, nullable=False, default=utcnow, index=True)
     last_error = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, index=True)
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow, index=True)
 
 
 class AcmeSettings(Base):
@@ -1287,10 +1320,10 @@ class AcmeSettings(Base):
     cf_account_id = Column(String, nullable=False, default="")
     cf_zone_id = Column(String, nullable=False, default="")
     # Last admin-triggered or sidecar-reported reconcile
-    last_reconcile_at = Column(DateTime(timezone=True), nullable=True)
+    last_reconcile_at = Column(UTCDateTime, nullable=True)
     last_reconcile_status = Column(String, nullable=True)  # ok | error | pending
     last_reconcile_message = Column(Text, nullable=True)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 
 
@@ -1311,7 +1344,7 @@ class AdminNotificationDismissal(Base):
     item_id = Column(String, nullable=False, index=True)
     # Opaque state at dismiss time — if feed fingerprint differs, show again.
     fingerprint = Column(String, nullable=False, default="")
-    dismissed_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    dismissed_at = Column(UTCDateTime, nullable=False, default=utcnow)
 
 
 class EncryptionKeyVersion(Base):
@@ -1322,9 +1355,9 @@ class EncryptionKeyVersion(Base):
     id = Column(Integer, primary_key=True)
     version = Column(Integer, unique=True, nullable=False, index=True)
     status = Column(String, nullable=False, default="active")  # active | retired | pending
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    activated_at = Column(DateTime(timezone=True), nullable=True)
-    retired_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
+    activated_at = Column(UTCDateTime, nullable=True)
+    retired_at = Column(UTCDateTime, nullable=True)
     source = Column(String, nullable=True)  # generated | migrated_from_env | rotated
 
 
@@ -1335,8 +1368,8 @@ class PendingHost(Base):
 
     id = Column(Integer, primary_key=True)
     hostname = Column(String, unique=True, nullable=False, index=True)
-    first_seen_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    first_seen_at = Column(UTCDateTime, nullable=False, default=utcnow)
+    last_seen_at = Column(UTCDateTime, nullable=False, default=utcnow)
     hit_count = Column(Integer, nullable=False, default=1)
     last_client_ip = Column(String, nullable=True)
     last_user_agent = Column(String, nullable=True)
@@ -1345,7 +1378,7 @@ class PendingHost(Base):
     status = Column(String, nullable=False, default="pending", index=True)
     approved_app_slug = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
 ACTIVESYNC_DEVICE_PENDING = "pending"
@@ -1406,21 +1439,21 @@ class ActiveSyncDevice(Base):
     # observed | backfill | user | admin
     source = Column(String, nullable=False, default="observed")
 
-    first_seen_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    first_seen_at = Column(UTCDateTime, nullable=False, default=utcnow)
+    last_seen_at = Column(UTCDateTime, nullable=False, default=utcnow)
     request_count = Column(Integer, nullable=False, default=1)
     last_ip = Column(String, nullable=True)
     sample_source_ips = Column(JSON, nullable=True, default=list)
 
     decided_by = Column(String, nullable=True)
-    decided_at = Column(DateTime(timezone=True), nullable=True)
+    decided_at = Column(UTCDateTime, nullable=True)
     decision_note = Column(Text, nullable=True)
     # Admin lock: the owner can never lift this one (stolen phone).
     blocked_by_admin = Column(Boolean, nullable=False, default=False)
 
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
     updated_at = Column(
-        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+        UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow
     )
 
     app = relationship("App", foreign_keys=[application_id])
@@ -1458,10 +1491,10 @@ class AccessRequest(Base):
         Integer, ForeignKey("bastion_accounts.id"), nullable=True
     )
     reviewed_by = Column(String, nullable=True)
-    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    reviewed_at = Column(UTCDateTime, nullable=True)
     review_notes = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at = Column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
     realm = relationship("RealmConfig", foreign_keys=[realm_id])
     bastion_account = relationship("BastionAccount", foreign_keys=[bastion_account_id])
@@ -1476,16 +1509,16 @@ class PendingUser(Base):
     user_email = Column(String, unique=True, nullable=False, index=True)
     username = Column(String, nullable=True)
     realm_slug = Column(String, nullable=False)
-    first_seen_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    first_seen_at = Column(UTCDateTime, nullable=False, default=utcnow)
+    last_seen_at = Column(UTCDateTime, nullable=False, default=utcnow)
     hit_count = Column(Integer, nullable=False, default=1)
     last_client_ip = Column(String, nullable=True)
     # pending | approved | rejected
     status = Column(String, nullable=False, default="pending", index=True)
     notes = Column(Text, nullable=True)
     reviewed_by = Column(String, nullable=True)
-    reviewed_at = Column(DateTime(timezone=True), nullable=True)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    reviewed_at = Column(UTCDateTime, nullable=True)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class DependencySnapshot(Base):
@@ -1507,7 +1540,7 @@ class DependencySnapshot(Base):
     is_direct = Column(Boolean, nullable=False, default=True)
     status = Column(String, nullable=False, default="unknown")
     # up_to_date | outdated_patch | outdated_minor | outdated_major | unknown
-    last_checked_at = Column(DateTime(timezone=True), nullable=True)
+    last_checked_at = Column(UTCDateTime, nullable=True)
     check_error = Column(String, nullable=True)
     # e.g. unlocked constraint when npm lockfile is missing
     notes = Column(String, nullable=True)
