@@ -460,6 +460,19 @@ def delete_active_ca(active_path: Path) -> None:
             # Leave .bak for rollback/audit; active gone.
 
 
+def materialize_active_from_pem(
+    active_path: Path,
+    pem_bytes: bytes,
+    *,
+    expected_fingerprint: str,
+) -> None:
+    """Write PEM to the active CA path (staging → commit). Used to restore from DB."""
+    write_staging_ca(active_path, pem_bytes)
+    commit_staging_to_active(
+        active_path, expected_fingerprint=expected_fingerprint
+    )
+
+
 def build_ssl_context_for_cafile(cafile: Path) -> ssl.SSLContext:
     if not cafile.is_file():
         raise SyslogCaError("fichier CA absent du conteneur")

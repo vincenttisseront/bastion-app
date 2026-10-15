@@ -24,6 +24,7 @@ def _settings(tmp_path: Path) -> Settings:
         exports_dir=str(tmp_path / "exports"),
         portal_data_dir=str(tmp_path / "data"),
         vault_portal_internal_token="test-secret",
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
     )  # type: ignore[call-arg]
 
 
@@ -861,6 +862,7 @@ def test_sanitize_logical_name_accepts_crt_suffix():
 
 def test_get_ca_api_status_and_delete(db_session, tmp_path):
     from app.siem.ca_service import delete_syslog_ca, get_ca_api_status, install_syslog_ca
+    from app.siem.settings_service import ensure_siem_settings
 
     settings = _settings(tmp_path)
     _enable_syslog_tls(db_session, settings)
@@ -879,6 +881,8 @@ def test_get_ca_api_status_and_delete(db_session, tmp_path):
     )
     assert installed["configured"] is True
     assert installed["logical_name"] == "status.pem"
+    row = ensure_siem_settings(db_session)
+    assert (row.syslog_ca_pem_encrypted or "").strip()
 
     deleted = delete_syslog_ca(
         db_session, settings, actor="admin@example.com", ip_address="10.0.0.1"
@@ -886,6 +890,39 @@ def test_get_ca_api_status_and_delete(db_session, tmp_path):
     assert deleted["configured"] is False
     active = ca.resolve_ca_path(settings)
     assert not active.is_file()
+    db_session.refresh(row)
+    assert not (row.syslog_ca_pem_encrypted or "").strip()
+
+
+def test_ca_rematerializes_from_db_when_file_deleted(db_session, tmp_path):
+    """CA must survive loss of the on-disk PEM (redeploy / volume wipe)."""
+    from app.siem.ca_service import get_ca_api_status, install_syslog_ca
+    from app.siem.settings_service import get_siem_config
+
+    settings = _settings(tmp_path)
+    _enable_syslog_tls(db_session, settings)
+    pem, fp = _build_ca(cn="Persist CA")
+    install_syslog_ca(
+        db_session,
+        settings,
+        raw=pem,
+        filename="persist.pem",
+        actor="admin@example.com",
+        skip_tls_probe=True,
+    )
+    active = ca.resolve_ca_path(settings)
+    assert active.is_file()
+    active.unlink()
+    assert not active.is_file()
+
+    cfg = get_siem_config(db_session, settings=settings)
+    assert cfg.syslog_ca_valid is True
+    assert active.is_file()
+    assert ca.read_ca_file_info(active).fingerprint_sha256 == fp
+
+    status = get_ca_api_status(db_session, settings)
+    assert status["configured"] is True
+    assert status["fingerprint_sha256"] == fp
 
 
 def test_run_syslog_tls_ca_test_prechecks_and_success(db_session, tmp_path):

@@ -1297,6 +1297,9 @@ class SiemForwardingSettings(Base):
     syslog_ca_not_after = Column(UTCDateTime, nullable=True)
     syslog_ca_uploaded_at = Column(UTCDateTime, nullable=True)
     syslog_ca_uploaded_by = Column(String, nullable=True)
+    # Fernet ciphertext of the CA PEM — source of truth; file under certs/siem/
+    # is rematerialized from this blob when missing after redeploy / volume loss.
+    syslog_ca_pem_encrypted = Column(Text, nullable=True)
     webhook_url = Column(String, nullable=False, default="")
     # none | bearer | basic
     webhook_auth_type = Column(String, nullable=False, default="none")
