@@ -196,5 +196,6 @@ def test_bastion_tab_stats_use_local_directory(db_session, client):
     )
     assert resp.status_code == 200
     assert "Créés bastion" in resp.text
+    assert "Dernière connexion" in resp.text
     # Local directory total (3), not Keycloak realm count.
     assert ">3<" in resp.text or "3" in resp.text

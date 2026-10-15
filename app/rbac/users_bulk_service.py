@@ -205,9 +205,16 @@ def bastion_accounts_csv(
             "realm",
             "status",
             "keycloak_user_id",
+            "last_login_at",
         ]
     )
     for a in rows:
+        last_login = ""
+        if a.last_login_at is not None:
+            try:
+                last_login = a.last_login_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+            except (TypeError, ValueError, AttributeError, OSError):
+                last_login = str(a.last_login_at)
         writer.writerow(
             [
                 a.id,
@@ -217,6 +224,7 @@ def bastion_accounts_csv(
                 realm_slugs.get(a.realm_id, a.realm_id or ""),
                 a.status or "",
                 a.keycloak_user_id or "",
+                last_login,
             ]
         )
     return buf.getvalue()

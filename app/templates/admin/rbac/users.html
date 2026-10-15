@@ -227,6 +227,7 @@
             <th>{{ _('Société') }}</th>
             <th>Realm</th>
             <th>{{ _('Statut') }}</th>
+            <th>{{ _('Dernière connexion') }}</th>
             <th>{{ _('Actions') }}</th>
           </tr>
         </thead>
@@ -260,6 +261,13 @@
               <span class="badge badge-err">{{ prov_fail | length }} app</span>
               {% elif prov_rows %}
               <span class="badge badge-muted">{{ prov_ok | length }}/{{ prov_rows | length }} apps</span>
+              {% endif %}
+            </td>
+            <td class="form-hint" title="{% if a.last_login_at %}{{ a.last_login_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}{% else %}{{ _('Jamais connecté via le portail') }}{% endif %}">
+              {% if a.last_login_at %}
+              {{ a.last_login_at.strftime('%d/%m/%Y %H:%M') }}
+              {% else %}
+              —
               {% endif %}
             </td>
             <td style="text-align:right;">
