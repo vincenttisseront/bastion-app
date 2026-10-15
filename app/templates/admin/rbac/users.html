@@ -34,14 +34,26 @@
   <div class="alert alert-warn" style="margin-bottom:var(--sp-3);">Stats Keycloak : {{ user_stats.error }}</div>
   {% endif %}
 
+  {% set stats_scope = user_stats.scope | default('keycloak') %}
   <div class="users-toolbar">
     <div class="users-stat">
       <div class="users-stat-value">{% if user_stats.total is not none %}{{ user_stats.total }}{% else %}—{% endif %}</div>
-      <div class="users-stat-label">Total utils</div>
+      <div class="users-stat-label">
+        {% if stats_scope == 'bastion' %}{{ _('Créés bastion') }}
+        {% elif stats_scope == 'grants' %}{{ _('SSO avec accès') }}
+        {% else %}{{ _('Total Keycloak') }}{% endif %}
+      </div>
     </div>
     <div class="users-stat">
       <div class="users-stat-value">{% if user_stats.active is not none %}{{ user_stats.active }}{% else %}—{% endif %}</div>
-      <div class="users-stat-label">{{ _('Actifs') }} <span class="users-stat-tag is-ok">Stable</span></div>
+      <div class="users-stat-label">
+        {{ _('Actifs') }}
+        {% if stats_scope == 'bastion' and user_stats.pending %}
+        <span class="users-stat-tag">{{ user_stats.pending }} {{ _('pending') }}</span>
+        {% elif stats_scope != 'bastion' %}
+        <span class="users-stat-tag is-ok">Stable</span>
+        {% endif %}
+      </div>
     </div>
     <div class="users-stat{% if user_stats.privileged %} is-warn{% endif %}">
       <div class="users-stat-value">{% if user_stats.privileged is not none %}{{ user_stats.privileged }}{% else %}—{% endif %}</div>
@@ -55,7 +67,7 @@
     <div class="users-stat">
       <div class="users-stat-value">{% if user_stats.suspended is not none %}{{ user_stats.suspended }}{% else %}—{% endif %}</div>
       <div class="users-stat-label">
-        Susp
+        {% if stats_scope == 'bastion' %}{{ _('Désactivés') }}{% else %}Susp{% endif %}
         {% if user_stats.suspended %}
         <span class="users-stat-tag is-warn">{{ _('Action') }}</span>
         {% else %}

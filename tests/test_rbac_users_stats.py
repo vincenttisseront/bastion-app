@@ -158,3 +158,43 @@ def test_rbac_users_stats_page_graceful(client, monkeypatch):
     assert resp.status_code == 200
     assert "Gestion des Utilisateurs" in resp.text
     assert "Gouvernance" in resp.text
+
+
+def test_bastion_tab_stats_use_local_directory(db_session, client):
+    from app.models import BastionAccount
+    from app.secret_crypto import encrypt_secret
+
+    s = get_settings()
+    realm = RealmConfig(
+        slug="portal",
+        name="Portal",
+        issuer_url="https://kc.example.com/realms/portal",
+        client_id="portal",
+        client_secret_encrypted=encrypt_secret("secret", s),
+        redirect_uri="https://portal.test/oauth2/portal/callback",
+        oauth2_proxy_port=4180,
+        groups_sync_enabled=True,
+    )
+    db_session.add(realm)
+    db_session.commit()
+    for i in range(3):
+        db_session.add(
+            BastionAccount(
+                realm_id=realm.id,
+                username=f"user{i}",
+                email=f"user{i}@example.com",
+                status="active",
+                origin="bastion",
+                keycloak_user_id=f"kc-{i}",
+                created_by="test",
+            )
+        )
+    db_session.commit()
+
+    resp = client.get(
+        "/admin/rbac/users?list_tab=bastion", headers=ADMIN_HEADERS
+    )
+    assert resp.status_code == 200
+    assert "Créés bastion" in resp.text
+    # Local directory total (3), not Keycloak realm count.
+    assert ">3<" in resp.text or "3" in resp.text

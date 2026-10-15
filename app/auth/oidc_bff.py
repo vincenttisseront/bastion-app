@@ -848,6 +848,18 @@ async def _complete_login(ctx: _LoginCtx, step: LoginStepResult):
     if not session_email and display_username and "@" in display_username:
         session_email = display_username
 
+    try:
+        from app.rbac.account_lifecycle_service import touch_bastion_login
+
+        touch_bastion_login(
+            ctx.db,
+            keycloak_user_id=tokens.sub,
+            email=session_email or ctx.email,
+            username=display_username or ctx.username,
+        )
+    except Exception:
+        logger.debug("bastion last_login touch skipped", exc_info=True)
+
     token, jti = issue_oidc_session(
         ctx.db,
         sub=tokens.sub,
