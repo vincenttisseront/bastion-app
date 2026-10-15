@@ -99,6 +99,40 @@ def start_health_scheduler(settings: Settings) -> None:
     )
     logger.info("ModSec audit aggregator scheduled (every 5 min)")
 
+    from app.rbac.account_lifecycle_service import account_lifecycle_job
+
+    scheduler.add_job(
+        account_lifecycle_job,
+        "cron",
+        hour=6,
+        minute=20,
+        timezone=recap_timezone(),
+        id="account_lifecycle",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        kwargs={"settings": settings},
+    )
+    logger.info("Account lifecycle job scheduled (daily 06:20 Europe/Paris)")
+
+    from app.rbac.app_credential_renewal_service import app_credential_renewal_job
+
+    # Interval is fixed at registration; PortalSettings batch/age apply per tick.
+    # Feature stays off until Admin enables app_credential_renewal_enabled.
+    scheduler.add_job(
+        app_credential_renewal_job,
+        "interval",
+        minutes=60,
+        id="app_credential_renewal",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        kwargs={"settings": settings},
+    )
+    logger.info(
+        "App credential renewal worker scheduled (every 60 min, disabled by default)"
+    )
+
 
 def stop_health_scheduler() -> None:
     if scheduler.running:

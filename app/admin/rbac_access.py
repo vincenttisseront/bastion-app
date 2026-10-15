@@ -701,7 +701,37 @@ async def admin_rbac_users_page(
             import_users_filtered, page=page, page_size=page_size
         )
 
-    user_stats = await fetch_user_directory_stats(db, selected_realm, settings)
+    # Stats match the active sub-tab — never mix Keycloak realm counts with
+    # « Créés bastion » (that was showing 6/9 vs 33 in the same toolbar).
+    if tab == "bastion":
+        from app.rbac.account_lifecycle_service import bastion_directory_stats
+        from app.rbac.users_stats_service import count_privileged_subjects
+
+        bastion_stats = bastion_directory_stats(db)
+        priv, priv_new = count_privileged_subjects(db)
+        user_stats = {
+            **bastion_stats,
+            "privileged": priv,
+            "privileged_new_7d": priv_new,
+            "error": None,
+            "scope": "bastion",
+        }
+    elif tab == "keycloak":
+        user_stats = {
+            "total": len(import_users_all),
+            "active": len(import_users_all),
+            "suspended": 0,
+            "pending": 0,
+            "privileged": sum(
+                1 for u in import_users_all if u.get("has_portal_admin")
+            ),
+            "privileged_new_7d": 0,
+            "error": None,
+            "scope": "grants",
+        }
+    else:
+        kc_stats = await fetch_user_directory_stats(db, selected_realm, settings)
+        user_stats = {**kc_stats.as_dict(), "scope": "keycloak", "pending": 0}
 
     kc_search_hits: list[dict] = []
     kc_search_error: str | None = None
@@ -813,7 +843,7 @@ async def admin_rbac_users_page(
             access_levels=sorted(ACCESS_LEVELS),
             active_tab="users",
             list_tab=tab,
-            user_stats=user_stats.as_dict(),
+            user_stats=user_stats,
             group_distribution=distribution,
             filter_groups=filter_groups,
             bulk_groups=bulk_groups,

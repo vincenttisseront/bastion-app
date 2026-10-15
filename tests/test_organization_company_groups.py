@@ -296,3 +296,38 @@ def test_new_user_form_shows_realm_slug_not_question_mark(client, db_session):
     badge = ghost.split("MINARM-GHOST", 1)[0]
     assert f">{realm.slug}</span>" in badge
     assert ">?</span>" not in badge
+
+
+def test_account_detail_links_to_company_group(client, db_session):
+    realm = _realm(db_session)
+    group = RBACGroup(
+        realm_id=realm.id,
+        keycloak_group_id="kc-sdis63",
+        name="SDIS63",
+        path="/SDIS63",
+        group_tag="Société",
+    )
+    db_session.add(group)
+    db_session.flush()
+    account = BastionAccount(
+        realm_id=realm.id,
+        username="christophe.marchand",
+        email="c_marchand@example.com",
+        organization="SDIS63",
+        status="keycloak_created",
+        origin="bastion",
+        keycloak_user_id="kc-user-1",
+        pending_group_ids=[group.id],
+        created_by="admin@example.com",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    page = client.get(
+        f"/admin/rbac/accounts/{account.id}", headers=ADMIN_HEADERS
+    )
+    assert page.status_code == 200
+    assert f'/admin/rbac/groups/{group.id}' in page.text
+    assert "Groupe société" in page.text
+    # Société value itself is the group link.
+    assert f'href="/admin/rbac/groups/{group.id}">SDIS63</a>' in page.text

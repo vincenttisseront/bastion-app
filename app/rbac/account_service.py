@@ -1036,6 +1036,7 @@ async def create_bastion_account(
         pending_group_ids=group_ids or None,
         pending_application_ids=application_ids or None,
         created_by=actor,
+        password_changed_at=utcnow(),
     )
     db.add(account)
     db.flush()

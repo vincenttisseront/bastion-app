@@ -136,7 +136,15 @@
       </div>
       <div class="form-group">
         <span class="form-label">{{ _('Société') }}</span>
-        <div>{{ account.organization or '—' }}</div>
+        <div>
+          {% if company_group %}
+          <a href="/admin/rbac/groups/{{ company_group.id }}">{{ account.organization or company_group.name }}</a>
+          {% elif account.organization %}
+          {{ account.organization }}
+          {% else %}
+          —
+          {% endif %}
+        </div>
       </div>
       <div class="form-group">
         <span class="form-label">Keycloak user ID</span>
@@ -149,6 +157,9 @@
       <div class="form-group" style="margin-bottom:0;">
         <span class="form-label">Liens</span>
         <div style="display:flex; flex-wrap:wrap; gap:var(--sp-3);">
+          {% if company_group %}
+          <a href="/admin/rbac/groups/{{ company_group.id }}">{{ _('Groupe société') }}</a>
+          {% endif %}
           {% if keycloak_console_url %}
           <a href="{{ keycloak_console_url }}" target="_blank" rel="noopener">{{ _('Compte Keycloak ↗') }}</a>
           {% endif %}
@@ -156,7 +167,7 @@
           <a href="/admin/rbac/users/view?account_id={{ account.id }}">{{ _('Fiche utilisateur') }}</a>
           <a href="/admin/rbac/users/view?realm_id={{ realm.id }}&amp;keycloak_user_id={{ account.keycloak_user_id }}#droits">{{ _('Droits effectifs') }}</a>
           {% endif %}
-          {% if not keycloak_console_url and not (account.keycloak_user_id and realm) %}
+          {% if not company_group and not keycloak_console_url and not (account.keycloak_user_id and realm) %}
           <span class="form-hint">—</span>
           {% endif %}
         </div>

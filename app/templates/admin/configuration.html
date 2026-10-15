@@ -13,7 +13,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Configuration</h1>
-      <p class="page-sub">{{ _('SMTP, SIEM, MTA-STS et stockage chaud PostgreSQL') }}</p>
+      <p class="page-sub">{{ _('SMTP, comptes, SIEM, MTA-STS et stockage chaud PostgreSQL') }}</p>
     </div>
     <div class="page-header-actions">
       {% if s.ready %}
@@ -51,6 +51,12 @@
       <span class="badge badge-ok tab-badge">OK</span>
       {% elif s.enabled %}
       <span class="badge badge-warn tab-badge">!</span>
+      {% endif %}
+    </a>
+    <a href="#accounts" class="tab" role="tab" data-tab="accounts" id="tab-accounts" aria-selected="false">
+      {{ _('Comptes') }}
+      {% if lifecycle and lifecycle.enabled %}
+      <span class="badge badge-ok tab-badge">ON</span>
       {% endif %}
     </a>
     <a href="#siem" class="tab" role="tab" data-tab="siem" id="tab-siem" aria-selected="false">
@@ -189,6 +195,127 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       </form>
       <form method="post" action="/admin/configuration/smtp/recap" id="smtp-recap-form" hidden>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      </form>
+    </div>
+  </div>
+
+  {% set lc = lifecycle | default({}) %}
+  <div class="form-section config-panel" id="accounts" role="tabpanel" aria-labelledby="tab-accounts" hidden>
+    <div class="form-section-header">
+      <div class="form-section-title">{{ _('Cycle de vie des comptes Bastion') }}</div>
+      <div class="form-section-sub">
+        {{ _('Relances e-mail automatiques (inactivité et renouvellement de mot de passe),') }}
+        {{ _('puis désactivation Keycloak si aucune connexion pendant le délai configuré.') }}
+        {{ _('S’applique aux comptes « Créés bastion ». SMTP doit être actif.') }}
+      </div>
+    </div>
+    <div class="form-body">
+      <form method="post" action="/admin/configuration/accounts" id="lifecycle-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-group">
+          <label class="form-label form-check-row">
+            <input type="checkbox" name="account_lifecycle_enabled" value="on"
+                   {% if lc.enabled %}checked{% endif %}>
+            {{ _('Activer le cycle de vie automatique') }}
+          </label>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="account_inactivity_days">{{ _('Désactivation après (jours sans connexion)') }}</label>
+            <input type="number" id="account_inactivity_days" name="account_inactivity_days"
+                   class="form-input" min="30" max="3650"
+                   value="{{ lc.inactivity_days | default(180) }}">
+            <p class="form-help">{{ _('Défaut : 180 jours (6 mois).') }}</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="account_inactivity_warn_days">{{ _('Relances avant désactivation (jours restants)') }}</label>
+            <input type="text" id="account_inactivity_warn_days" name="account_inactivity_warn_days"
+                   class="form-input" value="{{ lc.warn_days | default('30,14,7') }}"
+                   placeholder="30,14,7">
+            <p class="form-help">{{ _('Liste séparée par des virgules, ex. 30,14,7.') }}</p>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="account_password_max_age_days">{{ _('Âge max. du mot de passe (jours)') }}</label>
+            <input type="number" id="account_password_max_age_days" name="account_password_max_age_days"
+                   class="form-input" min="0" max="3650"
+                   value="{{ lc.password_max_age_days | default(90) }}">
+            <p class="form-help">{{ _('0 = désactivé. Au-delà : UPDATE_PASSWORD à la prochaine connexion.') }}</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="account_password_warn_days">{{ _('Avertir N jours avant') }}</label>
+            <input type="number" id="account_password_warn_days" name="account_password_warn_days"
+                   class="form-input" min="1" max="365"
+                   value="{{ lc.password_warn_days | default(14) }}">
+          </div>
+        </div>
+        <p class="form-help">
+          {{ _('Dernière exécution :') }} {{ lc.last_run or _('jamais') }}
+          — {{ _('planifiée chaque jour à 06:20 (Europe/Paris) sur l’instance leader.') }}
+        </p>
+        <div class="form-actions" style="margin-top:var(--sp-3);">
+          <button type="submit" class="btn btn-primary">{{ _('Enregistrer') }}</button>
+          <button type="submit" form="lifecycle-run-form" class="btn btn-secondary">{{ _('Exécuter maintenant') }}</button>
+        </div>
+      </form>
+      <form method="post" action="/admin/configuration/accounts/run" id="lifecycle-run-form" hidden>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      </form>
+
+      {% set ar = app_renewal | default({}) %}
+      <div class="form-section-header" style="margin-top:var(--sp-5);">
+        <div class="form-section-title">{{ _('Renouvellement MDP applicatifs') }}</div>
+        <div class="form-section-sub">
+          {{ _('Worker progressif (leader) : régénère les mots de passe vault des comptes') }}
+          {{ _('provisionnés (CrushFTP, etc.) et les pousse via l’API de l’application.') }}
+          {{ _('Désactivé par défaut — aucun renouvellement tant que la case n’est pas cochée.') }}
+        </div>
+      </div>
+      <form method="post" action="/admin/configuration/app-credentials" id="app-renewal-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-group">
+          <label class="form-label form-check-row">
+            <input type="checkbox" name="app_credential_renewal_enabled" value="on"
+                   {% if ar.enabled %}checked{% endif %}>
+            {{ _('Activer le renouvellement automatique (API)') }}
+          </label>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="app_credential_max_age_days">{{ _('Âge max. du MDP applicatif (jours)') }}</label>
+            <input type="number" id="app_credential_max_age_days" name="app_credential_max_age_days"
+                   class="form-input" min="1" max="3650"
+                   value="{{ ar.max_age_days | default(90) }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="app_credential_batch_size">{{ _('Lot par passage (au fil de l’eau)') }}</label>
+            <input type="number" id="app_credential_batch_size" name="app_credential_batch_size"
+                   class="form-input" min="1" max="100"
+                   value="{{ ar.batch_size | default(5) }}">
+            <p class="form-help">{{ _('Ex. 5 comptes / heure pour lisser la charge API.') }}</p>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="app_credential_renewal_interval_minutes">{{ _('Intervalle cible (minutes)') }}</label>
+          <input type="number" id="app_credential_renewal_interval_minutes"
+                 name="app_credential_renewal_interval_minutes"
+                 class="form-input" min="5" max="1440"
+                 value="{{ ar.interval_minutes | default(60) }}">
+          <p class="form-help">
+            {{ _('Enregistré en base ; le worker leader tourne actuellement toutes les 60 min (redémarrage pour appliquer un autre intervalle).') }}
+          </p>
+        </div>
+        <p class="form-help">
+          {{ _('Dernière exécution :') }} {{ ar.last_run or _('jamais') }}
+        </p>
+        <div class="form-actions" style="margin-top:var(--sp-3);">
+          <button type="submit" class="btn btn-primary">{{ _('Enregistrer') }}</button>
+          <button type="submit" form="app-renewal-run-form" class="btn btn-secondary">{{ _('Exécuter un lot maintenant') }}</button>
+        </div>
+      </form>
+      <form method="post" action="/admin/configuration/app-credentials/run" id="app-renewal-run-form" hidden>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       </form>
     </div>

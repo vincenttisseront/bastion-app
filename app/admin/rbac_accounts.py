@@ -34,6 +34,7 @@ from app.rbac.account_service import (
     assign_account_to_rbac_group,
     create_bastion_account,
     delete_bastion_account,
+    find_rbac_company_group,
     linked_bastion_accounts,
     mark_keycloak_email_verified,
     provision_account_app,
@@ -54,6 +55,7 @@ from app.rbac.grants_service import (
     serialize_grant,
 )
 from app.rbac.keycloak_admin import fetch_keycloak_user, fetch_user_groups
+from app.rbac.organization_names import organization_match_key
 from app.rbac.user_identity import (
     derive_username_from_names,
     format_identity_first_name,
@@ -1009,6 +1011,45 @@ def _redirect_users_picker(
     return response
 
 
+def _company_group_for_account(db: Session, account: BastionAccount) -> RBACGroup | None:
+    """Resolve the société RBAC group for quick navigation from the account fiche."""
+    if account.realm_id and account.organization:
+        found = find_rbac_company_group(
+            db, realm_id=account.realm_id, organization=account.organization
+        )
+        if found is not None:
+            return found
+    raw_ids = account.pending_group_ids or []
+    if not isinstance(raw_ids, list) or not raw_ids:
+        return None
+    parsed: list[int] = []
+    for raw in raw_ids:
+        try:
+            parsed.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    if not parsed:
+        return None
+    rows = (
+        db.query(RBACGroup)
+        .filter(RBACGroup.id.in_(parsed))
+        .order_by(RBACGroup.id.asc())
+        .all()
+    )
+    by_id = {row.id: row for row in rows}
+    for gid in parsed:
+        row = by_id.get(gid)
+        if row is None:
+            continue
+        tag = (row.group_tag or "").strip().lower()
+        if tag in _COMPANY_GROUP_TAGS or organization_match_key(
+            row.name
+        ) == organization_match_key(account.organization):
+            return row
+    # First pending group as last resort (creation always puts société first).
+    return by_id.get(parsed[0])
+
+
 @router.get("/admin/rbac/accounts/{account_id}")
 def admin_rbac_account_detail(
     account_id: int,
@@ -1097,6 +1138,7 @@ def admin_rbac_account_detail(
     initial_temporary_password = pop_temporary_password_reveal(
         request, account_id=account.id
     )
+    company_group = _company_group_for_account(db, account)
 
     response = render(
         "admin/rbac/account_detail.html",
@@ -1115,6 +1157,7 @@ def admin_rbac_account_detail(
             vault_apps=vault_apps,
             active_tab="users",
             initial_temporary_password=initial_temporary_password,
+            company_group=company_group,
         ),
     )
     # Always clear: one-shot even if account_id mismatched / expired.

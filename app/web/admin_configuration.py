@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["admin-configuration"], dependencies=[Depends(require_admin)])
 
 _CONFIG_SMTP = "/admin/configuration#smtp"
+_CONFIG_ACCOUNTS = "/admin/configuration#accounts"
 _CONFIG_SIEM = "/admin/configuration#siem"
 _CONFIG_HOT_STORE = "/admin/configuration#hot-store"
 _CONFIG_MTA_STS = "/admin/configuration#mta-sts"
@@ -59,6 +60,9 @@ def admin_configuration_page(
     from app.siem.settings_service import ensure_siem_settings
     from app.siem.settings_service import public_status as siem_public_status
 
+    from app.rbac.account_lifecycle_service import lifecycle_public_status
+    from app.rbac.app_credential_renewal_service import renewal_public_status
+
     row = ensure_portal_settings(db, settings)
     siem_settings = ensure_siem_settings(db)
     siem_ca = get_ca_api_status(db, settings)
@@ -88,6 +92,8 @@ def admin_configuration_page(
             "daily_recap_hour": int(getattr(row, "daily_recap_hour", None) or 7),
             "daily_recap_last_sent": last_sent_s,
         },
+        lifecycle=lifecycle_public_status(row),
+        app_renewal=renewal_public_status(row),
         siem_settings=siem_settings,
         siem_status=siem_public_status(db),
         siem_ca=siem_ca,
@@ -138,6 +144,146 @@ def admin_configuration_save(
         flash_redirect(response, "Configuration SMTP enregistrée.", "success", token)
     except ValueError as exc:
         flash_redirect(response, str(exc), "error", token)
+    return response
+
+
+@router.post("/admin/configuration/accounts")
+def admin_configuration_accounts_save(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    account_lifecycle_enabled: str | None = Form(None),
+    account_inactivity_days: int = Form(180),
+    account_inactivity_warn_days: str = Form("30,14,7"),
+    account_password_max_age_days: int = Form(90),
+    account_password_warn_days: int = Form(14),
+):
+    from app.rbac.account_lifecycle_service import update_account_lifecycle_settings
+
+    token = portal_signing_secret(settings)
+    response = RedirectResponse(url=_CONFIG_ACCOUNTS, status_code=302)
+    try:
+        update_account_lifecycle_settings(
+            db,
+            settings,
+            actor=admin_actor(user),
+            ip_address=client_ip_from_request(request),
+            enabled=_form_bool(account_lifecycle_enabled),
+            inactivity_days=account_inactivity_days,
+            warn_days_raw=account_inactivity_warn_days,
+            password_max_age_days=account_password_max_age_days,
+            password_warn_days=account_password_warn_days,
+        )
+        flash_redirect(
+            response, "Paramètres cycle de vie des comptes enregistrés.", "success", token
+        )
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", token)
+    return response
+
+
+@router.post("/admin/configuration/accounts/run")
+async def admin_configuration_accounts_run(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.rbac.account_lifecycle_service import run_account_lifecycle
+
+    token = portal_signing_secret(settings)
+    response = RedirectResponse(url=_CONFIG_ACCOUNTS, status_code=302)
+    try:
+        result = await run_account_lifecycle(
+            db, settings, actor=f"admin:{admin_actor(user)}"
+        )
+        msg = (
+            f"Cycle de vie exécuté : {result.examined} comptes, "
+            f"{result.inactivity_warnings} relance(s) inactivité, "
+            f"{result.password_warnings} relance(s) MDP, "
+            f"{result.disabled} désactivé(s)."
+        )
+        if result.errors:
+            msg += f" ({len(result.errors)} erreur(s))"
+            flash_redirect(response, msg, "warn", token)
+        else:
+            flash_redirect(response, msg, "success", token)
+    except Exception as exc:
+        logger.exception("manual account lifecycle run failed")
+        flash_redirect(response, f"Échec cycle de vie : {exc}", "error", token)
+    return response
+
+
+@router.post("/admin/configuration/app-credentials")
+def admin_configuration_app_credentials_save(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    app_credential_renewal_enabled: str | None = Form(None),
+    app_credential_max_age_days: int = Form(90),
+    app_credential_batch_size: int = Form(5),
+    app_credential_renewal_interval_minutes: int = Form(60),
+):
+    from app.rbac.app_credential_renewal_service import (
+        update_app_credential_renewal_settings,
+    )
+
+    token = portal_signing_secret(settings)
+    response = RedirectResponse(url=_CONFIG_ACCOUNTS, status_code=302)
+    try:
+        update_app_credential_renewal_settings(
+            db,
+            settings,
+            actor=admin_actor(user),
+            ip_address=client_ip_from_request(request),
+            enabled=_form_bool(app_credential_renewal_enabled),
+            max_age_days=app_credential_max_age_days,
+            batch_size=app_credential_batch_size,
+            interval_minutes=app_credential_renewal_interval_minutes,
+        )
+        flash_redirect(
+            response,
+            "Paramètres renouvellement MDP applicatifs enregistrés.",
+            "success",
+            token,
+        )
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", token)
+    return response
+
+
+@router.post("/admin/configuration/app-credentials/run")
+async def admin_configuration_app_credentials_run(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.rbac.app_credential_renewal_service import run_app_credential_renewal
+
+    token = portal_signing_secret(settings)
+    response = RedirectResponse(url=_CONFIG_ACCOUNTS, status_code=302)
+    try:
+        result = await run_app_credential_renewal(
+            db,
+            settings,
+            actor=f"admin:{admin_actor(user)}",
+            force=True,
+        )
+        msg = (
+            f"Renouvellement MDP apps : {result.examined} candidat(s), "
+            f"{result.renewed} renouvelé(s), {result.skipped} ignoré(s)."
+        )
+        if result.errors:
+            msg += f" ({len(result.errors)} erreur(s))"
+            flash_redirect(response, msg, "warn", token)
+        else:
+            flash_redirect(response, msg, "success", token)
+    except Exception as exc:
+        logger.exception("manual app credential renewal failed")
+        flash_redirect(response, f"Échec renouvellement : {exc}", "error", token)
     return response
 
 

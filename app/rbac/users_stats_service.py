@@ -125,6 +125,30 @@ async def fetch_user_directory_stats(
         total = await count_keycloak_users(realm, settings)
         active = await count_keycloak_users(realm, settings, enabled=True)
         suspended = await count_keycloak_users(realm, settings, enabled=False)
+        # Some Keycloak builds return inconsistent /users/count?enabled=…
+        # (e.g. active > total). Prefer total as source of truth.
+        if total is not None and active is not None and active > total:
+            logger = __import__("logging").getLogger(__name__)
+            logger.warning(
+                "Keycloak user counts inconsistent realm=%s total=%s active=%s "
+                "suspended=%s — deriving active/suspended from total",
+                realm.slug,
+                total,
+                active,
+                suspended,
+            )
+            if suspended is not None and 0 <= suspended <= total:
+                active = total - suspended
+            else:
+                active = total
+                suspended = 0
+        elif (
+            total is not None
+            and active is not None
+            and suspended is not None
+            and active + suspended != total
+        ):
+            suspended = max(0, total - active)
         stats.total = total
         stats.active = active
         stats.suspended = suspended

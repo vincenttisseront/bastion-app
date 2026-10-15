@@ -773,6 +773,14 @@ class BastionAccount(Base):
     created_at = Column(UTCDateTime, default=utcnow)
     updated_at = Column(UTCDateTime, default=utcnow, onupdate=utcnow)
     last_error = Column(String, nullable=True)  # last blocking error message
+    # Lifecycle (Admin → Configuration → Comptes) — inactivity / password age.
+    last_login_at = Column(UTCDateTime, nullable=True)
+    password_changed_at = Column(UTCDateTime, nullable=True)
+    disabled_at = Column(UTCDateTime, nullable=True)
+    disabled_reason = Column(String, nullable=True)
+    last_inactivity_warn_at = Column(UTCDateTime, nullable=True)
+    last_inactivity_warn_stage = Column(Integer, nullable=True)
+    last_password_warn_at = Column(UTCDateTime, nullable=True)
 
     realm = relationship("RealmConfig", foreign_keys=[realm_id])
     provisionings = relationship(
@@ -1036,6 +1044,23 @@ class PortalSettings(Base):
     daily_recap_email = Column(String, nullable=True)
     daily_recap_hour = Column(Integer, nullable=False, default=7)  # 0–23, Europe/Paris
     daily_recap_last_sent_at = Column(UTCDateTime, nullable=True)
+
+    # BastionAccount lifecycle (inactivity disable + password renewal mails).
+    account_lifecycle_enabled = Column(Boolean, nullable=False, default=False)
+    account_inactivity_days = Column(Integer, nullable=False, default=180)
+    # Comma-separated days-before-disable for warning emails (e.g. "30,14,7").
+    account_inactivity_warn_days = Column(String, nullable=False, default="30,14,7")
+    account_password_max_age_days = Column(Integer, nullable=False, default=90)
+    account_password_warn_days = Column(Integer, nullable=False, default=14)
+    account_lifecycle_last_run_at = Column(UTCDateTime, nullable=True)
+
+    # Gradual auto-renewal of application vault passwords (CrushFTP, etc.) via API.
+    # Disabled by default — worker no-ops until explicitly enabled in Admin → Configuration.
+    app_credential_renewal_enabled = Column(Boolean, nullable=False, default=False)
+    app_credential_max_age_days = Column(Integer, nullable=False, default=90)
+    app_credential_batch_size = Column(Integer, nullable=False, default=5)
+    app_credential_renewal_interval_minutes = Column(Integer, nullable=False, default=60)
+    app_credential_renewal_last_run_at = Column(UTCDateTime, nullable=True)
 
     # Site identity (Admin setup wizard) — preferred over .env when set.
     portal_domain = Column(String, nullable=True)
