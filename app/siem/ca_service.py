@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.models import SiemForwardingSettings, utcnow
+from app.secret_crypto import decrypt_secret, encrypt_secret
 from app.siem import syslog_ca as ca
 from app.siem.settings_service import ensure_siem_settings, get_siem_config
 from app.sso_settings import Settings
@@ -36,6 +37,7 @@ def _clear_ca_db_fields(row: SiemForwardingSettings) -> None:
     row.syslog_ca_not_after = None
     row.syslog_ca_uploaded_at = None
     row.syslog_ca_uploaded_by = None
+    row.syslog_ca_pem_encrypted = None
 
 
 def _apply_ca_db_fields(
@@ -45,6 +47,7 @@ def _apply_ca_db_fields(
     relative_path: str,
     logical_name: str,
     actor: str,
+    settings: Settings | None = None,
 ) -> None:
     row.syslog_ca_relative_path = relative_path
     row.syslog_ca_logical_name = logical_name
@@ -55,10 +58,101 @@ def _apply_ca_db_fields(
     row.syslog_ca_not_after = info.not_after
     row.syslog_ca_uploaded_at = utcnow()
     row.syslog_ca_uploaded_by = actor
+    if settings is not None:
+        # PEM as UTF-8 text — Fernet ciphertext is the durable source of truth.
+        row.syslog_ca_pem_encrypted = encrypt_secret(
+            info.pem_bytes.decode("utf-8"), settings
+        )
     # Never persist tls_verify=false for syslog TLS.
     row.syslog_tls_verify = True
     row.updated_at = utcnow()
     row.updated_by = actor
+
+
+def ensure_syslog_ca_on_disk(db: Session, settings: Settings) -> bool:
+    """Ensure the active CA file exists, restoring from DB ciphertext if needed.
+
+    Also backfills ``syslog_ca_pem_encrypted`` when only the file is present
+    (upgrade path). Returns True when a valid active CA file is available.
+    """
+    row = ensure_siem_settings(db)
+    relative_path = (
+        (row.syslog_ca_relative_path or "").strip() or ca.DEFAULT_RELATIVE_PATH
+    )
+    try:
+        active = ca.resolve_ca_path(settings, relative_path=relative_path)
+    except ca.SyslogCaError:
+        return False
+
+    cipher = (getattr(row, "syslog_ca_pem_encrypted", None) or "").strip()
+    file_ok = False
+    file_info: ca.CaCertificateInfo | None = None
+    if active.is_file():
+        try:
+            file_info = ca.read_ca_file_info(active)
+            file_ok = True
+        except ca.SyslogCaError:
+            file_ok = False
+
+    if cipher:
+        try:
+            pem_text = decrypt_secret(cipher, settings)
+            info = ca.parse_and_validate_ca_pem(pem_text.encode("utf-8"))
+        except Exception:
+            logger.exception("siem CA DB decrypt/validate failed")
+            return file_ok
+        need_write = (not file_ok) or (
+            file_info is not None
+            and file_info.fingerprint_sha256 != info.fingerprint_sha256
+        )
+        if need_write:
+            try:
+                ca.materialize_active_from_pem(
+                    active,
+                    info.pem_bytes,
+                    expected_fingerprint=info.fingerprint_sha256,
+                )
+            except ca.SyslogCaError:
+                logger.exception("siem CA rematerialize from DB failed")
+                return False
+        # Heal relative path / metadata without overwriting upload audit unless empty.
+        dirty = False
+        if (row.syslog_ca_relative_path or "").strip() != relative_path:
+            row.syslog_ca_relative_path = relative_path
+            dirty = True
+        if (row.syslog_ca_fingerprint_sha256 or "").strip() != info.fingerprint_sha256:
+            row.syslog_ca_subject = info.subject
+            row.syslog_ca_issuer = info.issuer
+            row.syslog_ca_fingerprint_sha256 = info.fingerprint_sha256
+            row.syslog_ca_not_before = info.not_before
+            row.syslog_ca_not_after = info.not_after
+            dirty = True
+        if dirty:
+            row.syslog_tls_verify = True
+            db.commit()
+        return True
+
+    # No DB blob yet — backfill from on-disk file when present.
+    if file_ok and file_info is not None:
+        try:
+            row.syslog_ca_pem_encrypted = encrypt_secret(
+                file_info.pem_bytes.decode("utf-8"), settings
+            )
+            if not (row.syslog_ca_relative_path or "").strip():
+                row.syslog_ca_relative_path = relative_path
+            if not (row.syslog_ca_fingerprint_sha256 or "").strip():
+                row.syslog_ca_subject = file_info.subject
+                row.syslog_ca_issuer = file_info.issuer
+                row.syslog_ca_fingerprint_sha256 = file_info.fingerprint_sha256
+                row.syslog_ca_not_before = file_info.not_before
+                row.syslog_ca_not_after = file_info.not_after
+            row.syslog_tls_verify = True
+            db.commit()
+        except Exception:
+            logger.exception("siem CA backfill encrypt failed")
+            return file_ok
+        return True
+    return False
 
 
 def _snapshot_ca_db_meta(row: SiemForwardingSettings) -> dict[str, Any]:
@@ -72,6 +166,7 @@ def _snapshot_ca_db_meta(row: SiemForwardingSettings) -> dict[str, Any]:
         "syslog_ca_not_after": row.syslog_ca_not_after,
         "syslog_ca_uploaded_at": row.syslog_ca_uploaded_at,
         "syslog_ca_uploaded_by": row.syslog_ca_uploaded_by,
+        "syslog_ca_pem_encrypted": getattr(row, "syslog_ca_pem_encrypted", None),
     }
 
 
@@ -101,6 +196,7 @@ def _audit_ca(
 
 
 def get_ca_api_status(db: Session, settings: Settings) -> dict[str, Any]:
+    ensure_syslog_ca_on_disk(db, settings)
     row = ensure_siem_settings(db)
     rel = (row.syslog_ca_relative_path or "").strip() or ca.DEFAULT_RELATIVE_PATH
     derived = ca.derive_ca_status(settings, relative_path=rel)
@@ -170,6 +266,7 @@ def _persist_ca_db_or_rollback(
     prev_meta: dict[str, Any],
     active: Any,
     ip_address: str | None,
+    settings: Settings,
 ) -> None:
     try:
         _apply_ca_db_fields(
@@ -178,6 +275,7 @@ def _persist_ca_db_or_rollback(
             relative_path=relative_path,
             logical_name=logical_name,
             actor=actor,
+            settings=settings,
         )
         db.commit()
         db.refresh(row)
@@ -295,6 +393,7 @@ def install_syslog_ca(
                 prev_meta=prev_meta,
                 active=active,
                 ip_address=ip_address,
+                settings=settings,
             )
         except ca.SyslogCaError:
             db_rolled_back = True

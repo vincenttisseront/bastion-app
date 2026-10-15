@@ -10,26 +10,13 @@
 <div class="page page-form">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Compte {{ account.username }}</h1>
-      <p class="page-sub">{{ account.email }} {{ _('— realm') }} <span class="mono">{{ realm.slug if realm else '?' }}</span></p>
+      <h1 class="page-title">{{ _('Compte') }} {{ account.username }}</h1>
+      <p class="page-sub">
+        {{ account.email or '—' }}
+        {% if realm %} — realm <span class="mono">{{ realm.slug }}</span>{% endif %}
+      </p>
     </div>
-    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:flex-end;">
-      {% if account.origin == 'bastion' %}
-      <span class="badge badge-ok" title="{{ _('Créé via Admin → Nouvel utilisateur') }}">{{ _('Créé bastion') }}</span>
-      {% else %}
-      <span class="badge badge-muted" title="{{ _('Lié depuis un compte Keycloak existant') }}">Import Keycloak</span>
-      {% endif %}
-      {% if account.status == 'provisioned' %}
-      <span class="badge badge-ok">{{ _('Provisionné') }}</span>
-      {% elif account.status == 'keycloak_created' %}
-      <span class="badge badge-ok">{{ _('Keycloak créé') }}</span>
-      {% elif account.status == 'partial_failure' %}
-      <span class="badge badge-warn">{{ _('Échec partiel') }}</span>
-      {% else %}
-      <span class="badge badge-err">{{ _('En attente (échec Keycloak)') }}</span>
-      {% endif %}
-      <a href="/admin/rbac/users" class="btn btn-ghost btn-sm">{{ _('← Utilisateurs') }}</a>
-    </div>
+    <a href="/admin/rbac/users" class="btn btn-ghost">{{ _('← Utilisateurs') }}</a>
   </div>
 
   {% include "admin/rbac/_rbac_tabs.html" %}
@@ -38,10 +25,9 @@
   <div class="alert alert-warn" role="status" data-temp-password-box>
     <strong>{{ _('Mot de passe temporaire (affichage unique)') }}</strong>
     <p class="form-help" style="margin:var(--sp-2) 0;">
-{{ _('À communiquer à l’utilisateur pour sa 1') }}<sup>re</sup> {{ _('connexion — Keycloak forcera') }}
-
+      {{ _('À communiquer à l’utilisateur pour sa 1') }}<sup>re</sup>
+      {{ _('connexion — Keycloak forcera') }}
       <span class="mono">UPDATE_PASSWORD</span>{{ _('. Cette valeur ne sera plus réaffichée.') }}
-
     </p>
     <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center;">
       <code class="mono" id="temp-password-value" style="font-size:var(--fs-md); user-select:all;">{{ initial_temporary_password }}</code>
@@ -75,7 +61,7 @@
     <div class="form-section-header" data-form-accordion-toggle>
       <button type="button" class="ds-accordion-expand" aria-expanded="true" tabindex="-1">▸</button>
       <div>
-        <div class="form-section-title">{{ _('Étape Keycloak') }}</div>
+        <div class="form-section-title">{{ _('Identité') }}</div>
         <div class="form-section-sub">
           {% if account.origin == 'bastion' %}
           {{ _('Compte créé localement, puis poussé vers Keycloak (mot de passe temporaire + UPDATE_PASSWORD)') }}
@@ -84,38 +70,61 @@
           {% endif %}
         </div>
         <div class="form-section-summary">
-          {% if account.keycloak_user_id %}{{ _('Utilisateur créé') }}{% else %}{{ _('Non créé — relance requise') }}{% endif %}
+          {% if account.origin == 'bastion' %}{{ _('Créé bastion') }}{% else %}Import Keycloak{% endif %}
+          ·
+          {% if account.keycloak_user_id %}{{ _('Keycloak OK') }}{% else %}{{ _('Keycloak manquant') }}{% endif %}
+          {% if account.status == 'provisioned' %} · {{ _('Provisionné') }}
+          {% elif account.status == 'partial_failure' %} · {{ _('Échec partiel') }}
+          {% endif %}
         </div>
       </div>
-      {% if not account.keycloak_user_id %}
-      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/retry-keycloak">
-        <button type="submit" class="btn btn-primary btn-sm" onclick="event.stopPropagation();">Relancer Keycloak</button>
-      </form>
-      {% else %}
-      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/reset-password"
-            style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center;">
-        <label class="form-check" style="margin:0;">
-          <input type="checkbox" name="send_email" value="1"
-                 {% if realm and realm.send_credentials_email %}checked{% endif %}>
-          <span>{{ _('Envoyer par email') }}</span>
-        </label>
-        <button type="submit" class="btn btn-ghost btn-sm"
-                onclick="event.stopPropagation();"
-                data-confirm="Réinitialiser le mot de passe Keycloak de « {{ account.username }} » ?">Reset password</button>
-      </form>
-      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/verify-email"
-            style="display:inline;">
-        <button type="submit" class="btn btn-ghost btn-sm"
-                onclick="event.stopPropagation();"
-                data-confirm="Marquer l’email de « {{ account.username }} » comme vérifié dans Keycloak ?">{{ _('Vérifier email') }}</button>
-      </form>
-      {% endif %}
     </div>
     <div class="form-body">
-      <div class="form-row" style="gap:var(--sp-4);">
+      <div class="form-row">
         <div class="form-group">
-          <span class="form-label">Origine</span>
-          <div>
+          <span class="form-label">{{ _('Identifiant') }}</span>
+          <div class="form-readonly mono" aria-readonly="true">{{ account.username }}</div>
+        </div>
+        <div class="form-group">
+          <span class="form-label">{{ _('Email') }}</span>
+          <div class="form-readonly" aria-readonly="true">{{ account.email or '—' }}</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <span class="form-label">{{ _('Prénom') }}</span>
+          <div class="form-readonly" aria-readonly="true">{{ account.first_name or '—' }}</div>
+        </div>
+        <div class="form-group">
+          <span class="form-label">{{ _('Nom') }}</span>
+          <div class="form-readonly" aria-readonly="true">{{ account.last_name or '—' }}</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <span class="form-label">{{ _('Société') }}</span>
+          <div class="form-readonly" aria-readonly="true">
+            {% if company_group %}
+            <a href="/admin/rbac/groups/{{ company_group.id }}">{{ account.organization or company_group.name }}</a>
+            {% elif account.organization %}
+            {{ account.organization }}
+            {% else %}
+            —
+            {% endif %}
+          </div>
+          {% if company_group %}
+          <p class="form-help">{{ _('Groupe société RBAC (provisioning, droits hérités).') }}</p>
+          {% endif %}
+        </div>
+        <div class="form-group">
+          <span class="form-label">Realm</span>
+          <div class="form-readonly mono" aria-readonly="true">{{ realm.slug if realm else '—' }}{% if realm and realm.name %} — {{ realm.name }}{% endif %}</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <span class="form-label">{{ _('Origine') }}</span>
+          <div class="form-readonly" aria-readonly="true">
             {% if account.origin == 'bastion' %}
             {{ _('Création locale (bastion → Keycloak)') }}
             {% else %}
@@ -124,8 +133,8 @@
           </div>
         </div>
         <div class="form-group">
-          <span class="form-label">{{ _('Statut') }}</span>
-          <div>
+          <span class="form-label">{{ _('Statut Keycloak') }}</span>
+          <div class="form-readonly" aria-readonly="true">
             {% if account.keycloak_user_id %}
             <span class="badge badge-ok">{{ _('Utilisateur créé') }}</span>
             {% else %}
@@ -134,51 +143,67 @@
           </div>
         </div>
       </div>
-      <div class="form-group">
-        <span class="form-label">{{ _('Société') }}</span>
-        <div>
-          {% if company_group %}
-          <a href="/admin/rbac/groups/{{ company_group.id }}">{{ account.organization or company_group.name }}</a>
-          {% elif account.organization %}
-          {{ account.organization }}
-          {% else %}
-          —
-          {% endif %}
+      <div class="form-row">
+        <div class="form-group">
+          <span class="form-label">Keycloak user ID</span>
+          <div class="form-readonly mono" aria-readonly="true">{{ account.keycloak_user_id or '—' }}</div>
+        </div>
+        <div class="form-group">
+          <span class="form-label">{{ _('Créé par') }}</span>
+          <div class="form-readonly" aria-readonly="true">
+            {{ account.created_by or '—' }}{% if account.created_at %} — {{ account.created_at.strftime('%Y-%m-%d %H:%M UTC') }}{% endif %}
+          </div>
         </div>
       </div>
-      <div class="form-group">
-        <span class="form-label">Keycloak user ID</span>
-        <div class="mono">{{ account.keycloak_user_id or '—' }}</div>
-      </div>
-      <div class="form-group">
-        <span class="form-label">{{ _('Créé par') }}</span>
-        <div>{{ account.created_by }} — {{ account.created_at.strftime('%Y-%m-%d %H:%M UTC') if account.created_at else '' }}</div>
-      </div>
+
       <div class="form-group" style="margin-bottom:0;">
-        <span class="form-label">Liens</span>
-        <div style="display:flex; flex-wrap:wrap; gap:var(--sp-3);">
+        <span class="form-label">{{ _('Liens') }}</span>
+        <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2);">
           {% if company_group %}
-          <a href="/admin/rbac/groups/{{ company_group.id }}">{{ _('Groupe société') }}</a>
+          <a class="btn btn-ghost btn-sm" href="/admin/rbac/groups/{{ company_group.id }}">{{ _('Groupe société') }}</a>
           {% endif %}
           {% if keycloak_console_url %}
-          <a href="{{ keycloak_console_url }}" target="_blank" rel="noopener">{{ _('Compte Keycloak ↗') }}</a>
+          <a class="btn btn-ghost btn-sm" href="{{ keycloak_console_url }}" target="_blank" rel="noopener">{{ _('Compte Keycloak ↗') }}</a>
           {% endif %}
           {% if account.keycloak_user_id and realm %}
-          <a href="/admin/rbac/users/view?account_id={{ account.id }}">{{ _('Fiche utilisateur') }}</a>
-          <a href="/admin/rbac/users/view?realm_id={{ realm.id }}&amp;keycloak_user_id={{ account.keycloak_user_id }}#droits">{{ _('Droits effectifs') }}</a>
+          <a class="btn btn-ghost btn-sm" href="/admin/rbac/users/view?account_id={{ account.id }}">{{ _('Fiche utilisateur') }}</a>
+          <a class="btn btn-ghost btn-sm" href="/admin/rbac/users/view?realm_id={{ realm.id }}&amp;keycloak_user_id={{ account.keycloak_user_id }}#droits">{{ _('Droits effectifs') }}</a>
           {% endif %}
           {% if not company_group and not keycloak_console_url and not (account.keycloak_user_id and realm) %}
-          <span class="form-hint">—</span>
+          <span class="form-help">—</span>
           {% endif %}
         </div>
       </div>
+
       {% if not account.keycloak_user_id %}
-      <div class="alert alert-warn" style="margin:var(--sp-3) 0 0;">
+      <div class="alert alert-warn" style="margin:0;">
         {{ _('Après correction des droits du compte de service provisioning, utilisez') }}
         <strong>Relancer Keycloak</strong> {{ _('— pas de retry automatique.') }}
-
       </div>
       {% endif %}
+
+      <div class="form-footer" style="margin:0; padding-top:var(--sp-3); border-top:1px solid var(--border); display:flex; flex-wrap:wrap; gap:var(--sp-3); align-items:center;">
+        {% if not account.keycloak_user_id %}
+        <form method="post" action="/admin/rbac/accounts/{{ account.id }}/retry-keycloak">
+          <button type="submit" class="btn btn-primary">Relancer Keycloak</button>
+        </form>
+        {% else %}
+        <form method="post" action="/admin/rbac/accounts/{{ account.id }}/reset-password"
+              style="display:flex; flex-wrap:wrap; gap:var(--sp-3); align-items:center;">
+          <label class="form-check" style="margin:0;">
+            <input type="checkbox" name="send_email" value="1"
+                   {% if realm and realm.send_credentials_email %}checked{% endif %}>
+            <span>{{ _('Envoyer par email') }}</span>
+          </label>
+          <button type="submit" class="btn btn-ghost"
+                  data-confirm="Réinitialiser le mot de passe Keycloak de « {{ account.username }} » ?">Reset password</button>
+        </form>
+        <form method="post" action="/admin/rbac/accounts/{{ account.id }}/verify-email">
+          <button type="submit" class="btn btn-ghost"
+                  data-confirm="Marquer l’email de « {{ account.username }} » comme vérifié dans Keycloak ?">{{ _('Vérifier email') }}</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
   </div>
 

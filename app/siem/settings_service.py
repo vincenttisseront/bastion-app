@@ -80,12 +80,22 @@ def get_siem_config(
     db: Session, settings: Settings | None = None
 ) -> SiemForwardingConfig:
     from app.siem import syslog_ca as ca
+    from app.siem.ca_service import ensure_syslog_ca_on_disk
     from app.sso_settings import get_settings as _get_settings
 
+    resolved_settings = settings or _get_settings()
+    # Rematerialize CA file from Fernet blob when the volume file vanished.
+    ensure_syslog_ca_on_disk(db, resolved_settings)
     row = ensure_siem_settings(db)
     actions = row.filter_actions if isinstance(row.filter_actions, list) else []
     rel = (getattr(row, "syslog_ca_relative_path", None) or "").strip() or None
-    resolved_settings = settings or _get_settings()
+    if not rel and ca.is_active_ca_valid(
+        resolved_settings, relative_path=ca.DEFAULT_RELATIVE_PATH
+    ):
+        # Self-heal: file present at default path but DB path cleared.
+        rel = ca.DEFAULT_RELATIVE_PATH
+        row.syslog_ca_relative_path = rel
+        db.commit()
     # Derive validity from the active file — never trust a DB boolean alone.
     ca_valid = bool(rel) and ca.is_active_ca_valid(
         resolved_settings, relative_path=rel
