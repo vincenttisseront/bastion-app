@@ -101,7 +101,7 @@ bastion_app_src: "{{ bastion_app_root }}/app"
 # ─── Préflight ──────────────────────────────────────────────────────────────
 sso_portal_min_free_disk_mb: 512
 sso_portal_backup_retention_days: 14
-sso_portal_python_min_version: "3.10"
+sso_portal_python_min_version: "3.11"
 
 # ─── Secrets (AWX Vault — jamais en defaults en clair) ──────────────────────
 # Injectés à l'exécution :
