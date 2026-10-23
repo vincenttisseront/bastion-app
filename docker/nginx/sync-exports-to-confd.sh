@@ -104,6 +104,8 @@ else
 fi
 
 # --- WAF overlays (ne pas écraser crs-setup / waf-basic / engine-* statiques) ---
+# Always rewrite generated/* stubs so Include paths never dangle and a missing
+# export cannot leave a stale On/DetectionOnly or broken exclusions file.
 mkdir -p /etc/nginx/modsecurity/generated
 # crs-setup-generated.conf (id 1000900110) overlays static crs-setup.conf after Admin → Appliquer.
 if [[ -f "$EXPORTS/modsecurity/crs-setup-generated.conf" ]]; then
@@ -154,6 +156,9 @@ done
 
 # Engine overlay: copy export only when armed (waf-engine-arm.json).
 # Otherwise force Off so a DB profile mode=on cannot enable CRS before Réactiver.
+# Families: portal → engine-mode-generated; subdomain → engine-subdomain-mode-generated.
+# public_proxy has NO generated overlay by design (static engine-public.conf stays Off);
+# there is no public_armed path yet — do not invent engine-public-mode-generated here.
 ARMED=0
 if [[ -f "$EXPORTS/modsecurity/waf-engine-arm.json" ]]; then
   if grep -Eq '"armed"[[:space:]]*:[[:space:]]*true' "$EXPORTS/modsecurity/waf-engine-arm.json" 2>/dev/null; then
@@ -187,14 +192,35 @@ SecRuleEngine Off
 EOF
 fi
 
+# Exclusions: always materialize an Include-safe file (never leave a missing path
+# or a stale broken export from a previous image layer).
 if [[ -f "$EXPORTS/modsecurity/bastion-exclusions-generated.conf" ]]; then
   cp -a "$EXPORTS/modsecurity/bastion-exclusions-generated.conf" \
     /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf
+else
+  cat > /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf <<'EOF'
+# No export yet — empty exclusions overlay (Include-safe).
+EOF
 fi
+
+# IP deny: reset to empty stub when export missing (avoid stale denies after wipe).
 if [[ -f "$EXPORTS/waf-ip-deny.conf" ]]; then
   cp -a "$EXPORTS/waf-ip-deny.conf" /etc/nginx/includes/waf-ip-deny.conf
+else
+  cat > /etc/nginx/includes/waf-ip-deny.conf <<'EOF'
+# No export yet — no promoted IP denies.
+EOF
 fi
+
+# Rate-limit zones must always exist (nginx.conf references portal_* zones).
 if [[ -f "$EXPORTS/nginx-portal-rate-limits.conf" ]]; then
   cp -a "$EXPORTS/nginx-portal-rate-limits.conf" \
     /etc/nginx/includes/nginx-portal-rate-limits.conf
+else
+  cat > /etc/nginx/includes/nginx-portal-rate-limits.conf <<'EOF'
+# No export yet — default portal rate zones (Include-safe).
+limit_req_zone $binary_remote_addr zone=portal_login:10m rate=3r/s;
+limit_req_zone $binary_remote_addr zone=portal_api:10m rate=30r/s;
+limit_req_zone $binary_remote_addr zone=portal_unknown_host:10m rate=5r/s;
+EOF
 fi

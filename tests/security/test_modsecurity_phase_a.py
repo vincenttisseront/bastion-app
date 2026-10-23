@@ -75,6 +75,9 @@ def test_main_portal_includes_engine_mode_generated_for_ihm_arm():
         "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf"
         not in public
     )
+    assert "Include /etc/nginx/modsecurity/generated/engine-public-mode-generated.conf" not in public
+    assert "no public_armed path yet" in public
+    assert "INTENTIONAL" in public
 
 def test_docker_nginx_loads_modsecurity_module_after_real_ip_order():
     conf = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
@@ -140,12 +143,18 @@ def test_modsecurity_main_includes_generated_overlays_not_replacing_static():
             "Include /etc/nginx/modsecurity/generated/crs-setup-generated.conf"
             in text
         )
+        assert (
+            "Include /etc/nginx/modsecurity/bastion-virtual-patches.conf" in text
+        )
         setup_idx = text.index("Include /etc/nginx/modsecurity/crs-setup.conf")
         gen_idx = text.index(
             "Include /etc/nginx/modsecurity/generated/crs-setup-generated.conf"
         )
+        vp_idx = text.index(
+            "Include /etc/nginx/modsecurity/bastion-virtual-patches.conf"
+        )
         rules_idx = text.index("Include /etc/modsecurity.d/owasp-crs/rules/*.conf")
-        assert setup_idx < gen_idx < rules_idx
+        assert setup_idx < gen_idx < vp_idx < rules_idx
         assert "Include /etc/nginx/includes/waf-basic.conf" in text
         assert (
             "Include /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf"
@@ -161,6 +170,41 @@ def test_modsecurity_main_includes_generated_overlays_not_replacing_static():
             assert (
                 "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf"
                 not in text
+            )
+
+
+def test_bastion_virtual_patches_syntax_smoke():
+    """Static guardrails: valid Include target, no CRS-clash ids, no bare % macros."""
+    path = ROOT / "docker/nginx/modsecurity/bastion-virtual-patches.conf"
+    text = path.read_text(encoding="utf-8")
+    live = [
+        ln
+        for ln in text.splitlines()
+        if ln.strip() and not ln.strip().startswith("#")
+    ]
+    assert live, "expected at least one live SecRule"
+    blob = "\n".join(live)
+    assert "%" not in blob
+    assert "id:901" not in blob
+    for rule_id in (
+        "100096180",
+        "100096181",
+        "100096182",
+        "100096183",
+        "100096184",
+    ):
+        assert f"id:{rule_id}," in blob
+    assert "PHPSESSID" in blob
+    assert "PHP_SESSION_UPLOAD_PROGRESS" in blob
+    assert "php2shell" in blob
+    assert "CVE-2026-109618" in blob
+    assert "CVE-2026-109619" in blob
+    # Chains must not leave a dangling SecRule without a following rule line.
+    for i, ln in enumerate(live):
+        if ",chain\"" in ln or ln.rstrip().endswith(",chain"):
+            assert i + 1 < len(live), f"dangling chain at line: {ln}"
+            assert live[i + 1].lstrip().startswith("SecRule "), (
+                f"chain follower must be SecRule: {live[i + 1]}"
             )
 
 

@@ -2013,6 +2013,14 @@
   "Requête échouée": "Request failed",
   "Requêtes inspectées": "Requests inspected",
   "Requêtes suspectes": "Suspicious requests",
+  "Refus hôtes inconnus": "Unknown host refusals",
+  "Blocages CRS": "CRS blocks",
+  "Détections CRS": "CRS detections",
+  "ModSecurity · 24 h": "ModSecurity · 24 h",
+  "Audit · 24 h": "Audit · 24 h",
+  "Filtrage · 24 h": "Filtering · 24 h",
+  "Événements d’audit ModSecurity (RelevantOnly) — pas le trafic nginx total": "ModSecurity audit events (RelevantOnly) — not total nginx traffic",
+  "Somme des hit_count PendingHost sur 24 h (filtrage applicatif, hors CRS)": "Sum of PendingHost hit_count over 24 h (app-level filtering, outside CRS)",
   "Ressource": "Resource",
   "Ressource introuvable": "Resource not found",
   "Ressource introuvable.": "Resource not found.",
@@ -3028,5 +3036,7 @@
   "Importer les groupes Keycloak et relire les effectifs (users)": "Import Keycloak groups and refresh member counts (users)",
   "Configurer le compte de service Keycloak": "Configure the Keycloak service account",
   "Dernière sync en erreur": "Last sync failed",
-  "Version déployée": "Deployed version"
+  "Version déployée": "Deployed version",
+  "24 h · aucune activité CRS enregistrée (mesure effectuée — RelevantOnly)": "24 h · no CRS activity recorded (measured — RelevantOnly)",
+  "Déduit de la chaîne Include ModSecurity du dépôt / image — pas une sonde runtime": "Derived from the ModSecurity Include chain in the repo / image — not a runtime probe"
 }

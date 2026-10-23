@@ -3,7 +3,7 @@
 {% block title %}WAF{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20260902-analyse">
+<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20261023-bilan-kpis">
 {% endblock %}
 
 {% block breadcrumb %}Admin / {{ _('Sécurité') }} / WAF{% endblock %}
@@ -171,15 +171,10 @@
       {% else %}
 
       <section class="sentinel-exec-row" aria-label="Executive summary">
-        <article class="sentinel-kpi sentinel-kpi--ok">
-          <span class="sentinel-kpi-label">{{ _('Requêtes inspectées') }}</span>
-          <span class="sentinel-kpi-value">{{ exec.inspected }}</span>
-          <span class="sentinel-kpi-sub">{{ _('Total · 24 h') }}</span>
-        </article>
         <article class="sentinel-kpi sentinel-kpi--err">
-          <span class="sentinel-kpi-label">{{ _('Menaces bloquées') }}</span>
+          <span class="sentinel-kpi-label">{{ _('Blocages CRS') }}</span>
           <span class="sentinel-kpi-value">
-            {{ exec.blocks }}
+            {{ exec.blocks_display }}
             {% if exec.blocks_trend_pct is not none %}
             <span class="sentinel-trend {% if exec.blocks_trend_pct > 0 %}sentinel-trend--up{% elif exec.blocks_trend_pct < 0 %}sentinel-trend--down{% endif %}"
                   title="{{ _('Tendance vs première moitié de la fenêtre 24 h') }}">
@@ -187,7 +182,12 @@
             </span>
             {% endif %}
           </span>
-          <span class="sentinel-kpi-sub">{{ _('CRS + refus · 24 h') }}</span>
+          <span class="sentinel-kpi-sub">{{ _('ModSecurity · 24 h') }}</span>
+        </article>
+        <article class="sentinel-kpi sentinel-kpi--ok">
+          <span class="sentinel-kpi-label">{{ _('Détections CRS') }}</span>
+          <span class="sentinel-kpi-value" title="{{ _('Événements d’audit ModSecurity (RelevantOnly) — pas le trafic nginx total') }}">{{ exec.detections_display }}</span>
+          <span class="sentinel-kpi-sub">{{ _('Audit · 24 h') }}</span>
         </article>
         <article class="sentinel-kpi sentinel-kpi--ok sentinel-kpi--gauge">
           <span class="sentinel-kpi-label">{{ _('Score de santé WAF') }}</span>
@@ -212,16 +212,26 @@
           </details>
           {% endif %}
         </article>
-        <article class="sentinel-kpi sentinel-kpi--warn">
-          <span class="sentinel-kpi-label">{{ _('Requêtes suspectes') }}</span>
-          <span class="sentinel-kpi-value">{{ exec.live_suspicious }}</span>
-          <span class="sentinel-kpi-sub">{{ _('Live · 3 h + filtrage hôtes') }}</span>
+        <article class="sentinel-kpi {% if exec.host_refusals %}sentinel-kpi--warn{% else %}sentinel-kpi--ok{% endif %}">
+          <span class="sentinel-kpi-label">{{ _('Refus hôtes inconnus') }}</span>
+          <span class="sentinel-kpi-value" title="{{ _('Somme des hit_count PendingHost sur 24 h (filtrage applicatif, hors CRS)') }}">{{ exec.host_refusals_display }}</span>
+          <span class="sentinel-kpi-sub">{{ _('Filtrage · 24 h') }}</span>
         </article>
       </section>
 
-      {% if efficiency.status == 'measured_zero' %}
+      {% if exec.coverage_note %}
+      <p class="sentinel-coverage-note" title="{{ _('Déduit de la chaîne Include ModSecurity du dépôt / image — pas une sonde runtime') }}">
+        {{ exec.coverage_note }}
+      </p>
+      {% endif %}
+
+      {% if exec.activity_hint %}
       <p class="waf-kpi-quiet" title="{{ efficiency.zero_explanation or '' }}">
-        {{ _('24 h · aucune activité CRS enregistrée') }}
+        {{ exec.activity_hint }}
+      </p>
+      {% elif efficiency.status == 'measured_zero' %}
+      <p class="waf-kpi-quiet" title="{{ efficiency.zero_explanation or '' }}">
+        {{ _('24 h · aucune activité CRS enregistrée (mesure effectuée — RelevantOnly)') }}
       </p>
       {% endif %}
 

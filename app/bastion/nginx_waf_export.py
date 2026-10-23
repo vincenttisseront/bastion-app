@@ -337,6 +337,38 @@ def _ctl_action_for_exclusion(ex: WafExclusion, rule_id: int) -> str:
     return f"ctl:ruleRemoveById={rule_id}"
 
 
+def _is_secrule_line(line: str) -> bool:
+    """True for ``SecRule …`` only — not ``SecRuleRemoveById`` / ``SecRuleUpdate…``."""
+    stripped = line.lstrip()
+    return bool(re_safe.match(r"SecRule\s", stripped))
+
+
+def _is_chain_secrule(line: str) -> bool:
+    """True when a SecRule action list includes ``chain`` (order-independent)."""
+    if not _is_secrule_line(line):
+        return False
+    # Match ``,chain`` / ``chain,`` / ``chain"`` inside the quoted actions.
+    return bool(re_safe.search(r"(?:,|\s)chain(?:[,\"\s]|$)", line))
+
+
+def _next_nonempty(cleaned: list[str], start: int) -> int:
+    j = start
+    while j < len(cleaned) and (
+        not cleaned[j].strip() or cleaned[j].lstrip().startswith("#")
+    ):
+        j += 1
+    return j
+
+
+def _prev_nonempty(cleaned: list[str], start: int) -> int:
+    j = start
+    while j >= 0 and (
+        not cleaned[j].strip() or cleaned[j].lstrip().startswith("#")
+    ):
+        j -= 1
+    return j
+
+
 def _drop_unsafe_secrule_lines(lines: list[str]) -> list[str]:
     cleaned: list[str] = []
     for line in lines:
@@ -352,17 +384,14 @@ def _drop_unsafe_secrule_lines(lines: list[str]) -> list[str]:
 
 
 def _drop_dangling_chain_secrules(cleaned: list[str]) -> list[str]:
+    """Drop chain heads whose follow-up SecRule is missing (nginx -t / runtime fail)."""
     final: list[str] = []
     i = 0
     while i < len(cleaned):
         line = cleaned[i]
-        if line.lstrip().startswith("SecRule") and "nolog,chain" in line:
-            j = i + 1
-            while j < len(cleaned) and (
-                not cleaned[j].strip() or cleaned[j].lstrip().startswith("#")
-            ):
-                j += 1
-            if j >= len(cleaned) or not cleaned[j].lstrip().startswith("SecRule"):
+        if _is_chain_secrule(line):
+            j = _next_nonempty(cleaned, i + 1)
+            if j >= len(cleaned) or not _is_secrule_line(cleaned[j]):
                 final.append("# skipped dangling chain SecRule (no follow-up)")
                 i += 1
                 continue
@@ -371,11 +400,29 @@ def _drop_dangling_chain_secrules(cleaned: list[str]) -> list[str]:
     return final
 
 
+def _drop_orphan_chain_bodies(cleaned: list[str]) -> list[str]:
+    """Drop SecRule bodies that lack ``id:`` when no live chain head precedes them.
+
+    Chain bodies are emitted as ``SecRule … \"ctl:…\"`` (no id). If the head was
+    scrubbed as unsafe, the orphan body would fail ModSecurity parse (missing id).
+    """
+    final: list[str] = []
+    for i, line in enumerate(cleaned):
+        if _is_secrule_line(line) and "id:" not in line:
+            prev = _prev_nonempty(cleaned, i - 1)
+            if prev < 0 or not _is_chain_secrule(cleaned[prev]):
+                final.append("# skipped orphan chain body SecRule (no chain head)")
+                continue
+        final.append(line)
+    return final
+
+
 def _sanitize_generated_rules(text: str) -> str:
     """Guarantee the export cannot leave dangling continuations or percent macros."""
     cleaned = _drop_unsafe_secrule_lines(text.splitlines())
-    final = _drop_dangling_chain_secrules(cleaned)
-    return "\n".join(final) + "\n"
+    cleaned = _drop_dangling_chain_secrules(cleaned)
+    cleaned = _drop_orphan_chain_bodies(cleaned)
+    return "\n".join(cleaned) + "\n"
 
 
 def render_exclusions_generated(exclusions: list[WafExclusion]) -> str:

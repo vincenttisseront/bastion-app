@@ -60,6 +60,12 @@
 #waf-page .sentinel-trend{font-size:.75rem;font-weight:600;margin-left:.35rem}
 #waf-page .sentinel-trend--up{color:var(--sentinel-err)}
 #waf-page .sentinel-trend--down{color:var(--sentinel-ok)}
+#waf-page .sentinel-coverage-note{
+  margin:.15rem 0 .55rem;padding:.4rem .65rem;border-radius:var(--r-sm);
+  border:1px dashed var(--sentinel-border);background:var(--sentinel-bg-2);
+  font-size:.72rem;color:var(--sentinel-muted);line-height:1.35;
+}
+#waf-page .waf-kpi-quiet{margin:.1rem 0 .55rem;font-size:.72rem;color:var(--sentinel-muted)}
 
 #waf-page .sentinel-threat-grid{
   display:grid;gap:.75rem;grid-template-columns:1.4fr 1fr;

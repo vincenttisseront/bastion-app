@@ -34,3 +34,17 @@ def test_sync_exports_rewrites_subdomain_engine_via_cat():
         'cp -a "$EXPORTS/modsecurity/engine-subdomain-mode-generated.conf"'
         not in script
     )
+
+
+def test_sync_exports_always_writes_include_safe_waf_stubs():
+    """Missing exports must not leave dangling Includes or stale On overlays."""
+    script = (
+        Path(__file__).parents[1] / "docker" / "nginx" / "sync-exports-to-confd.sh"
+    ).read_text(encoding="utf-8")
+    assert "empty exclusions overlay (Include-safe)" in script
+    assert "no promoted IP denies" in script
+    assert "default portal rate zones (Include-safe)" in script
+    assert "no public_armed path yet" in script
+    assert "engine-public-mode-generated" in script
+    # Engine overlays always forced Off when not armed (never leave missing file).
+    assert script.count("SecRuleEngine Off") >= 2

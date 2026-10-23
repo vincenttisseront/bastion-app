@@ -11,6 +11,7 @@ from app.bastion.nginx_waf_export import MODE_OFF, MODE_ON, MODE_DETECTION
 from app.bastion.waf_readability import (
     UNKNOWN_HOST_FEED_RULE_LABEL,
     build_attack_controls,
+    build_coverage_note,
     build_efficiency_panel,
     build_efficiency_visuals,
     build_executive_summary,
@@ -19,6 +20,7 @@ from app.bastion.waf_readability import (
     build_quarantine_panel,
     build_threat_intel_visuals,
     build_unknown_host_panel,
+    detect_virtual_patches_in_include_chain,
     _apply_feed_target,
     _efficiency_zero_explanation,
     _enrich_feed_source,
@@ -362,20 +364,91 @@ def test_build_executive_summary_four_kpis(db_session: Session):
     efficiency = {
         "present": True,
         "inspected": 100,
+        "detections": 8,
         "blocks": 5,
         "critical": 1,
         "status": "ok",
     }
     ac = {"present": False, "critical_24h": 0}
-    unknown = {"present": True, "hits_24h": 12}
+    unknown = {"present": True, "hits_24h": 12453}
     layers = [{"alert": False}]
     summary = build_executive_summary(settings, active, efficiency, ac, unknown, layers)
     assert summary["inspected"] == 100
+    assert summary["detections"] == 8
     assert summary["blocks"] == 5
+    assert summary["host_refusals"] == 12453
+    assert summary["host_refusals_display"] == "12,5\u202fk"
+    assert "live_suspicious" not in summary
     assert 0 <= summary["health_score"] <= 100
     assert "health_gauge_svg" in summary
     assert "health_breakdown" in summary
-    assert summary["live_suspicious"] >= 12
+    assert summary["coverage_note"]
+    assert "CRS OWASP PL1" in summary["coverage_note"]
+
+
+def test_coverage_note_detects_virtual_patches_when_present(
+    tmp_path: Path, monkeypatch
+):
+    conf = tmp_path / "modsecurity"
+    conf.mkdir()
+    (conf / "main-portal.conf").write_text(
+        "Include /etc/nginx/modsecurity/bastion-virtual-patches.conf\n",
+        encoding="utf-8",
+    )
+    (conf / "bastion-virtual-patches.conf").write_text("# rules\n", encoding="utf-8")
+    vp = detect_virtual_patches_in_include_chain(conf)
+    assert vp["included"] is True
+    assert vp["rules_file_present"] is True
+    monkeypatch.setattr(
+        "app.bastion.waf_readability._modsecurity_conf_dir",
+        lambda: conf,
+    )
+    note = build_coverage_note({"aggregate_threshold": 5})
+    assert "CRS OWASP PL1" in note
+    assert "seuil d'anomalie 5" in note
+    assert "patches Bastion" in note
+
+
+def test_coverage_note_crs_only_without_include(tmp_path: Path, monkeypatch):
+    conf = tmp_path / "modsecurity"
+    conf.mkdir()
+    (conf / "main-portal.conf").write_text(
+        "Include /etc/modsecurity.d/owasp-crs/rules/*.conf\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "app.bastion.waf_readability._modsecurity_conf_dir",
+        lambda: conf,
+    )
+    note = build_coverage_note({"aggregate_threshold": 5})
+    assert "CRS seul" in note
+    assert "patches Bastion" not in note
+
+
+def test_executive_summary_activity_hint_when_crs_quiet():
+    settings = Settings(portal_domain="portal.example.fr", exports_dir="/tmp/waf-exec")  # type: ignore[call-arg]
+    active = {"verifiable": True, "aggregate_mode": "on", "families": {"portal": {"sec_rule_engine": "on"}}}
+    efficiency = {
+        "present": True,
+        "inspected": 0,
+        "detections": 0,
+        "blocks": 0,
+        "critical": 0,
+        "status": "measured_zero",
+    }
+    summary = build_executive_summary(
+        settings,
+        active,
+        efficiency,
+        {},
+        {"present": True, "hits_24h": 9999},
+        [{"alert": True, "name": "Filtrage d'hôtes", "detail": "x"}],
+    )
+    assert summary["crs_quiet"] is True
+    assert summary["host_refusals"] == 9999
+    assert summary["host_refusals_display"] == "9\u202f999"
+    assert summary["activity_hint"]
+    assert "filtrage" in summary["activity_hint"].lower()
 
 
 def test_health_score_breakdown_filtrage_alert():
