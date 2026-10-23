@@ -1188,6 +1188,8 @@ class WafProfile(Base):
     mode = Column(String, nullable=False, default="on")
     # Inbound anomaly threshold; clamped to [3, 10] on export (default 5).
     anomaly_threshold = Column(Integer, nullable=False, default=5)
+    # OWASP CRS paranoia (blocking + detection); clamped to [1, 4] on export (default 1).
+    paranoia_level = Column(Integer, nullable=False, default=1)
     # Promote SecurityBan(ip) into nginx deny only if permanent OR
     # historical ban count for that IP >= this value (default 3).
     ip_deny_min_occurrences = Column(Integer, nullable=False, default=3)

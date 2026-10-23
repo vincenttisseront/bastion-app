@@ -639,12 +639,36 @@
 
           <div class="form-group">
 
-            <label class="form-label" for="waf_ip_deny_min">{{ _('Promotion IP deny — min. occurrences') }}</label>
+            <label class="form-label" for="waf_paranoia_level">{{ _('Paranoia CRS (PL)') }} ({{ paranoia_min }}–{{ paranoia_max }})</label>
 
-            <input class="form-input" type="number" id="waf_ip_deny_min" name="ip_deny_min_occurrences" min="1" max="100" value="{{ profile.ip_deny_min_occurrences }}" required>
+            <select id="waf_paranoia_level" name="paranoia_level" class="form-select" required
+                    data-profile-mode="{{ profile.mode }}"
+                    aria-describedby="waf-paranoia-hint waf-paranoia-warn">
+              {% for pl in range(paranoia_min, paranoia_max + 1) %}
+              <option value="{{ pl }}" {% if (profile.paranoia_level or 1) == pl %}selected{% endif %}>PL{{ pl }}{% if pl == 1 %} — {{ _('recommandé') }}{% endif %}</option>
+              {% endfor %}
+            </select>
+            <p class="form-help" id="waf-paranoia-hint">{{ _('Aligné blocking + detection. Appliquer pour pousser vers nginx.') }}</p>
 
           </div>
 
+        </div>
+
+        <div class="alert alert-warn" id="waf-paranoia-warn" {% if (profile.paranoia_level or 1) < 2 %}hidden{% endif %}>
+          <strong>{{ _('Attention') }}</strong>
+          <p id="waf-paranoia-warn-main">{{ _('Le niveau 2+ augmente significativement le risque de faux positifs (notamment sur les arguments de formulaires). Il est fortement recommandé de passer le moteur en DetectionOnly pendant 24h avant d’appliquer.') }}</p>
+          <p class="muted" id="waf-paranoia-warn-detail"></p>
+          <p id="waf-paranoia-on-hint" {% if profile.mode != 'on' or (profile.paranoia_level or 1) < 2 %}hidden{% endif %}>
+            <span class="badge badge-warn">{{ _('recommandé DetectionOnly') }}</span>
+            <a href="#reactivation">{{ _('Réactivation / bascule DetectionOnly') }}</a>
+          </p>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="waf_ip_deny_min">{{ _('Promotion IP deny — min. occurrences') }}</label>
+            <input class="form-input" type="number" id="waf_ip_deny_min" name="ip_deny_min_occurrences" min="1" max="100" value="{{ profile.ip_deny_min_occurrences }}" required>
+          </div>
         </div>
 
         <p class="form-help">{{ _('Packs virtual-patch et état moteur : onglet') }} <a href="#modsecurity">ModSecurity</a>.</p>
@@ -784,7 +808,10 @@
       {% if ms.crs %}
       <ul class="muted" style="margin:0 0 1rem;padding-left:1.2rem" id="waf-ms-crs">
         <li>{{ _('Version setup') }} : <code>OWASP_CRS/<span data-ms-crs-version>{{ ms.crs.setup_version }}</span></code></li>
-        <li>{{ _('Paranoia') }} : PL<span data-ms-crs-paranoia>{{ ms.crs.paranoia }}</span></li>
+        <li>{{ _('Paranoia') }} : PL<span data-ms-crs-paranoia>{{ ms.crs.paranoia }}</span>
+          <span class="badge badge-warn" data-ms-pl-on-warn{% if not (ms.crs.paranoia and ms.crs.paranoia >= 2 and ms.crs.profile_mode == 'on') %} hidden{% endif %}>{{ _('recommandé DetectionOnly') }}</span>
+          <a href="#reactivation" data-ms-pl-on-link{% if not (ms.crs.paranoia and ms.crs.paranoia >= 2 and ms.crs.profile_mode == 'on') %} hidden{% endif %}>{{ _('corriger') }}</a>
+        </li>
         <li>{{ _("Seuil d'anomalie (profil)") }} : <code data-ms-crs-threshold>{{ ms.crs.anomaly_threshold }}</code>
           · {{ _('mode profil') }} <code data-ms-crs-mode>{{ ms.crs.profile_mode }}</code></li>
         <li>{{ _('Audit') }} : <code>{{ ms.crs.audit_engine }}</code>
@@ -1712,6 +1739,11 @@
       setText(root.querySelector('[data-ms-crs-mode]'), crs.profile_mode);
       if (crs.setup_version != null) setText(root.querySelector('[data-ms-crs-version]'), crs.setup_version);
       if (crs.paranoia != null) setText(root.querySelector('[data-ms-crs-paranoia]'), crs.paranoia);
+      var showPlWarn = !!(crs.paranoia >= 2 && crs.profile_mode === 'on');
+      var plWarn = root.querySelector('[data-ms-pl-on-warn]');
+      var plLink = root.querySelector('[data-ms-pl-on-link]');
+      if (plWarn) plWarn.hidden = !showPlWarn;
+      if (plLink) plLink.hidden = !showPlWarn;
 
       var countWrap = document.getElementById('waf-ms-packs-count');
       var enabledEl = root.querySelector('[data-ms-packs-enabled]');
@@ -1755,7 +1787,7 @@
       try {
         return JSON.stringify({
           e: (ms.engine_rows || []).map(function (r) { return [r.label, r.state, r.armed]; }),
-          c: ms.crs && [ms.crs.anomaly_threshold, ms.crs.profile_mode],
+          c: ms.crs && [ms.crs.anomaly_threshold, ms.crs.profile_mode, ms.crs.paranoia],
           p: (ms.packs || []).map(function (p) {
             return [p.id, p.mode, p.deploy_pending, p.suggest_enable, p.suggest_reasons];
           }),
@@ -2085,12 +2117,38 @@
     });
   }
 
+  /* Paranoia PL warning + level-specific FP hints */
+  (function () {
+    var plSel = document.getElementById('waf_paranoia_level');
+    var modeSel = document.getElementById('waf_mode');
+    var warn = document.getElementById('waf-paranoia-warn');
+    var detail = document.getElementById('waf-paranoia-warn-detail');
+    var onHint = document.getElementById('waf-paranoia-on-hint');
+    if (!plSel || !warn) return;
+    var HINTS = {
+      2: {{ _('PL2 : règles supplémentaires sur ARGS / cookies (encodages, taille, caractères spéciaux). FP fréquents sur formulaires riches et APIs JSON.') | tojson }},
+      3: {{ _('PL3 : heuristiques plus agressives (chaînes ambiguës, bypass partiels). FP élevés sur uploads, éditeurs WYSIWYG et reverse-proxies qui réécrivent les query-strings.') | tojson }},
+      4: {{ _('PL4 : jeu de règles maximal, réservé aux environnements très contrôlés. FP quasi systématiques hors périmètre figé — DetectionOnly obligatoire avant tout On.') | tojson }}
+    };
+    function sync() {
+      var pl = parseInt(plSel.value, 10) || 1;
+      var mode = modeSel ? modeSel.value : (plSel.getAttribute('data-profile-mode') || 'on');
+      warn.hidden = pl < 2;
+      if (detail) detail.textContent = HINTS[pl] || '';
+      if (onHint) onHint.hidden = !(pl >= 2 && mode === 'on');
+    }
+    plSel.addEventListener('change', sync);
+    if (modeSel) modeSel.addEventListener('change', sync);
+    sync();
+  })();
+
   var presetSelect = document.getElementById('waf_profile_preset');
   var profilesMap = {{ waf_profiles_map | tojson }};
   if (presetSelect && profilesMap) {
     var fields = {
       mode: document.getElementById('waf_mode'),
       anomaly_threshold: document.getElementById('waf_anomaly_threshold'),
+      paranoia_level: document.getElementById('waf_paranoia_level'),
       ip_deny_min_occurrences: document.getElementById('waf_ip_deny_min'),
       portal_login_rate: document.getElementById('waf_portal_login_rate'),
       portal_login_burst: document.getElementById('waf_portal_login_burst'),
@@ -2104,6 +2162,10 @@
       if (!p) return;
       if (fields.mode) fields.mode.value = p.mode || 'on';
       if (fields.anomaly_threshold) fields.anomaly_threshold.value = String(p.anomaly_threshold ?? 5);
+      if (fields.paranoia_level) {
+        fields.paranoia_level.value = String(p.paranoia_level ?? 1);
+        fields.paranoia_level.dispatchEvent(new Event('change'));
+      }
       if (fields.ip_deny_min_occurrences) fields.ip_deny_min_occurrences.value = String(p.ip_deny_min_occurrences ?? 3);
       if (fields.portal_login_rate) fields.portal_login_rate.value = String(p.portal_login_rate ?? 3);
       if (fields.portal_login_burst) fields.portal_login_burst.value = String(p.portal_login_burst ?? 5);

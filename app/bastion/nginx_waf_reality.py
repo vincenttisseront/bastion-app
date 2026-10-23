@@ -26,6 +26,7 @@ from app.bastion.nginx_waf_export import (
     MODE_OFF,
     MODE_ON,
     clamp_anomaly_threshold,
+    clamp_paranoia_level,
     read_effective_status,
 )
 from app.models import WafExclusion, WafProfile
@@ -512,6 +513,9 @@ def _profile_db_snapshot(profile: WafProfile, exclusions: list[WafExclusion]) ->
         "profile_name": profile.name,
         "mode": profile.mode,
         "anomaly_threshold": clamp_anomaly_threshold(profile.anomaly_threshold),
+        "paranoia_level": clamp_paranoia_level(
+            getattr(profile, "paranoia_level", 1)
+        ),
         "ip_deny_min_occurrences": int(profile.ip_deny_min_occurrences or 3),
         "portal_login_rate": int(profile.portal_login_rate or 3),
         "portal_api_rate": int(profile.portal_api_rate or 30),
@@ -547,6 +551,7 @@ def diff_db_vs_export(
     scalar_fields = (
         ("mode", "Mode"),
         ("anomaly_threshold", "Seuil anomalie"),
+        ("paranoia_level", "Paranoia CRS (PL)"),
         ("ip_deny_min_occurrences", "Promotion IP deny (min. occ.)"),
         ("portal_login_rate", "Rate login (r/s)"),
         ("portal_api_rate", "Rate API (r/s)"),

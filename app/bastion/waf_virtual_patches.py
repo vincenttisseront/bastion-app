@@ -620,13 +620,16 @@ def build_modsecurity_page(
         )
 
     threshold = int(getattr(profile, "anomaly_threshold", 5) or 5)
+    from app.bastion.nginx_waf_export import clamp_paranoia_level
+
+    paranoia = clamp_paranoia_level(getattr(profile, "paranoia_level", 1))
     return {
         "engine_rows": engine_rows,
         "audit_health": audit_health,
         "top_rules": top_rules,
         "crs": {
             "setup_version": "4.28.0",
-            "paranoia": 1,
+            "paranoia": paranoia,
             "anomaly_threshold": threshold,
             "profile_mode": profile.mode,
             "body_access": True,

@@ -106,6 +106,7 @@ def test_modsecurity_page_engine_crs_and_packs(db_session, tmp_path):
     profile = WafProfile(
         name="P",
         mode="detection_only",
+        paranoia_level=2,
         patch_php2shell_enabled=True,
         patch_php2shell_mode="detection",
     )
@@ -125,7 +126,7 @@ def test_modsecurity_page_engine_crs_and_packs(db_session, tmp_path):
     assert php["toggleable"] is True
     assert php["source_present"] is True
     assert len(php["rules"]) == 5
-    assert page["crs"]["paranoia"] == 1
+    assert page["crs"]["paranoia"] == 2
     assert "audit_health" in page
     assert "top_rules" in page
     labels = {r["label"] for r in page["engine_rows"]}
