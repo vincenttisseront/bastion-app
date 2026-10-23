@@ -13,11 +13,22 @@ def test_docker_portal_keeps_modsecurity_wiring_but_off():
     )
     # Server-level switch is an include (default off); locations keep explicit off.
     assert "include /etc/nginx/includes/modsecurity-portal-switch.conf;" in text
-    assert "modsecurity on;" not in [
+    # Server switch stays off by default; only the admin sandbox location may set on.
+    on_lines = [
         ln.strip()
         for ln in text.splitlines()
-        if ln.strip() and not ln.strip().startswith("#")
+        if ln.strip() and not ln.strip().startswith("#") and "modsecurity on;" in ln
     ]
+    assert on_lines == ["modsecurity on;"]
+    assert "location ^~ /__waf_sandbox/" in text
+    sandbox = text.split("location ^~ /__waf_sandbox/ {", 1)[1].split(
+        "location = /health {", 1
+    )[0]
+    assert "allow 10.0.0.0/8;" in sandbox
+    assert "allow 172.16.0.0/12;" in sandbox
+    assert "deny all;" in sandbox
+    assert "SecRuleEngine DetectionOnly" in sandbox
+    assert "modsecurity_rules_file /etc/nginx/modsecurity/main-portal.conf;" in sandbox
     assert (
         "modsecurity_rules_file /etc/nginx/modsecurity/main-portal.conf;" in text
     )

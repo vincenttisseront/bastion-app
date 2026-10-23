@@ -162,6 +162,56 @@ def admin_waf_drift_json(
     return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
 
+@router.post("/admin/security/waf/sandbox")
+def admin_waf_sandbox(
+    request: Request,
+    method: str = Form("GET"),
+    uri: str = Form("/"),
+    body: str = Form(""),
+    content_type: str = Form("application/x-www-form-urlencoded"),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Internal ModSecurity sandbox probe (DetectionOnly) + audit correlation."""
+    from app.audit import log_action
+    from app.bastion.waf_sandbox import run_waf_sandbox
+
+    _ = db  # auth + future rate limits
+    try:
+        result = run_waf_sandbox(
+            settings,
+            method=method,
+            uri=uri,
+            body=body,
+            content_type=content_type,
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            {"ok": False, "error": str(exc)},
+            status_code=400,
+            headers={"Cache-Control": "no-store"},
+        )
+    log_action(
+        db,
+        actor=admin_actor(user),
+        action="security.waf.sandbox_probe",
+        target=result.get("sandbox_id"),
+        details={
+            "method": result.get("method"),
+            "uri": result.get("uri"),
+            "verdict": result.get("verdict"),
+            "blocked_intent": result.get("blocked_intent"),
+            "rules": [r.get("id") for r in (result.get("matched_rules") or [])][:20],
+        },
+        ip_address=client_ip_from_request(request) or None,
+    )
+    return JSONResponse(
+        {"ok": True, **result},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.get("/admin/security/waf/modsecurity.json")
 def admin_waf_modsecurity_json(
     db: Session = Depends(get_db),
