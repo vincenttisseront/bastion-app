@@ -150,6 +150,18 @@ def admin_waf_diagnostic_json(
     )
 
 
+@router.get("/admin/security/waf/drift.json")
+def admin_waf_drift_json(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """UI target vs on-disk exports unified diffs (Détails techniques)."""
+    from app.bastion.waf_config_drift import build_waf_config_drift
+
+    payload = build_waf_config_drift(db, settings)
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+
 @router.get("/admin/security/waf/modsecurity.json")
 def admin_waf_modsecurity_json(
     db: Session = Depends(get_db),

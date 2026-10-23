@@ -1166,7 +1166,28 @@
 
       <p class="form-help muted">{{ _('Agrégateur — offset') }} {{ diagnostic.aggregator_offset or '—' }} {{ _('· état') }} {{ diagnostic.aggregator_state_path }}</p>
 
-
+      <h4 class="waf-subheading" style="margin-top:1.5rem">{{ _('Drift configuration (UI ↔ exports)') }}</h4>
+      <div id="waf-drift-panel"
+           data-drift-url="/admin/security/waf/drift.json"
+           data-label-synced="{{ _('Configuration Nginx synchronisée') }}"
+           data-label-drift="{{ _('Drift détecté') }}"
+           data-label-loading="{{ _('Calcul du diff…') }}"
+           data-label-error="{{ _('Impossible de charger le drift') }}"
+           data-label-all="{{ _('Tous') }}"
+           data-label-empty="{{ _('Aucun écart sur ce fichier.') }}"
+           data-label-refresh="{{ _('Actualiser') }}">
+        <div class="waf-drift-toolbar">
+          <span class="badge badge-muted" id="waf-drift-badge">{{ _('—') }}</span>
+          <button type="button" class="btn btn-secondary btn-sm" id="waf-drift-refresh">{{ _('Actualiser') }}</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="waf-drift-copy" hidden>{{ _('Copier le diff') }}</button>
+          <span class="muted" id="waf-drift-meta"></span>
+        </div>
+        <div class="waf-drift-layout">
+          <nav class="waf-drift-files" id="waf-drift-files" aria-label="{{ _('Fichiers export') }}"></nav>
+          <pre class="waf-drift-diff mono" id="waf-drift-diff" tabindex="0" aria-live="polite">{{ _('Ouvrez cet onglet ou cliquez Actualiser pour comparer.') }}</pre>
+        </div>
+        <p class="form-help muted">{{ _('Cible UI (vert +) vs fichiers sous exports/ (rouge −). Hors conf live du container nginx.') }}</p>
+      </div>
 
       {% if reality_warnings %}<div class="alert alert-warn">{% for msg in reality_warnings %}<p>{{ msg }}</p>{% endfor %}</div>{% endif %}
 
@@ -1578,6 +1599,7 @@
     });
 
     if (typeof window.__wafMsPollSync === 'function') window.__wafMsPollSync(id);
+    if (typeof window.__wafDriftSync === 'function') window.__wafDriftSync(id);
 
   }
 
@@ -1855,6 +1877,151 @@
     });
 
     if (currentTab() === 'modsecurity') start();
+  })();
+
+  /* Technical tab: UI ↔ exports drift (lazy load, not on ModSecurity poll) */
+  (function () {
+    var panel = document.getElementById('waf-drift-panel');
+    if (!panel) return;
+    var url = panel.getAttribute('data-drift-url') || '/admin/security/waf/drift.json';
+    var filesNav = document.getElementById('waf-drift-files');
+    var diffPre = document.getElementById('waf-drift-diff');
+    var badge = document.getElementById('waf-drift-badge');
+    var meta = document.getElementById('waf-drift-meta');
+    var copyBtn = document.getElementById('waf-drift-copy');
+    var refreshBtn = document.getElementById('waf-drift-refresh');
+    var payload = null;
+    var selected = 'all';
+    var loaded = false;
+
+    function label(key, fallback) {
+      return panel.getAttribute('data-label-' + key) || fallback || '';
+    }
+
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function renderDiffHtml(text) {
+      if (!text) {
+        return '<span class="diff-meta">' + esc(label('empty', 'Aucun écart sur ce fichier.')) + '</span>';
+      }
+      return text.split('\n').map(function (line) {
+        var cls = 'diff-meta';
+        if (line.charAt(0) === '+' && line.indexOf('+++') !== 0) cls = 'diff-add';
+        else if (line.charAt(0) === '-' && line.indexOf('---') !== 0) cls = 'diff-del';
+        else if (line.indexOf('@@') === 0) cls = 'diff-hunk';
+        else if (line.indexOf('===') === 0 || line.indexOf('+++') === 0 || line.indexOf('---') === 0) cls = 'diff-meta';
+        return '<span class="' + cls + '">' + esc(line) + '</span>';
+      }).join('\n');
+    }
+
+    function buildAllUnified(files) {
+      return (files || []).filter(function (f) { return f.status !== 'synced'; }).map(function (f) {
+        return '=== ' + f.name + ' ===\n' + (f.unified || '(no hunks)\n');
+      }).join('\n');
+    }
+
+    function showSelection() {
+      if (!payload) return;
+      var text = '';
+      if (selected === 'all') {
+        text = payload.synced ? '' : buildAllUnified(payload.files);
+      } else {
+        var file = (payload.files || []).find(function (f) { return f.id === selected; });
+        text = file ? (file.unified || '') : '';
+      }
+      if (diffPre) diffPre.innerHTML = renderDiffHtml(text);
+      if (copyBtn) copyBtn.hidden = !text;
+      if (filesNav) {
+        filesNav.querySelectorAll('.waf-drift-file-btn').forEach(function (btn) {
+          btn.classList.toggle('is-active', btn.getAttribute('data-file-id') === selected);
+        });
+      }
+    }
+
+    function renderNav(data) {
+      if (!filesNav) return;
+      var html = '<button type="button" class="waf-drift-file-btn" data-file-id="all">' +
+        esc(label('all', 'Tous')) +
+        ' <span class="badge ' + (data.synced ? 'badge-ok' : 'badge-err') + '">' +
+        (data.diverged_count || 0) + '</span></button>';
+      (data.files || []).forEach(function (f) {
+        html += '<button type="button" class="waf-drift-file-btn" data-file-id="' + esc(f.id) + '">' +
+          esc(f.label || f.name) +
+          ' <span class="badge ' + esc(f.css || 'badge-muted') + '">' + esc(f.status) + '</span></button>';
+      });
+      filesNav.innerHTML = html;
+      filesNav.querySelectorAll('.waf-drift-file-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          selected = btn.getAttribute('data-file-id') || 'all';
+          showSelection();
+        });
+      });
+    }
+
+    function applyDrift(data) {
+      payload = data;
+      if (badge) {
+        badge.className = 'badge ' + (data.synced ? 'badge-ok' : 'badge-err');
+        badge.textContent = data.synced
+          ? label('synced', 'Configuration Nginx synchronisée')
+          : (label('drift', 'Drift détecté') + ' (' + (data.diverged_count || 0) + ')');
+      }
+      if (meta && data.generated_at) {
+        var d = new Date(data.generated_at);
+        meta.textContent = d.toLocaleTimeString();
+      }
+      if (!selected || (selected !== 'all' && !(data.files || []).some(function (f) { return f.id === selected; }))) {
+        selected = 'all';
+      }
+      renderNav(data);
+      showSelection();
+      loaded = true;
+    }
+
+    function loadDrift() {
+      if (diffPre) diffPre.textContent = label('loading', 'Calcul du diff…');
+      fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+        .then(function (r) {
+          if (!r.ok) throw new Error('drift ' + r.status);
+          return r.json();
+        })
+        .then(applyDrift)
+        .catch(function () {
+          if (badge) {
+            badge.className = 'badge badge-err';
+            badge.textContent = label('error', 'Impossible de charger le drift');
+          }
+          if (diffPre) diffPre.textContent = label('error', 'Impossible de charger le drift');
+        });
+    }
+
+    if (refreshBtn) refreshBtn.addEventListener('click', loadDrift);
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function () {
+        var text = '';
+        if (selected === 'all') text = buildAllUnified((payload && payload.files) || []);
+        else {
+          var file = ((payload && payload.files) || []).find(function (f) { return f.id === selected; });
+          text = file ? (file.unified || '') : '';
+        }
+        if (!text) return;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).catch(function () { /* ignore */ });
+        }
+      });
+    }
+
+    window.__wafDriftSync = function (tabId) {
+      if (tabId === 'technical' && !loaded) loadDrift();
+      else if (tabId === 'technical' && loaded) { /* keep cache; refresh via button */ }
+    };
+
+    if (currentTab() === 'technical') loadDrift();
   })();
 
 
