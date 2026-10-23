@@ -2303,10 +2303,23 @@ def build_waf_readability_context(
         verdict.get("action_apply") and reactivation.get("armed")
     )
     from app.bastion.waf_promotion import build_promotion_panel
-    from app.bastion.waf_virtual_patches import build_virtual_patches_panel
+    from app.bastion.waf_virtual_patches import (
+        build_modsecurity_page,
+        build_virtual_patches_panel,
+    )
 
     promotion = build_promotion_panel(settings)
     virtual_patches = build_virtual_patches_panel(db, settings, profile)
+    modsecurity = build_modsecurity_page(
+        db,
+        settings,
+        profile,
+        active=active,
+        reactivation=reactivation,
+        effective=generated or None,
+    )
+    if modsecurity.get("any_deploy_pending"):
+        apply_enabled = True
     return {
         "verdict": verdict,
         "protection_layers": layers,
@@ -2331,6 +2344,7 @@ def build_waf_readability_context(
         "reactivation": reactivation,
         "promotion": promotion,
         "virtual_patches": virtual_patches,
+        "modsecurity": modsecurity,
         "apply_enabled": apply_enabled,
         "mode_pilotable": reactivation.get("pilotable"),
         "diagnostic": diagnostic,
