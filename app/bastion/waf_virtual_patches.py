@@ -25,10 +25,18 @@ from app.bastion.modsec_audit_aggregator import (
     resolve_audit_summary_path,
 )
 from app.bastion.nginx_waf_export import MODE_DETECTION, MODE_OFF, MODE_ON
+from app.bastion.packs.catalog import (
+    PACK_API_JSON_STRICT,
+    PACK_CATALOG,
+    PACK_IDS,
+    PACK_PHP2SHELL,
+    PACK_RCE_EXTENDED,
+    PACK_WORDPRESS_CMS,
+    get_pack_def,
+    list_pack_ids,
+)
 from app.models import WafProfile
 from app.sso_settings import Settings
-
-PACK_PHP2SHELL = "php2shell"
 
 PACK_MODE_OFF = "off"
 PACK_MODE_DETECTION = "detection"
@@ -44,68 +52,6 @@ VIRTUAL_PATCHES_SOURCE = "/etc/nginx/modsecurity/bastion-virtual-patches.conf"
 AUDIT_STALE_SECONDS = 3600
 AUDIT_SIZE_WARN_BYTES = 50 * 1024 * 1024
 
-# Registry — add packs here; each needs a conf file + WafProfile mode column.
-PACK_CATALOG: dict[str, dict[str, Any]] = {
-    PACK_PHP2SHELL: {
-        "id": PACK_PHP2SHELL,
-        "name": "PHP2Shell",
-        "severity": "critical",
-        "cves": ["CVE-2026-109618", "CVE-2026-109619"],
-        "summary": (
-            "Mitigations edge pour RCE PHP core (session upload progress / "
-            "multipart) en attendant le patch PHP origin."
-        ),
-        "detail": (
-            "Règles pre-CRS : PHPSESSID en champ POST, PHP_SESSION_UPLOAD_PROGRESS, "
-            "balises PHP dans les noms de fichiers uploadés, multipart fortement "
-            "imbriqué, multipart sans Content-Length."
-        ),
-        "conf_basename": "bastion-virtual-patches.conf",
-        "include_path": VIRTUAL_PATCHES_SOURCE,
-        "profile_attr": "patch_php2shell_mode",
-        "legacy_bool_attr": "patch_php2shell_enabled",
-        "default_mode": PACK_MODE_ON,
-        "rules": [
-            {
-                "id": "100096180",
-                "title": "PHPSESSID en champ POST",
-                "phase": 2,
-                "action": "deny/403",
-                "targets": "ARGS_POST_NAMES",
-            },
-            {
-                "id": "100096181",
-                "title": "PHP_SESSION_UPLOAD_PROGRESS",
-                "phase": 2,
-                "action": "deny/403",
-                "targets": "ARGS_POST_NAMES",
-            },
-            {
-                "id": "100096182",
-                "title": "Balise PHP dans nom de fichier uploadé",
-                "phase": 2,
-                "action": "deny/403",
-                "targets": "FILES",
-            },
-            {
-                "id": "100096183",
-                "title": "Multipart imbriqué (≥12 niveaux)",
-                "phase": 2,
-                "action": "deny/403",
-                "targets": "ARGS_POST_NAMES|FILES_NAMES",
-            },
-            {
-                "id": "100096184",
-                "title": "Multipart sans Content-Length",
-                "phase": 1,
-                "action": "deny/403",
-                "targets": "REQUEST_HEADERS",
-            },
-        ],
-    },
-}
-
-PACK_IDS = frozenset(PACK_CATALOG.keys())
 PHP2SHELL_RULE_IDS = frozenset(
     r["id"] for r in PACK_CATALOG[PACK_PHP2SHELL]["rules"]
 )
@@ -114,14 +60,10 @@ _PACK_RULE_LABELS: dict[str, str] = {
     for meta in PACK_CATALOG.values()
     for r in (meta.get("rules") or [])
 }
-
-
-def list_pack_ids() -> list[str]:
-    return sorted(PACK_CATALOG.keys())
-
-
-def get_pack_def(pack_id: str) -> dict[str, Any] | None:
-    return PACK_CATALOG.get((pack_id or "").strip().lower())
+_ALL_PACK_RULE_IDS: dict[str, frozenset[str]] = {
+    pack_id: frozenset(str(r["id"]) for r in (meta.get("rules") or []))
+    for pack_id, meta in PACK_CATALOG.items()
+}
 
 
 def normalize_pack_mode(value: Any, *, default: str = PACK_MODE_ON) -> str:
@@ -280,40 +222,102 @@ def render_virtual_patches_enabled_for_profile(profile: WafProfile) -> str:
 
 
 def _audit_hints_for_pack(pack_id: str, summary: dict[str, Any]) -> dict[str, Any]:
-    if pack_id != PACK_PHP2SHELL:
-        return {"signal": False, "reasons": []}
+    """Suggest enabling a pack from waf-audit-summary.json traffic signals."""
     if not summary.get("present"):
         return {"signal": False, "reasons": []}
+    meta = get_pack_def(pack_id) or {}
+    pack_rule_ids = _ALL_PACK_RULE_IDS.get(pack_id) or frozenset()
     reasons: list[str] = []
     windows = summary.get("windows") or {}
     data = windows.get("7d") or windows.get("24h") or {}
     families = data.get("families") or {}
-    if int(families.get("php") or 0) > 0:
-        reasons.append("famille CRS php active dans l'audit")
-    if int(families.get("rce") or 0) > 0:
-        reasons.append("famille CRS rce active dans l'audit")
+    recent = list(summary.get("recent_events") or [])[:40]
+    uri_blob = " ".join(
+        str(ev.get("uri") or "") for ev in recent if isinstance(ev, dict)
+    ).lower()
+    msg_blob = " ".join(
+        str(ev.get("message") or "") for ev in recent if isinstance(ev, dict)
+    ).lower()
+    family_blob = " ".join(
+        " ".join(str(f) for f in (ev.get("families") or []))
+        for ev in recent
+        if isinstance(ev, dict)
+    ).lower()
+
+    if pack_id == PACK_PHP2SHELL:
+        if int(families.get("php") or 0) > 0:
+            reasons.append("famille CRS php active dans l'audit")
+        if int(families.get("rce") or 0) > 0:
+            reasons.append("famille CRS rce active dans l'audit")
+        if "php2shell" in msg_blob or "php_session_upload" in msg_blob:
+            reasons.append("événement audit tagué php2shell / upload_progress")
+
+    elif pack_id == PACK_WORDPRESS_CMS:
+        wp_hits = 0
+        for needle in ("/wp-login.php", "/xmlrpc.php", "/wp-json/", "/wp-admin/"):
+            if needle in uri_blob:
+                wp_hits += 1
+        if wp_hits:
+            reasons.append(
+                "trafic audit vers surfaces WordPress "
+                "(wp-login / xmlrpc / wp-json)"
+            )
+        if "wordpress" in msg_blob or "wp-login" in msg_blob:
+            reasons.append("messages d'audit liés à WordPress")
+
+    elif pack_id == PACK_API_JSON_STRICT:
+        json_hits = 0
+        for ev in recent:
+            if not isinstance(ev, dict):
+                continue
+            uri = str(ev.get("uri") or "").lower()
+            msg = str(ev.get("message") or "").lower()
+            if "application/json" in msg or "content-type: application/json" in msg:
+                json_hits += 1
+            if "/api/" in uri or uri.endswith(".json") or "/graphql" in uri:
+                json_hits += 1
+        # Heuristic: many JSON-ish API paths in recent audit → suggest pack.
+        if json_hits >= 2 or "application/json" in msg_blob:
+            reasons.append(
+                "trafic récent orienté API/JSON (Content-Type ou chemins /api/)"
+            )
+        if int(families.get("injection") or 0) > 0 or "injection" in family_blob:
+            reasons.append("famille injection active — pack JSON utile en detection")
+
+    elif pack_id == PACK_RCE_EXTENDED:
+        if int(families.get("rce") or 0) > 0:
+            reasons.append("famille CRS rce active dans l'audit")
+        if any(
+            tok in msg_blob or tok in uri_blob
+            for tok in ("webshell", "runtime.getruntime", "os.system", ".jsp", ".aspx")
+        ):
+            reasons.append("marqueurs RCE / web shell dans l'audit récent")
+
     rules = data.get("top_rules") or summary.get("top_rules") or []
     for item in rules:
         if not isinstance(item, dict):
             continue
         rid = str(item.get("rule_id") or item.get("id") or "").strip()
-        if rid in PHP2SHELL_RULE_IDS:
+        if rid in pack_rule_ids:
             reasons.append(f"règle virtual-patch {rid} déjà vue")
             break
         label = str(item.get("label") or item.get("message") or "").lower()
-        if "multipart" in label or "php" in label:
+        if pack_id == PACK_PHP2SHELL and ("multipart" in label or "php" in label):
             reasons.append("règles multipart/php dans le top audit")
             break
-    for ev in (summary.get("recent_events") or [])[:40]:
-        if not isinstance(ev, dict):
+
+    # Honor optional suggest_signals from catalog metadata (string contains).
+    for signal in meta.get("suggest_signals") or []:
+        sig = str(signal).lower()
+        if not sig:
             continue
-        msg = str(ev.get("message") or "").lower()
-        if "php2shell" in msg or "php_session_upload" in msg:
-            reasons.append("événement audit tagué php2shell / upload_progress")
+        if sig in uri_blob or sig in msg_blob or sig in family_blob:
+            reasons.append(f"signal « {sig} » dans l'audit récent")
             break
+
     seen: set[str] = set()
     uniq = [r for r in reasons if not (r in seen or seen.add(r))]  # type: ignore[func-returns-value]
-    return {"signal": bool(uniq), "reasons": uniq}
+    return {"signal": bool(uniq), "reasons": uniq[:4]}
 
 
 def _rule_severity(rule_id: str) -> tuple[str, str]:
@@ -612,7 +616,9 @@ def build_modsecurity_page(
                 "source_present": source_present,
                 "conf_basename": conf_name,
                 "suggest_enable": suggest,
+                "suggested": suggest,
                 "suggest_reasons": hints.get("reasons") or [],
+                "suggest_badge": "Recommandé pour votre stack" if suggest else "",
                 "toggleable": bool(meta.get("profile_attr")),
                 "deploy_pending": deploy_pending,
                 "exported_mode": exported,

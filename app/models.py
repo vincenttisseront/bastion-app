@@ -1205,6 +1205,10 @@ class WafProfile(Base):
     patch_php2shell_enabled = Column(Boolean, nullable=False, default=True)
     # off | detection | on — see waf_virtual_patches.VALID_PACK_MODES.
     patch_php2shell_mode = Column(String, nullable=False, default="on")
+    # Extended packs (catalog Phase F) — default off until admin arms detection.
+    patch_wordpress_cms_mode = Column(String, nullable=False, default="off")
+    patch_api_json_strict_mode = Column(String, nullable=False, default="off")
+    patch_rce_extended_mode = Column(String, nullable=False, default="off")
     is_active = Column(Boolean, nullable=False, default=False, index=True)
     created_by = Column(String, nullable=True)
     created_at = Column(UTCDateTime, nullable=False, default=utcnow)
