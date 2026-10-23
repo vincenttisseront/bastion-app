@@ -777,6 +777,8 @@ def build_waf_ui_context(
         "ip_geolocation": readability.get("ip_geolocation") or {},
         "security_policy_enabled": readability.get("security_policy_enabled", True),
         "reactivation": readability["reactivation"],
+        "promotion": readability.get("promotion") or {},
+        "virtual_patches": readability.get("virtual_patches") or {},
         "apply_enabled": readability["apply_enabled"],
         "mode_pilotable": readability["mode_pilotable"],
         "diagnostic": readability["diagnostic"],

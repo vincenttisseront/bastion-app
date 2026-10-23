@@ -203,6 +203,17 @@ else
 EOF
 fi
 
+# Virtual-patch packs overlay (php2shell Include or disabled stub).
+if [[ -f "$EXPORTS/modsecurity/bastion-virtual-patches-enabled.conf" ]]; then
+  cp -a "$EXPORTS/modsecurity/bastion-virtual-patches-enabled.conf" \
+    /etc/nginx/modsecurity/generated/bastion-virtual-patches-enabled.conf
+else
+  cat > /etc/nginx/modsecurity/generated/bastion-virtual-patches-enabled.conf <<'EOF'
+# No export yet — enable php2shell pack by default (Include-safe).
+Include /etc/nginx/modsecurity/bastion-virtual-patches.conf
+EOF
+fi
+
 # IP deny: reset to empty stub when export missing (avoid stale denies after wipe).
 if [[ -f "$EXPORTS/waf-ip-deny.conf" ]]; then
   cp -a "$EXPORTS/waf-ip-deny.conf" /etc/nginx/includes/waf-ip-deny.conf

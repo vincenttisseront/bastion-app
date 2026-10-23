@@ -1198,6 +1198,8 @@ class WafProfile(Base):
     portal_api_burst = Column(Integer, nullable=False, default=60)
     # Dashboard Sentinel: ip-api.com geolocation (toggle from Admin WAF).
     ip_geoloc_enabled = Column(Boolean, nullable=False, default=True)
+    # Pre-CRS virtual patch pack (docker/nginx/modsecurity/bastion-virtual-patches.conf).
+    patch_php2shell_enabled = Column(Boolean, nullable=False, default=True)
     is_active = Column(Boolean, nullable=False, default=False, index=True)
     created_by = Column(String, nullable=True)
     created_at = Column(UTCDateTime, nullable=False, default=utcnow)

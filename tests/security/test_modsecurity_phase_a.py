@@ -144,14 +144,15 @@ def test_modsecurity_main_includes_generated_overlays_not_replacing_static():
             in text
         )
         assert (
-            "Include /etc/nginx/modsecurity/bastion-virtual-patches.conf" in text
+            "Include /etc/nginx/modsecurity/generated/bastion-virtual-patches-enabled.conf"
+            in text
         )
         setup_idx = text.index("Include /etc/nginx/modsecurity/crs-setup.conf")
         gen_idx = text.index(
             "Include /etc/nginx/modsecurity/generated/crs-setup-generated.conf"
         )
         vp_idx = text.index(
-            "Include /etc/nginx/modsecurity/bastion-virtual-patches.conf"
+            "Include /etc/nginx/modsecurity/generated/bastion-virtual-patches-enabled.conf"
         )
         rules_idx = text.index("Include /etc/modsecurity.d/owasp-crs/rules/*.conf")
         assert setup_idx < gen_idx < vp_idx < rules_idx

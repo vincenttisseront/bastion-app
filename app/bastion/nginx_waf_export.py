@@ -4,6 +4,7 @@ Writes under ``exports/modsecurity/`` and ``exports/nginx-waf-*.conf``:
 
 * ``crs-setup-generated.conf`` — anomaly threshold overlay (paranoia stays in static crs-setup)
 * ``bastion-exclusions-generated.conf`` — UI exclusions after ``waf-basic.conf``
+* ``bastion-virtual-patches-enabled.conf`` — Include (or stub) for PHP2Shell pack
 * ``engine-mode-generated.conf`` — SecRuleEngine from active profile (included last)
 * ``waf-ip-deny.conf`` — nginx ``deny`` for promoted IP bans
 * ``nginx-portal-rate-limits.conf`` — existing ``portal_login`` / ``portal_api`` zones
@@ -221,6 +222,13 @@ def render_engine_mode_generated(profile: WafProfile) -> str:
         "# Included LAST in main-*.conf so profile mode overrides static engine-*.conf.\n"
         f"{line}\n"
     )
+
+
+def render_virtual_patches_enabled(profile: WafProfile) -> str:
+    from app.bastion.waf_virtual_patches import render_virtual_patches_enabled_conf
+
+    enabled = bool(getattr(profile, "patch_php2shell_enabled", True))
+    return render_virtual_patches_enabled_conf(php2shell_enabled=enabled)
 
 
 SCOPE_RULE = "rule"
@@ -644,6 +652,10 @@ def write_waf_exports(db: Session, settings: Settings) -> dict[str, str]:
         mod_dir / "bastion-exclusions-generated.conf": render_exclusions_generated(
             exclusions
         ),
+        mod_dir
+        / "bastion-virtual-patches-enabled.conf": render_virtual_patches_enabled(
+            profile
+        ),
         exports / "waf-ip-deny.conf": render_ip_deny_conf(ips, min_occurrences=min_occ),
         exports / "nginx-portal-rate-limits.conf": render_rate_limits_conf(profile),
     }
@@ -671,6 +683,9 @@ def write_waf_exports(db: Session, settings: Settings) -> dict[str, str]:
         "portal_api_rate": int(profile.portal_api_rate or 30),
         "portal_login_burst": int(profile.portal_login_burst or 5),
         "portal_api_burst": int(profile.portal_api_burst or 60),
+        "patch_php2shell_enabled": bool(
+            getattr(profile, "patch_php2shell_enabled", True)
+        ),
     }
     _merge_apply_metadata(status, settings)
 
@@ -692,6 +707,7 @@ def restore_waf_exports_previous(settings: Settings) -> list[str]:
         mod_dir / "crs-setup-generated.conf",
         mod_dir / "engine-mode-generated.conf",
         mod_dir / "bastion-exclusions-generated.conf",
+        mod_dir / "bastion-virtual-patches-enabled.conf",
         mod_dir / _WAF_EFFECTIVE_STATUS_JSON,
         mod_dir / "waf-engine-arm.json",
         exports / "waf-ip-deny.conf",

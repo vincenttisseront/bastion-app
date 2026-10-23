@@ -94,6 +94,7 @@ def update_active_profile(
     portal_api_rate: int | None = None,
     portal_login_burst: int | None = None,
     portal_api_burst: int | None = None,
+    patch_php2shell_enabled: bool | None = None,
     actor: str,
     ip_address: str | None = None,
 ) -> WafProfile:
@@ -155,6 +156,8 @@ def update_active_profile(
         profile.portal_login_burst = max(0, int(portal_login_burst))
     if portal_api_burst is not None:
         profile.portal_api_burst = max(0, int(portal_api_burst))
+    if patch_php2shell_enabled is not None:
+        profile.patch_php2shell_enabled = bool(patch_php2shell_enabled)
 
     db.commit()
     db.refresh(profile)

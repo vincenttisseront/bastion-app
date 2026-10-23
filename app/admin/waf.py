@@ -151,6 +151,7 @@ def admin_waf_profile_post(
     portal_api_rate: int = Form(30),
     portal_login_burst: int = Form(5),
     portal_api_burst: int = Form(60),
+    patch_php2shell_enabled: str | None = Form(None),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -167,6 +168,7 @@ def admin_waf_profile_post(
             portal_api_rate=int(portal_api_rate),
             portal_login_burst=int(portal_login_burst),
             portal_api_burst=int(portal_api_burst),
+            patch_php2shell_enabled=patch_php2shell_enabled == "on",
             actor=admin_actor(user),
             ip_address=client_ip_from_request(request) or None,
         )
@@ -635,6 +637,52 @@ def admin_waf_reactivate_subdomain(
         flash_redirect(
             response,
             result.get("error") or "Réactivation subdomain échouée.",
+            "error",
+            _flash_secret(settings),
+        )
+    return response
+
+
+@router.post("/admin/security/waf/actions/promote-portal-on")
+def admin_waf_promote_portal_on(
+    request: Request,
+    confirm_promote_portal_on: str | None = Form(None),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.audit import log_action
+    from app.bastion.waf_reactivation import promote_portal_engine_to_on
+
+    result = promote_portal_engine_to_on(
+        db,
+        settings,
+        actor=admin_actor(user),
+        confirm=confirm_promote_portal_on == "on",
+    )
+    response = RedirectResponse(
+        url=f"/admin/security/waf{_WAF_ANCHOR_REACTIVATION}", status_code=302
+    )
+    if result.get("ok"):
+        log_action(
+            db,
+            actor=admin_actor(user),
+            action="security.waf.promote_portal_on",
+            resource_type="waf",
+            resource_id="portal",
+            detail={"mode": "on", "smoke_ok": True},
+            ip_address=client_ip_from_request(request) or None,
+        )
+        flash_redirect(
+            response,
+            result.get("message") or "Portal promu en On.",
+            "success",
+            _flash_secret(settings),
+        )
+    else:
+        flash_redirect(
+            response,
+            result.get("error") or "Promotion portal échouée.",
             "error",
             _flash_secret(settings),
         )
