@@ -758,6 +758,220 @@ def reactivate_engine(
     }
 
 
+def promote_portal_engine_to_on(
+    db: Session,
+    settings: Settings,
+    *,
+    actor: str,
+    confirm: bool,
+    smoke: Callable[[Settings], dict[str, Any]] | None = None,
+    sync_reload: Callable[[Settings], tuple[bool, str]] | None = None,
+) -> dict[str, Any]:
+    """Passe le portail de DetectionOnly à On (smoke + rollback DetectionOnly)."""
+    if not confirm:
+        return {
+            "ok": False,
+            "error": "Confirmation requise pour promouvoir ModSecurity portal en On.",
+            "rolled_back": False,
+        }
+    arm = read_arm_state(settings)
+    if not arm.get("armed"):
+        return {
+            "ok": False,
+            "error": "Réactiver le portail en DetectionOnly avant de promouvoir en On.",
+            "rolled_back": False,
+        }
+    if str(arm.get("target_mode") or "") == MODE_ON:
+        return {
+            "ok": False,
+            "error": "ModSecurity portal est déjà en cible On.",
+            "rolled_back": False,
+        }
+
+    profile = ensure_active_profile(db)
+    prev_arm = dict(arm)
+    previous_mode = profile.mode
+    prev_profile_mode = profile.mode
+
+    profile.mode = MODE_ON
+    db.commit()
+
+    from app.bastion.nginx_waf_export import _backup_file
+
+    engine_path = waf_exports_dir(settings) / "engine-mode-generated.conf"
+    _backup_file(engine_path)
+    _backup_file(arm_state_path(settings))
+
+    write_waf_exports(db, settings)
+    engine_path.write_text(
+        render_engine_mode_line(MODE_ON)
+        + f"# promote_portal_at={datetime.now(timezone.utc).isoformat()}\n",
+        encoding="utf-8",
+    )
+    write_arm_state(
+        settings,
+        {
+            **prev_arm,
+            "armed": True,
+            "family": "portal",
+            "target_mode": MODE_ON,
+            "actor": actor,
+            "previous_mode": previous_mode,
+            "phase": "promoting",
+        },
+    )
+    _nudge_waf_exports_watcher(settings)
+    paths = {
+        "engine-mode-generated.conf": str(engine_path),
+        ARM_FILENAME: str(arm_state_path(settings)),
+    }
+
+    sync_fn = sync_reload or sync_and_reload
+    smoke_fn = smoke or smoke_portal_probes
+    sync_ok, sync_detail = sync_fn(settings)
+    if not sync_ok:
+        _rollback_portal_promote(
+            db,
+            settings,
+            profile=profile,
+            prev_profile_mode=prev_profile_mode,
+            prev_arm=prev_arm,
+            actor=actor,
+            reason=f"sync/nginx -t failed: {sync_detail}",
+            sync_reload=sync_fn,
+        )
+        return {
+            "ok": False,
+            "error": f"Sync/reload échoué — retour DetectionOnly. {sync_detail}",
+            "rolled_back": True,
+            "paths": paths,
+            "sync_detail": sync_detail,
+        }
+
+    if smoke is None and sync_reload is None:
+        engine_wait = wait_for_portal_engine_mode(settings, MODE_ON)
+        if not engine_wait.get("ok"):
+            sync_fn(settings)
+            _nudge_waf_exports_watcher(settings)
+            time.sleep(RELOAD_WAIT_SEC)
+            engine_wait = wait_for_portal_engine_mode(settings, MODE_ON, attempts=15)
+        if not engine_wait.get("ok"):
+            _rollback_portal_promote(
+                db,
+                settings,
+                profile=profile,
+                prev_profile_mode=prev_profile_mode,
+                prev_arm=prev_arm,
+                actor=actor,
+                reason="portal_engine_mode_on_not_applied",
+                sync_reload=sync_fn,
+            )
+            return {
+                "ok": False,
+                "error": (
+                    "nginx n'a pas basculé portal en On après reload — "
+                    "retour DetectionOnly."
+                ),
+                "rolled_back": True,
+                "paths": paths,
+                "engine_wait": engine_wait,
+                "sync_detail": sync_detail,
+            }
+
+    smoke_result = smoke_fn(settings)
+    if not smoke_result.get("ok"):
+        _rollback_portal_promote(
+            db,
+            settings,
+            profile=profile,
+            prev_profile_mode=prev_profile_mode,
+            prev_arm=prev_arm,
+            actor=actor,
+            reason=f"smoke failed: {smoke_result.get('error')}",
+            sync_reload=sync_fn,
+        )
+        return {
+            "ok": False,
+            "error": (
+                "Smoke portal échoué après promotion On — retour DetectionOnly. "
+                f"{smoke_result.get('error') or ''}"
+            ),
+            "rolled_back": True,
+            "paths": paths,
+            "smoke": smoke_result,
+            "sync_detail": sync_detail,
+        }
+
+    write_arm_state(
+        settings,
+        {
+            "armed": True,
+            "family": "portal",
+            "target_mode": MODE_ON,
+            "actor": actor,
+            "previous_mode": previous_mode,
+            "phase": "active",
+            "last_smoke_ok": True,
+            "last_smoke_at": datetime.now(timezone.utc).isoformat(),
+            "smoke": smoke_result,
+        },
+    )
+    record_waf_apply_metadata(
+        settings,
+        actor=actor,
+        nginx_t_ok=True,
+        nginx_t_detail=f"promote portal on ok; {sync_detail}",
+        nginx_t_skipped=False,
+    )
+    return {
+        "ok": True,
+        "rolled_back": False,
+        "paths": paths,
+        "mode": MODE_ON,
+        "family": "portal",
+        "smoke": smoke_result,
+        "sync_detail": sync_detail,
+        "message": "Moteur portal promu en On. Smoke OK.",
+    }
+
+
+def _rollback_portal_promote(
+    db: Session,
+    settings: Settings,
+    *,
+    profile: WafProfile,
+    prev_profile_mode: str,
+    prev_arm: dict[str, Any],
+    actor: str,
+    reason: str,
+    sync_reload: Callable[[Settings], tuple[bool, str]] | None = None,
+) -> None:
+    logger.warning("waf portal promote rollback: %s", reason)
+    profile.mode = MODE_DETECTION
+    db.commit()
+    write_waf_exports(db, settings)
+    engine_path = waf_exports_dir(settings) / "engine-mode-generated.conf"
+    engine_path.write_text(render_engine_mode_line(MODE_DETECTION), encoding="utf-8")
+    body = dict(prev_arm)
+    body.update(
+        {
+            "armed": True,
+            "target_mode": MODE_DETECTION,
+            "actor": actor,
+            "phase": "active",
+            "promote_rolled_back": True,
+            "promote_rollback_reason": reason,
+            "previous_profile_mode": prev_profile_mode,
+        }
+    )
+    write_arm_state(settings, body)
+    sync_fn = sync_reload or sync_and_reload
+    try:
+        sync_fn(settings)
+    except Exception:  # noqa: BLE001
+        logger.exception("sync after portal promote rollback failed")
+
+
 def wait_for_subdomain_engine_mode(
     settings: Settings,
     expected: str,

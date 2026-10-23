@@ -210,6 +210,8 @@ def build_reactivation_panel(
     sub_arm = arm.get("subdomain") if isinstance(arm.get("subdomain"), dict) else {}
     subdomain_target = str(sub_arm.get("target_mode") or "")
     subdomain_already_on = subdomain_real == MODE_ON or subdomain_target == MODE_ON
+    portal_target = str(arm.get("target_mode") or "")
+    portal_already_on = real == MODE_ON or portal_target == MODE_ON
     flags = _reactivation_capability_flags(
         profile=profile,
         real=real,
@@ -217,6 +219,7 @@ def build_reactivation_panel(
         subdomain_armed=subdomain_armed,
         subdomain_apps=subdomain_apps,
         subdomain_already_on=subdomain_already_on,
+        portal_already_on=portal_already_on,
     )
     return {
         "show": flags["show"],
@@ -227,6 +230,7 @@ def build_reactivation_panel(
         "arm": arm,
         "desired_mode": profile.mode,
         "real_mode": real,
+        "portal_target_mode": portal_target or None,
         "subdomain_real_mode": subdomain_real,
         "subdomain_target_mode": subdomain_target or None,
         "subdomain_apps": subdomain_apps,
@@ -235,6 +239,7 @@ def build_reactivation_panel(
         "can_reactivate": flags["can_reactivate_portal"],
         "can_reactivate_portal": flags["can_reactivate_portal"],
         "can_reactivate_subdomain": flags["can_reactivate_subdomain"],
+        "can_promote_portal_to_on": flags["can_promote_portal_to_on"],
         "can_promote_subdomain_to_on": flags["can_promote_subdomain_to_on"],
         "can_disarm": portal_armed,
         "apply_still_useful_for": [
@@ -252,6 +257,10 @@ def build_reactivation_panel(
             "DetectionOnly sur les FQDN subdomain_proxy actifs "
             f"({len(subdomain_apps)} app(s)) : GET /auth/login (pas de 5xx). "
             "Retour à Off si une sonde échoue."
+        ),
+        "portal_promote_summary": (
+            "Passe SecRuleEngine portal de DetectionOnly à On. Smoke HTTP portail ; "
+            "en échec → retour automatique en DetectionOnly (moteur reste armé)."
         ),
         "subdomain_promote_summary": (
             "Passe SecRuleEngine subdomain de DetectionOnly à On "
@@ -271,6 +280,7 @@ def _reactivation_capability_flags(
     subdomain_armed: bool,
     subdomain_apps: list,
     subdomain_already_on: bool,
+    portal_already_on: bool,
 ) -> dict[str, bool]:
     can_reactivate_portal = not portal_armed
     can_reactivate_subdomain = bool(
@@ -279,6 +289,7 @@ def _reactivation_capability_flags(
         and not subdomain_armed
         and subdomain_apps
     )
+    can_promote_portal_to_on = bool(portal_armed and not portal_already_on)
     can_promote_subdomain_to_on = bool(
         portal_armed
         and subdomain_armed
@@ -291,11 +302,14 @@ def _reactivation_capability_flags(
         or can_reactivate_subdomain
         or subdomain_armed
         or can_promote_subdomain_to_on
+        or can_promote_portal_to_on
+        or portal_armed
     )
     return {
         "show": show,
         "can_reactivate_portal": can_reactivate_portal,
         "can_reactivate_subdomain": can_reactivate_subdomain,
+        "can_promote_portal_to_on": can_promote_portal_to_on,
         "can_promote_subdomain_to_on": can_promote_subdomain_to_on,
     }
 
@@ -2288,6 +2302,11 @@ def build_waf_readability_context(
     apply_enabled = bool(export_pending) or bool(
         verdict.get("action_apply") and reactivation.get("armed")
     )
+    from app.bastion.waf_promotion import build_promotion_panel
+    from app.bastion.waf_virtual_patches import build_virtual_patches_panel
+
+    promotion = build_promotion_panel(settings)
+    virtual_patches = build_virtual_patches_panel(db, settings, profile)
     return {
         "verdict": verdict,
         "protection_layers": layers,
@@ -2310,6 +2329,8 @@ def build_waf_readability_context(
         },
         "security_policy_enabled": get_or_create_policy(db).enabled,
         "reactivation": reactivation,
+        "promotion": promotion,
+        "virtual_patches": virtual_patches,
         "apply_enabled": apply_enabled,
         "mode_pilotable": reactivation.get("pilotable"),
         "diagnostic": diagnostic,

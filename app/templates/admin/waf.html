@@ -645,6 +645,25 @@
 
         </div>
 
+        <div class="form-section-sub">{{ _('Packs virtual patches (pre-CRS)') }}</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-check">
+              <input type="checkbox" name="patch_php2shell_enabled" value="on"
+                     {% if profile.patch_php2shell_enabled %}checked{% endif %}>
+              {{ _('PHP2Shell (CVE-2026-109618 / 109619)') }}
+            </label>
+            <p class="form-help">{{ _('Inclut bastion-virtual-patches.conf avant le CRS. Désactiver seulement si faux positifs confirmés sur multipart légitime.') }}</p>
+            {% if virtual_patches and virtual_patches.any_suggest_enable %}
+            <p class="form-help" style="color:var(--warn)">{{ _('Signal trafic : activer ce pack est recommandé.') }}
+              {% for pack in virtual_patches.packs if pack.suggest_enable %}
+                {% for r in pack.suggest_reasons %}<br><span class="muted">— {{ r }}</span>{% endfor %}
+              {% endfor %}
+            </p>
+            {% endif %}
+          </div>
+        </div>
+
         <div class="form-section-sub">{{ _('Limites de débit portail (nginx)') }}</div>
 
         <div class="form-row waf-rate-grid">
@@ -1067,6 +1086,30 @@
         <p class="muted">{{ _('Réel (nginx) portal :') }} <code>{{ reactivation.real_mode or '—' }}</code>
 {{ _('· subdomain :') }} <code>{{ reactivation.subdomain_real_mode or '—' }}</code></p>
       </div>
+      {% if promotion and promotion.portal %}
+      <div class="alert {% if promotion.portal.ready %}alert-ok{% elif promotion.portal.status == 'blocked' %}alert-err{% else %}alert-warn{% endif %}" style="margin-top:1rem">
+        <strong>{{ promotion.portal.title }}</strong>
+        <p>{{ promotion.portal.detail }}</p>
+        <p class="muted">{{ _('Audit') }} {{ promotion.portal.window }} :
+          {{ promotion.portal.stats.detections }} {{ _('détections') }},
+          {{ promotion.portal.stats.critical }} {{ _('critiques') }}</p>
+      </div>
+      {% endif %}
+      {% if reactivation.can_promote_portal_to_on %}
+      <div class="waf-reactivation-actions" style="margin-top:1rem">
+        <form method="post" action="/admin/security/waf/actions/promote-portal-on" class="stack waf-reactivate-form"
+              id="waf-promote-portal-on-form">
+          <label class="form-check">
+            <input type="checkbox" name="confirm_promote_portal_on" value="on" required>
+            {{ _('Je confirme le passage portal en On (blocage CRS) et les contrôles HTTP') }}
+          </label>
+          <button type="submit" class="btn btn-primary"{% if promotion and promotion.portal and not promotion.portal.can_promote %} disabled{% endif %}>
+            {{ _('Promouvoir portal (On)') }}
+          </button>
+        </form>
+        <p class="form-help">{{ reactivation.portal_promote_summary }}</p>
+      </div>
+      {% endif %}
       {% endif %}
 
       {% if reactivation.can_reactivate_subdomain %}
@@ -1097,6 +1140,12 @@
           {% if reactivation.subdomain_target_mode %} {{ _('· cible :') }} <code>{{ reactivation.subdomain_target_mode }}</code>{% endif %}
 {{ _('· Apps :') }} {% for h in reactivation.subdomain_apps %}<code class="mono">{{ h }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
       </div>
+      {% if promotion and promotion.subdomain and reactivation.subdomain_armed %}
+      <div class="alert {% if promotion.subdomain.ready %}alert-ok{% elif promotion.subdomain.status == 'blocked' %}alert-err{% else %}alert-warn{% endif %}" style="margin-top:1rem">
+        <strong>{{ promotion.subdomain.title }}</strong>
+        <p>{{ promotion.subdomain.detail }}</p>
+      </div>
+      {% endif %}
       {% if reactivation.can_promote_subdomain_to_on %}
       <div class="alert alert-warn" style="margin-top:1rem">
         <strong>{{ _('Promouvoir les sous-domaines en On (blocage)') }}</strong>
@@ -1110,7 +1159,9 @@
             <input type="checkbox" name="confirm_promote_subdomain_on" value="on" required>
             {{ _('Je confirme le passage subdomain en On (blocage CRS) et les contrôles HTTP') }}
           </label>
-          <button type="submit" class="btn btn-primary">Promouvoir subdomain (On)</button>
+          <button type="submit" class="btn btn-primary"{% if promotion and promotion.subdomain and not promotion.subdomain.can_promote %} disabled{% endif %}>
+            Promouvoir subdomain (On)
+          </button>
         </form>
       </div>
       {% endif %}
@@ -1384,6 +1435,12 @@
     danger: true,
   });
 
+  confirmSubmit(document.getElementById('waf-promote-portal-on-form'), {
+    title: 'Promouvoir ModSecurity portal en On ?',
+    message: 'Blocage CRS sur le portail. Smoke HTTP ; retour DetectionOnly si échec (moteur reste armé).',
+    confirmLabel: 'Promouvoir On',
+    danger: true,
+  });
   confirmSubmit(document.getElementById('waf-promote-subdomain-on-form'), {
     title: 'Promouvoir ModSecurity subdomain en On ?',
     message: 'Blocage CRS sur les vhosts subdomain_proxy. Smoke /auth/login (pas d\'upstream) ; retour DetectionOnly si échec.',
