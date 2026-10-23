@@ -41,11 +41,12 @@ def test_accumulate_hourly_bucket():
     hosts: Counter[str] = Counter()
     attackers: Counter[str] = Counter()
     fams: Counter[str] = Counter()
-    i, d, b, c = _accumulate_hourly_bucket(
+    i, d, b, bi, c = _accumulate_hourly_bucket(
         {
             "inspected": 10,
             "detections": 3,
             "blocks": 1,
+            "blocked_intents": 2,
             "critical": 0,
             "rules": {"941100": 2},
             "hosts": {"app.example.com": 3},
@@ -57,7 +58,7 @@ def test_accumulate_hourly_bucket():
         attackers=attackers,
         fam_counter=fams,
     )
-    assert (i, d, b, c) == (10, 3, 1, 0)
+    assert (i, d, b, bi, c) == (10, 3, 1, 2, 0)
     assert rules["941100"] == 2
     assert hosts["app.example.com"] == 3
     assert attackers["10.0.0.1"] == 1

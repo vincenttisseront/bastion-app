@@ -451,6 +451,7 @@ def _empty_bucket() -> dict[str, Any]:
         "inspected": 0,
         "detections": 0,
         "blocks": 0,
+        "blocked_intents": 0,
         "rules": {},
         "hosts": {},
         "families": {},
@@ -570,7 +571,7 @@ def _parse_audit_line(line: str) -> dict[str, Any] | None:
     families = [_rule_family(rid) for rid in rule_ids]
     critical = any(f in ("sqli", "xss", "rce", "lfi") for f in families)
 
-    return {
+    event = {
         "timestamp": ts,
         "client_ip": client_ip or "—",
         "host": host.strip().lower() or "—",
@@ -585,6 +586,14 @@ def _parse_audit_line(line: str) -> dict[str, Any] | None:
         "matched_scope_kind": matched_scope,
         "matched_target_name": matched_target,
     }
+    # Lazy import avoids cycle; default threshold 5 until profile is known at merge.
+    try:
+        from app.bastion.waf_analytics import event_block_intent
+
+        event["blocked_intent"] = bool(event_block_intent(event, anomaly_threshold=5))
+    except Exception:  # noqa: BLE001 — aggregator must never fail parse
+        event["blocked_intent"] = bool(blocked or critical)
+    return event
 
 
 def _merge_event_into_bucket(bucket: dict[str, Any], event: dict[str, Any]) -> None:
@@ -593,6 +602,8 @@ def _merge_event_into_bucket(bucket: dict[str, Any], event: dict[str, Any]) -> N
         bucket["detections"] += 1
     if event.get("blocked"):
         bucket["blocks"] += 1
+    if event.get("blocked_intent"):
+        bucket["blocked_intents"] = int(bucket.get("blocked_intents") or 0) + 1
     if event.get("critical"):
         bucket["critical"] = int(bucket.get("critical") or 0) + 1
     rules: dict[str, int] = bucket.setdefault("rules", {})
@@ -630,6 +641,7 @@ def _accumulate_hourly_bucket(
     inspected = int(bucket.get("inspected") or 0)
     detections = int(bucket.get("detections") or 0)
     blocks = int(bucket.get("blocks") or 0)
+    blocked_intents = int(bucket.get("blocked_intents") or 0)
     critical = int(bucket.get("critical") or 0)
     for rid, count in (bucket.get("rules") or {}).items():
         rules[str(rid)] += int(count)
@@ -639,13 +651,13 @@ def _accumulate_hourly_bucket(
         attackers[str(ip)] += int(count)
     for fam, count in (bucket.get("families") or {}).items():
         fam_counter[str(fam)] += int(count)
-    return inspected, detections, blocks, critical
+    return inspected, detections, blocks, blocked_intents, critical
 
 
 def _sum_window(hourly: dict[str, Any], hours: int) -> dict[str, Any]:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     cutoff_key = _hour_key(cutoff)
-    inspected = detections = blocks = critical = 0
+    inspected = detections = blocks = blocked_intents = critical = 0
     rules: Counter[str] = Counter()
     hosts: Counter[str] = Counter()
     attackers: Counter[str] = Counter()
@@ -653,7 +665,7 @@ def _sum_window(hourly: dict[str, Any], hours: int) -> dict[str, Any]:
     for key, bucket in hourly.items():
         if key < cutoff_key or not isinstance(bucket, dict):
             continue
-        i, d, b, c = _accumulate_hourly_bucket(
+        i, d, b, bi, c = _accumulate_hourly_bucket(
             bucket,
             rules=rules,
             hosts=hosts,
@@ -663,6 +675,7 @@ def _sum_window(hourly: dict[str, Any], hours: int) -> dict[str, Any]:
         inspected += i
         detections += d
         blocks += b
+        blocked_intents += bi
         critical += c
 
     block_rate = round((blocks / inspected) * 100, 1) if inspected else 0.0
@@ -681,6 +694,7 @@ def _sum_window(hourly: dict[str, Any], hours: int) -> dict[str, Any]:
         "inspected": inspected,
         "detections": detections,
         "blocks": blocks,
+        "blocked_intents": blocked_intents,
         "critical": critical,
         "block_rate_pct": block_rate,
         "top_rules": top_rules,
@@ -826,6 +840,7 @@ def run_aggregation(settings: Settings) -> dict[str, Any]:
                 "rule_chain_display": format_rule_chain_display(rule_chain),
                 "score": event.get("score") or 0,
                 "blocked": bool(event.get("blocked")),
+                "blocked_intent": bool(event.get("blocked_intent")),
                 "critical": bool(event.get("critical")),
                 "message": event.get("message") or "",
                 "families": list(event.get("families") or []),
