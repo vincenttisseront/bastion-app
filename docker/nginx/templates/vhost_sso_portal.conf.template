@@ -60,7 +60,7 @@ server {
     if ($bastion_unknown_host) {
         set $bastion_do_unknown 1;
     }
-    if ($uri ~ ^/_portal_) {
+    if ($uri ~ "^/(_portal_|__waf_sandbox)") {
         set $bastion_do_unknown 0;
     }
     if ($bastion_do_unknown) {
@@ -180,6 +180,33 @@ server {
         internal;
         default_type text/plain;
         return 500 "modsec-fail\n";
+    }
+
+    # WAF sandbox (Admin → ModSecurity simulateur). Docker RFC1918 + loopback only.
+    # Forces DetectionOnly so probes never 403; correlation via X-Bastion-Sandbox-Id.
+    location ^~ /__waf_sandbox/ {
+        auth_request off;
+        allow 127.0.0.1;
+        allow 10.0.0.0/8;
+        allow 172.16.0.0/12;
+        allow 192.168.0.0/16;
+        deny all;
+
+        if ($http_x_bastion_sandbox_id = "") {
+            return 400;
+        }
+
+        # Connector on even when server switch is off; engine DetectionOnly for this location.
+        modsecurity on;
+        modsecurity_rules_file /etc/nginx/modsecurity/main-portal.conf;
+        modsecurity_rules 'SecRuleEngine DetectionOnly';
+
+        # Strip prefix so CRS / packs see the admin-supplied path (break keeps this location).
+        rewrite ^/__waf_sandbox(/.*)$ $1 break;
+
+        default_type text/plain;
+        add_header X-Bastion-Sandbox "1" always;
+        return 204;
     }
 
     location = /health {

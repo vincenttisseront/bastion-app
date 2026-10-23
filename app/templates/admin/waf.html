@@ -919,6 +919,61 @@
       </div>
       {% endfor %}
 
+      <h4 class="waf-subheading" style="margin-top:1.5rem">{{ _('Simulateur (sandbox)') }}</h4>
+      {% set sb = ms.sandbox or {} %}
+      {% if sb.warnings %}
+      <div class="alert alert-warn" id="waf-sandbox-warn">
+        <strong>{{ _('Limitations du dry-run') }}</strong>
+        <ul>{% for w in sb.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+      </div>
+      {% endif %}
+      <form id="waf-sandbox-form" class="stack" style="max-width:40rem"
+            data-sandbox-url="/admin/security/waf/sandbox">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="waf_sb_method">{{ _('Méthode') }}</label>
+            <select class="form-select" id="waf_sb_method" name="method">
+              <option value="GET">GET</option>
+              <option value="POST" selected>POST</option>
+              <option value="PUT">PUT</option>
+              <option value="HEAD">HEAD</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="waf_sb_ct">Content-Type</label>
+            <select class="form-select" id="waf_sb_ct" name="content_type">
+              <option value="application/x-www-form-urlencoded" selected>application/x-www-form-urlencoded</option>
+              <option value="application/json">application/json</option>
+              <option value="text/plain">text/plain</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="waf_sb_uri">URI</label>
+          <input class="form-input is-mono" type="text" id="waf_sb_uri" name="uri" value="/" maxlength="512"
+                 placeholder="/login" required>
+          <p class="form-help muted">{{ _('Chemin testé (préfixe /__waf_sandbox/ retiré pour le CRS).') }}</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="waf_sb_body">{{ _('Corps / payload') }}</label>
+          <textarea class="form-input is-mono" id="waf_sb_body" name="body" rows="5"
+                    placeholder="q=1' OR '1'='1"></textarea>
+        </div>
+        <div class="form-footer form-footer-flush" style="justify-content:flex-start;gap:.5rem">
+          <button type="submit" class="btn btn-primary" id="waf-sandbox-submit">{{ _('Simuler la requête') }}</button>
+          <span class="muted" id="waf-sandbox-status"></span>
+        </div>
+      </form>
+      <div id="waf-sandbox-result" hidden style="margin-top:1rem">
+        <div class="alert" id="waf-sandbox-banner"></div>
+        <div class="data-table-wrapper">
+          <table class="data-table">
+            <thead><tr><th>ID</th><th>{{ _('Message') }}</th><th>{{ _('Sévérité') }}</th><th>Phase</th><th>{{ _('Disruptif') }}</th></tr></thead>
+            <tbody id="waf-sandbox-rules"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="form-footer form-footer-flush" style="justify-content:flex-start;gap:.5rem;margin-top:1rem">
         <a class="btn btn-secondary" href="#exclusions">{{ _('Gérer les exclusions CRS') }}</a>
         <a class="btn btn-secondary" href="#reactivation">{{ _('Réactivation moteur') }}</a>
@@ -2022,6 +2077,94 @@
     };
 
     if (currentTab() === 'technical') loadDrift();
+  })();
+
+  /* ModSecurity sandbox simulator */
+  (function () {
+    var form = document.getElementById('waf-sandbox-form');
+    if (!form) return;
+    var url = form.getAttribute('data-sandbox-url') || '/admin/security/waf/sandbox';
+    var result = document.getElementById('waf-sandbox-result');
+    var banner = document.getElementById('waf-sandbox-banner');
+    var tbody = document.getElementById('waf-sandbox-rules');
+    var status = document.getElementById('waf-sandbox-status');
+    var submitBtn = document.getElementById('waf-sandbox-submit');
+
+    function csrfToken() {
+      var meta = document.querySelector('meta[name="csrf-token"]');
+      return meta ? meta.getAttribute('content') : '';
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (status) status.textContent = '…';
+      if (submitBtn) submitBtn.disabled = true;
+      var fd = new FormData(form);
+      var tok = csrfToken();
+      if (tok) fd.set('csrf_token', tok);
+      fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json', 'X-CSRF-Token': tok || '' },
+        body: fd,
+      })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
+        .then(function (res) {
+          if (!res.body || res.body.ok === false) {
+            if (status) status.textContent = (res.body && res.body.error) || ('HTTP ' + res.status);
+            if (result) result.hidden = true;
+            return;
+          }
+          var data = res.body;
+          if (status) {
+            status.textContent = data.sandbox_id
+              ? ('id ' + String(data.sandbox_id).slice(0, 8) + '…')
+              : '';
+          }
+          if (result) result.hidden = false;
+          if (banner) {
+            banner.className = 'alert';
+            if (data.verdict === 'blocked' || data.blocked_intent) {
+              banner.classList.add('alert-err');
+              banner.innerHTML = '<strong>Requête bloquée en production</strong> — ' +
+                ((data.matched_rules || []).length) + ' règle(s) disruptive(s) en DetectionOnly.';
+            } else if (data.verdict === 'clean') {
+              banner.classList.add('alert-ok');
+              banner.innerHTML = '<strong>Requête légitime</strong> — aucune règle disruptive détectée.';
+            } else {
+              banner.classList.add('alert-warn');
+              banner.innerHTML = '<strong>Résultat inconclusif</strong> — sonde ou audit indisponible. ' +
+                (data.probe && data.probe.error ? esc(data.probe.error) : '');
+            }
+          }
+          if (tbody) {
+            var rows = data.matched_rules || [];
+            if (!rows.length) {
+              tbody.innerHTML = '<tr><td colspan="5" class="muted">Aucune règle dans l’audit pour cette sonde.</td></tr>';
+            } else {
+              tbody.innerHTML = rows.map(function (r) {
+                return '<tr><td class="mono">' + esc(r.id) + '</td><td>' + esc(r.message || r.label) +
+                  '</td><td>' + esc(r.severity) + '</td><td>' + esc(r.phase == null ? '—' : r.phase) +
+                  '</td><td>' + (r.disruptive ? '<span class="badge badge-err">oui</span>' : 'non') +
+                  '</td></tr>';
+              }).join('');
+            }
+          }
+        })
+        .catch(function () {
+          if (status) status.textContent = 'erreur réseau';
+        })
+        .finally(function () {
+          if (submitBtn) submitBtn.disabled = false;
+        });
+    });
+
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
   })();
 
 
