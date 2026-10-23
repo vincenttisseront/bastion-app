@@ -5,8 +5,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.audit import admin_actor
@@ -140,6 +142,39 @@ def admin_waf_diagnostic_json(
     )
 
 
+@router.get("/admin/security/waf/modsecurity.json")
+def admin_waf_modsecurity_json(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Live ModSecurity panel payload for tab auto-refresh (engine + packs)."""
+    from app.bastion.nginx_waf_reality import portal_engine_mode, read_nginx_waf_reality
+    from app.bastion.waf_readability import build_reactivation_panel
+    from app.bastion.waf_virtual_patches import build_modsecurity_page
+
+    profile = waf_service.ensure_active_profile(db)
+    active = read_nginx_waf_reality(settings=settings)
+    if active.get("verifiable"):
+        active = {**active, "portal_mode": portal_engine_mode(active)}
+    reactivation = build_reactivation_panel(
+        profile, active, settings, db, export_pending=False
+    )
+    modsecurity = build_modsecurity_page(
+        db,
+        settings,
+        profile,
+        active=active,
+        reactivation=reactivation,
+    )
+    return JSONResponse(
+        {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "modsecurity": modsecurity,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.post("/admin/security/waf/profile")
 def admin_waf_profile_post(
     request: Request,
@@ -151,7 +186,6 @@ def admin_waf_profile_post(
     portal_api_rate: int = Form(30),
     portal_login_burst: int = Form(5),
     portal_api_burst: int = Form(60),
-    patch_php2shell_enabled: str | None = Form(None),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -168,13 +202,55 @@ def admin_waf_profile_post(
             portal_api_rate=int(portal_api_rate),
             portal_login_burst=int(portal_login_burst),
             portal_api_burst=int(portal_api_burst),
-            patch_php2shell_enabled=patch_php2shell_enabled == "on",
             actor=admin_actor(user),
             ip_address=client_ip_from_request(request) or None,
         )
         flash_redirect(
             response,
             "Profil WAF enregistré (pas encore appliqué à nginx).",
+            "success",
+            _flash_secret(settings),
+        )
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", _flash_secret(settings))
+    return response
+
+
+@router.post("/admin/security/waf/modsecurity/packs/{pack_id}")
+def admin_waf_modsecurity_pack_toggle(
+    pack_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    mode: str | None = Form(None),
+    enabled: str | None = Form(None),
+):
+    """Set virtual-patch pack mode off|detection|on (Appliquer to push nginx)."""
+    response = RedirectResponse(url="/admin/security/waf#modsecurity", status_code=302)
+    try:
+        if mode is None or not str(mode).strip():
+            # Legacy form: enabled=on|off
+            if enabled is None:
+                raise ValueError("mode pack requis (off|detection|on)")
+            mode = "on" if enabled == "on" else "off"
+        profile = waf_service.set_virtual_pack_mode(
+            db,
+            pack_id=pack_id.strip().lower(),
+            mode=str(mode).strip().lower(),
+            actor=admin_actor(user),
+            ip_address=client_ip_from_request(request) or None,
+        )
+        labels = {
+            "off": "désactivé",
+            "detection": "en détection (DetectionOnly)",
+            "on": "actif (blocage si moteur On)",
+        }
+        state = labels.get(str(mode).strip().lower(), str(mode))
+        flash_redirect(
+            response,
+            f"Pack ModSecurity « {pack_id} » {state} (profil {profile.name}). "
+            "Appliquer pour pousser vers nginx.",
             "success",
             _flash_secret(settings),
         )

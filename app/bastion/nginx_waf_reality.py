@@ -505,6 +505,8 @@ def _load_raw_snapshot(
 
 
 def _profile_db_snapshot(profile: WafProfile, exclusions: list[WafExclusion]) -> dict[str, Any]:
+    from app.bastion.waf_virtual_patches import profile_packs_modes
+
     active_ex = [e for e in exclusions if e.active]
     return {
         "profile_name": profile.name,
@@ -519,6 +521,7 @@ def _profile_db_snapshot(profile: WafProfile, exclusions: list[WafExclusion]) ->
         "exclusion_rule_ids": sorted(
             int(e.crs_rule_id) for e in active_ex if e.crs_rule_id is not None
         ),
+        "virtual_packs": profile_packs_modes(profile),
     }
 
 
@@ -576,6 +579,32 @@ def diff_db_vs_export(
                         "db": db["exclusion_rule_ids"] or "—",
                     }
                 )
+
+    db_packs = db.get("virtual_packs") or {}
+    exp_packs = effective.get("virtual_packs")
+    if not isinstance(exp_packs, dict):
+        # Legacy boolean-only export.
+        if "patch_php2shell_enabled" in effective:
+            exp_packs = {
+                "php2shell": (
+                    "on" if effective.get("patch_php2shell_enabled") else "off"
+                )
+            }
+        else:
+            exp_packs = {}
+    for pack_id, db_mode in sorted(db_packs.items()):
+        exp_mode = exp_packs.get(pack_id)
+        if exp_mode is None and not effective.get("present"):
+            continue
+        if exp_mode != db_mode:
+            diffs.append(
+                {
+                    "field": f"virtual_pack.{pack_id}",
+                    "label": f"Pack ModSecurity {pack_id}",
+                    "export": exp_mode if exp_mode is not None else "—",
+                    "db": db_mode,
+                }
+            )
 
     return diffs
 
@@ -779,6 +808,7 @@ def build_waf_ui_context(
         "reactivation": readability["reactivation"],
         "promotion": readability.get("promotion") or {},
         "virtual_patches": readability.get("virtual_patches") or {},
+        "modsecurity": readability.get("modsecurity") or {},
         "apply_enabled": readability["apply_enabled"],
         "mode_pilotable": readability["mode_pilotable"],
         "diagnostic": readability["diagnostic"],

@@ -225,10 +225,17 @@ def render_engine_mode_generated(profile: WafProfile) -> str:
 
 
 def render_virtual_patches_enabled(profile: WafProfile) -> str:
-    from app.bastion.waf_virtual_patches import render_virtual_patches_enabled_conf
+    from app.bastion.waf_virtual_patches import (
+        render_virtual_patches_enabled_for_profile,
+    )
 
-    enabled = bool(getattr(profile, "patch_php2shell_enabled", True))
-    return render_virtual_patches_enabled_conf(php2shell_enabled=enabled)
+    return render_virtual_patches_enabled_for_profile(profile)
+
+
+def _virtual_packs_status(profile: WafProfile) -> dict[str, str]:
+    from app.bastion.waf_virtual_patches import profile_packs_modes
+
+    return profile_packs_modes(profile)
 
 
 SCOPE_RULE = "rule"
@@ -686,6 +693,7 @@ def write_waf_exports(db: Session, settings: Settings) -> dict[str, str]:
         "patch_php2shell_enabled": bool(
             getattr(profile, "patch_php2shell_enabled", True)
         ),
+        "virtual_packs": _virtual_packs_status(profile),
     }
     _merge_apply_metadata(status, settings)
 
