@@ -14,6 +14,8 @@ from app.bastion.nginx_waf_export import (
     MODE_DETECTION,
     MODE_OFF,
     MODE_ON,
+    PARANOIA_MAX,
+    PARANOIA_MIN,
     SCOPE_RULE,
     URI_MATCH_EXACT,
     URI_MATCH_REGEX,
@@ -22,6 +24,7 @@ from app.bastion.nginx_waf_export import (
     VALID_URI_MATCH,
     apply_waf_exports,
     clamp_anomaly_threshold,
+    clamp_paranoia_level,
     ensure_active_profile,
     get_active_profile,
     read_effective_status,
@@ -65,6 +68,7 @@ def profiles_for_ui(db: Session) -> dict[str, dict[str, Any]]:
         out[row.name] = {
             "mode": row.mode,
             "anomaly_threshold": int(row.anomaly_threshold),
+            "paranoia_level": int(getattr(row, "paranoia_level", 1) or 1),
             "ip_deny_min_occurrences": int(row.ip_deny_min_occurrences),
             "portal_login_rate": int(row.portal_login_rate),
             "portal_login_burst": int(row.portal_login_burst),
@@ -89,6 +93,7 @@ def update_active_profile(
     mode: str,
     anomaly_threshold: int,
     profile_name: str | None = None,
+    paranoia_level: int | None = None,
     ip_deny_min_occurrences: int | None = None,
     portal_login_rate: int | None = None,
     portal_api_rate: int | None = None,
@@ -104,6 +109,12 @@ def update_active_profile(
         raise ValueError(
             f"seuil d'anomalie hors borne [{ANOMALY_MIN}, {ANOMALY_MAX}]: {anomaly_threshold}"
         )
+    if paranoia_level is not None and (
+        int(paranoia_level) < PARANOIA_MIN or int(paranoia_level) > PARANOIA_MAX
+    ):
+        raise ValueError(
+            f"paranoia hors borne [{PARANOIA_MIN}, {PARANOIA_MAX}]: {paranoia_level}"
+        )
 
     if profile_name and profile_name in PRESET_VALUES:
         for row in db.query(WafProfile).all():
@@ -111,6 +122,7 @@ def update_active_profile(
         profile = db.query(WafProfile).filter_by(name=profile_name).one()
         preset = PRESET_VALUES[profile_name]
         old_mode, old_thr = profile.mode, profile.anomaly_threshold
+        old_pl = int(getattr(profile, "paranoia_level", 1) or 1)
         profile.mode = str(preset["mode"])
         profile.anomaly_threshold = int(preset["anomaly_threshold"])
         profile.portal_login_rate = int(preset["portal_login_rate"])
@@ -123,6 +135,7 @@ def update_active_profile(
         # Custom: keep/update active profile in place (or create Custom).
         profile = get_active_profile(db) or ensure_active_profile(db)
         old_mode, old_thr = profile.mode, profile.anomaly_threshold
+        old_pl = int(getattr(profile, "paranoia_level", 1) or 1)
         if profile.name in PRESET_VALUES:
             # Detach presets; activate/create Custom.
             for row in db.query(WafProfile).all():
@@ -146,6 +159,8 @@ def update_active_profile(
             profile.mode = mode
             profile.anomaly_threshold = clamp_anomaly_threshold(anomaly_threshold)
 
+    if paranoia_level is not None:
+        profile.paranoia_level = clamp_paranoia_level(paranoia_level)
     if ip_deny_min_occurrences is not None:
         profile.ip_deny_min_occurrences = max(1, int(ip_deny_min_occurrences))
     if portal_login_rate is not None:
@@ -178,6 +193,16 @@ def update_active_profile(
             action="security.waf.threshold_changed",
             target=profile.name,
             details={"old": old_thr, "new": profile.anomaly_threshold},
+            ip_address=ip_address,
+        )
+    new_pl = int(getattr(profile, "paranoia_level", 1) or 1)
+    if old_pl != new_pl:
+        log_action(
+            db,
+            actor=actor,
+            action="security.waf.paranoia_changed",
+            target=profile.name,
+            details={"old": old_pl, "new": new_pl},
             ip_address=ip_address,
         )
     db.commit()

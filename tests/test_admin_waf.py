@@ -457,6 +457,7 @@ def test_waf_threshold_rejected_out_of_bounds(client: TestClient, db_session: Se
         data={
             "mode": "on",
             "anomaly_threshold": "99",
+            "paranoia_level": "1",
             "profile_preset": "Custom",
             "ip_deny_min_occurrences": "3",
             "portal_login_rate": "3",
@@ -469,6 +470,58 @@ def test_waf_threshold_rejected_out_of_bounds(client: TestClient, db_session: Se
     assert resp.status_code == 302
     profile = db_session.query(WafProfile).filter_by(is_active=True).one()
     assert profile.anomaly_threshold == 5
+
+
+def test_waf_paranoia_level_saved_and_clamped(
+    client: TestClient, db_session: Session, tmp_path: Path
+):
+    _seed_profile(db_session)
+    resp = client.post(
+        "/admin/security/waf/profile",
+        headers=ADMIN_HEADERS,
+        data={
+            "mode": "detection_only",
+            "anomaly_threshold": "5",
+            "paranoia_level": "3",
+            "profile_preset": "Custom",
+            "ip_deny_min_occurrences": "3",
+            "portal_login_rate": "3",
+            "portal_api_rate": "30",
+            "portal_login_burst": "5",
+            "portal_api_burst": "60",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    profile = db_session.query(WafProfile).filter_by(is_active=True).one()
+    assert profile.paranoia_level == 3
+
+    resp = client.post(
+        "/admin/security/waf/profile",
+        headers=ADMIN_HEADERS,
+        data={
+            "mode": "on",
+            "anomaly_threshold": "5",
+            "paranoia_level": "9",
+            "profile_preset": "Custom",
+            "ip_deny_min_occurrences": "3",
+            "portal_login_rate": "3",
+            "portal_api_rate": "30",
+            "portal_login_burst": "5",
+            "portal_api_burst": "60",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    db_session.refresh(profile)
+    # Out of bounds → rejected, previous value kept
+    assert profile.paranoia_level == 3
+
+    with _patch_snapshot(tmp_path, mode=MODE_OFF):
+        page = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    assert page.status_code == 200
+    assert 'id="waf_paranoia_level"' in page.text
+    assert 'id="waf-paranoia-warn"' in page.text
 
 
 def test_waf_exclusion_requires_reason(client: TestClient, db_session: Session):
