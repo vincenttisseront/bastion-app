@@ -2296,6 +2296,15 @@ def build_waf_readability_context(
         geo_map=geo_map,
         geoloc_enabled=geoloc_enabled,
     )
+    from app.bastion.waf_analytics import build_waf_analytics_summary
+
+    analytics = build_waf_analytics_summary(
+        db,
+        settings,
+        profile,
+        summary=audit_summary,
+        active=active,
+    )
     quarantine = build_quarantine_panel(db, geo_map=geo_map)
     security_bans_all = list_active_bans(db)
     quick_controls = build_quick_controls(db, profile, active, settings)
@@ -2330,6 +2339,7 @@ def build_waf_readability_context(
         "unknown_host_panel": unknown_host_panel,
         "executive_summary": executive,
         "threat_intel": threat_intel,
+        "waf_analytics": analytics,
         "quarantine_panel": quarantine,
         "security_bans_all": security_bans_all,
         "quick_controls": quick_controls,

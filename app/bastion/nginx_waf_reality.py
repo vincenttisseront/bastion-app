@@ -805,6 +805,7 @@ def build_waf_ui_context(
         "unknown_host_panel": readability.get("unknown_host_panel") or {},
         "executive_summary": readability.get("executive_summary") or {},
         "threat_intel": readability.get("threat_intel") or {},
+        "waf_analytics": readability.get("waf_analytics") or {},
         "quarantine_panel": readability.get("quarantine_panel") or {},
         "security_bans_all": readability.get("security_bans_all") or [],
         "quick_controls": readability.get("quick_controls") or [],
