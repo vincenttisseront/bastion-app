@@ -39,10 +39,10 @@ Full guide: **[deploy/README.md](deploy/README.md)** (French).
 | Migrations | `vincenttisseront/bastion-pro-migrate` | `ghcr.io/vincenttisseront/bastion-pro-migrate` |
 | Nginx | `vincenttisseront/bastion-pro-nginx` | `ghcr.io/vincenttisseront/bastion-pro-nginx` |
 
-Tags aligned Hub ↔ GitHub Releases: `:v0.10.0`, `:latest`, and short SHA (`:b6c09da`…).  
+Tags aligned Hub ↔ GitHub Releases: `:v0.10.1`, `:latest`, and short SHA (`:b6c09da`…).  
 Releases: https://github.com/vincenttisseront/bastion-app/releases
 
-Optional pin in `.env`: `BASTION_APP_IMAGE=…:v0.10.0` (same for migrate / nginx).
+Optional pin in `.env`: `BASTION_APP_IMAGE=…:v0.10.1` (same for migrate / nginx).
 
 Update: `docker compose pull && docker compose up -d`.
 
