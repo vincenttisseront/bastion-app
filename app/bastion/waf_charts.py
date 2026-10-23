@@ -70,6 +70,7 @@ def render_series_chart(
     height: int = 160,
     empty_variant: str = "measured_zero",
     empty_message: str = "Aucune donnée sur la période",
+    zero_caption: str | None = None,
 ) -> str:
     values = [max(0, int(p.get(value_key) or 0)) for p in series]
     if not series:
@@ -98,6 +99,11 @@ def render_series_chart(
         parts.append(
             f'<text class="waf-chart-axis" x="{width - pad_r}" y="18" text-anchor="end">0</text>'
         )
+        if zero_caption:
+            parts.append(
+                f'<text class="waf-chart-legend" x="{width // 2}" y="{pad_t + chart_h // 2}" '
+                f'text-anchor="middle">{_esc(zero_caption)}</text>'
+            )
     # Grid lines
     for i in range(4):
         gy = pad_t + int(chart_h * i / 3)
@@ -137,6 +143,7 @@ def render_horizontal_bars(
     row_height: int = 28,
     label_chars: int = 42,
     label_col_w: int = 220,
+    empty_message: str = "Aucune entrée sur la période",
 ) -> str:
     """Horizontal bars with a dedicated label column (no bar overlap / 16-char clip)."""
     if not items:
@@ -149,7 +156,7 @@ def render_horizontal_bars(
             f'<line class="waf-chart-baseline" x1="{label_col_w}" y1="52" '
             f'x2="{width - 24}" y2="52"/>'
             f'<text class="waf-chart-axis" x="{label_col_w}" y="48">0</text>'
-            f'<text class="waf-chart-legend" x="16" y="72">Aucune entrée sur la période</text>'
+            f'<text class="waf-chart-legend" x="16" y="72">{_esc(empty_message[:72])}</text>'
             + _SVG_CLOSE
         )
     inner_h = max(60, 36 + len(items) * row_height)
@@ -199,6 +206,7 @@ def render_donut_chart(
     title: str = "Répartition par famille",
     width: int = 420,
     height: int = 180,
+    empty_message: str = "Aucune famille détectée",
 ) -> str:
     total = sum(int(it.get(value_key) or 0) for it in items)
     colors = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#64748b"]
@@ -222,7 +230,8 @@ def render_donut_chart(
             f'<text class="waf-chart-donut-sub" x="{cx}" y="{cy + 12}" text-anchor="middle">détections</text>'
         )
         parts.append(
-            f'<text class="waf-chart-legend" x="180" y="{height // 2 + 4}">Aucune famille détectée</text>'
+            f'<text class="waf-chart-legend" x="180" y="{height // 2 + 4}">'
+            f"{_esc(empty_message[:56])}</text>"
         )
         parts.append(_SVG_CLOSE)
         return "".join(parts)
@@ -275,9 +284,17 @@ def render_family_breakdown(
     *,
     title: str = "Répartition par famille",
     width: int = 420,
+    empty_message: str = "Aucune famille détectée",
 ) -> str:
     items = [{"label": f.get("label", f.get("family", "")), "count": f.get("count")} for f in families]
-    return render_donut_chart(items, label_key="label", value_key="count", title=title, width=width)
+    return render_donut_chart(
+        items,
+        label_key="label",
+        value_key="count",
+        title=title,
+        width=width,
+        empty_message=empty_message,
+    )
 
 
 def _format_axis_count(value: int) -> str:
@@ -324,6 +341,7 @@ def render_dual_area_chart(
     height: int = 200,
     empty_variant: str = "measured_zero",
     empty_message: str = "Aucune donnée sur la période",
+    zero_caption: str | None = None,
 ) -> str:
     """Area chart — traffic vs intrusion attempts (Sentinel theme)."""
     if not series:
@@ -339,6 +357,7 @@ def render_dual_area_chart(
     step = chart_w / max(n - 1, 1)
     # 4 horizontal guides including baseline → ticks at 100%, 67%, 33%, 0%.
     y_ticks = 3
+    all_zero = sum(p_vals) == 0 and sum(s_vals) == 0
 
     def _points(vals: list[int]) -> str:
         pts: list[str] = []
@@ -366,6 +385,11 @@ def render_dual_area_chart(
         f'<tspan fill="#64748b">●</tspan> {_esc(primary_label)}  '
         f'<tspan fill="#ef4444">●</tspan> {_esc(secondary_label)}</text>',
     ]
+    if all_zero and zero_caption:
+        parts.append(
+            f'<text class="sentinel-chart-legend" x="{width // 2}" y="{pad_t + chart_h // 2}" '
+            f'text-anchor="middle">{_esc(zero_caption)}</text>'
+        )
     for i in range(y_ticks + 1):
         ratio = i / y_ticks
         gy = pad_t + int(chart_h * ratio)
@@ -478,12 +502,14 @@ def render_attack_heatmap(
     title: str = "Origine des attaques (réseaux /24 × heure)",
     width: int = 560,
     row_height: int = 22,
+    empty_variant: str = "measured_zero",
+    empty_message: str = "Aucune origine agrégée sur 24 h",
 ) -> str:
     if not matrix or not row_labels:
         return _empty_panel(
             title=title,
-            message="Aucune origine agrégée sur 24 h",
-            variant="measured_zero",
+            message=empty_message,
+            variant=empty_variant,
             width=width,
             height=160,
         )
@@ -531,6 +557,7 @@ def render_owasp_bars(
     *,
     title: str = "Top 5 règles OWASP",
     width: int = 560,
+    empty_message: str = "Aucune entrée sur la période",
 ) -> str:
     """Horizontal bars with readable CRS id + label (Sentinel threat intel)."""
     return render_horizontal_bars(
@@ -541,4 +568,5 @@ def render_owasp_bars(
         width=width,
         label_chars=48,
         label_col_w=248,
+        empty_message=empty_message,
     )

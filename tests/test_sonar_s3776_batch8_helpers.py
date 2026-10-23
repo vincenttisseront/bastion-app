@@ -11,6 +11,7 @@ import pytest
 from app.bastion.login_form_analyzer import analyze_html
 from app.bastion.nginx_waf_export import (
     _drop_dangling_chain_secrules,
+    _drop_orphan_chain_bodies,
     _drop_unsafe_secrule_lines,
     _sanitize_generated_rules,
 )
@@ -126,6 +127,18 @@ def test_sanitize_generated_rules_helpers():
         ["SecRule ARGS \"@rx x\" \"id:2,nolog,chain\"", "# only"]
     )
     assert any("dangling chain" in line for line in dangling)
+    # chain action order must not matter
+    dangling2 = _drop_dangling_chain_secrules(
+        ['SecRule ARGS "@rx x" "id:2,phase:1,pass,chain,nolog"', "# only"]
+    )
+    assert any("dangling chain" in line for line in dangling2)
+    orphan = _drop_orphan_chain_bodies(
+        [
+            "# skipped unsafe SecRule (percent or line-continuation)",
+            'SecRule ARGS "@rx y" "ctl:ruleRemoveById=1"',
+        ]
+    )
+    assert any("orphan chain body" in line for line in orphan)
     out = _sanitize_generated_rules(raw)
     assert out.endswith("\n")
 

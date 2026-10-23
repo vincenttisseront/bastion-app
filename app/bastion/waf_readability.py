@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -836,15 +838,18 @@ def _headers_layer_status(
 def _efficiency_zero_explanation(crs_mode: str | None) -> str:
     if crs_mode == MODE_OFF:
         return (
-            "0 requête inspectée : le moteur est arrêté. "
+            "0 événement d'audit : le moteur est arrêté. "
             "Ces compteurs sont cohérents, ce n'est pas une panne de la supervision."
         )
     if crs_mode == MODE_DETECTION:
         return (
-            "Aucune inspection enregistrée sur la période. "
-            "Vérifiez que l'audit ModSecurity est activé."
+            "Aucun événement d'audit ModSecurity (RelevantOnly) sur la période. "
+            "Vérifiez que l'audit est activé — ce n'est pas le trafic nginx total."
         )
-    return "Aucune activité CRS enregistrée sur la période."
+    return (
+        "Aucun événement d'audit CRS (RelevantOnly) sur la période — "
+        "mesure effectuée, pas une panne de supervision."
+    )
 
 
 def build_efficiency_panel(
@@ -1281,11 +1286,79 @@ def _blocks_trend_pct(series_24h: list[dict[str, Any]], blocks: int) -> float | 
     return round(((curr - prev) / prev) * 100, 1)
 
 
-def _live_suspicious_count(
-    series_24h: list[dict[str, Any]], unknown_hits: int
-) -> int:
-    live = sum(int(p.get("detections") or 0) for p in series_24h[-3:])
-    return live + min(unknown_hits, 9999)
+def format_kpi_count(n: int) -> str:
+    """Compact FR-friendly count for WAF executive KPIs (no artificial caps)."""
+    value = max(0, int(n or 0))
+    if value < 10_000:
+        return f"{value:,}".replace(",", "\u202f")
+    if value < 1_000_000:
+        return f"{value / 1000:.1f}".replace(".", ",") + "\u202fk"
+    return f"{value / 1_000_000:.1f}".replace(".", ",") + "\u202fM"
+
+
+_VIRTUAL_PATCH_INCLUDE_RE = re.compile(
+    r"(?im)^\s*Include\s+\S*(?:virtual.?patch|bastion-virtual-patches)",
+)
+
+
+def _modsecurity_conf_dir() -> Path | None:
+    """Repo ``docker/nginx/modsecurity`` when present (dev / image build context)."""
+    conf = Path(__file__).resolve().parents[2] / "docker" / "nginx" / "modsecurity"
+    return conf if conf.is_dir() else None
+
+
+def detect_virtual_patches_in_include_chain(
+    conf_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Honest detection: Include line in main-*.conf + optional local rules file."""
+    root = conf_dir if conf_dir is not None else _modsecurity_conf_dir()
+    if root is None:
+        return {"included": False, "rules_file_present": False, "mains": []}
+    mains_with_include: list[str] = []
+    for main in sorted(root.glob("main-*.conf")):
+        try:
+            text = main.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if _VIRTUAL_PATCH_INCLUDE_RE.search(text):
+            mains_with_include.append(main.name)
+    rules_path = root / "bastion-virtual-patches.conf"
+    return {
+        "included": bool(mains_with_include),
+        "rules_file_present": rules_path.is_file(),
+        "mains": mains_with_include,
+    }
+
+
+def build_coverage_note(active: dict[str, Any] | None = None) -> str:
+    """Static honest Couverture line from repo Include chain + known CRS defaults."""
+    active = active or {}
+    thr = active.get("aggregate_threshold")
+    if thr is None or thr == "mixed":
+        thr_label = "seuil d'anomalie (profil)"
+    else:
+        thr_label = f"seuil d'anomalie {thr}"
+    vp = detect_virtual_patches_in_include_chain()
+    if vp["included"] and vp["rules_file_present"]:
+        patches = "patches Bastion (chaîne Include nginx)"
+    elif vp["included"]:
+        patches = "Include patches déclaré (fichier local non trouvé)"
+    else:
+        patches = "CRS seul"
+    return f"Couverture : CRS OWASP PL1 · {thr_label} · {patches}"
+
+
+def _measured_zero_chart_copy() -> dict[str, str]:
+    """Honest empty/flat chart copy when CRS audit window is measured at zero."""
+    return {
+        "empty": "Aucune activité CRS sur 24 h (mesure effectuée)",
+        "zero_caption": "CRS silencieux sur 24 h",
+        "heatmap": "Aucune origine CRS sur 24 h (mesure effectuée)",
+        "families": "Aucune famille — CRS silencieux",
+        "attackers": "Aucune IP CRS — silencieux sur 24 h",
+        "rules": "Aucune règle CRS déclenchée sur 24 h",
+        "blocks": "Aucun blocage CRS sur 24 h (mesure effectuée)",
+    }
 
 
 def build_executive_summary(
@@ -1298,21 +1371,40 @@ def build_executive_summary(
 ) -> dict[str, Any]:
     summary = read_audit_summary(settings)
     series_24h = (summary.get("series") or {}).get("24h") or []
-    inspected = int(efficiency.get("inspected") or 0) if efficiency.get("present") else 0
-    blocks = int(efficiency.get("blocks") or 0) if efficiency.get("present") else 0
+    crs_present = bool(efficiency.get("present"))
+    detections = int(efficiency.get("detections") or 0) if crs_present else 0
+    blocks = int(efficiency.get("blocks") or 0) if crs_present else 0
+    # RelevantOnly audit: "inspected" ≈ audit events, not all nginx traffic.
+    inspected = int(efficiency.get("inspected") or 0) if crs_present else 0
     trend = _blocks_trend_pct(series_24h, blocks)
-    unknown_hits = int(unknown_host_panel.get("hits_24h") or 0)
-    live_suspicious = _live_suspicious_count(series_24h, unknown_hits) if efficiency.get("present") else unknown_hits
+    host_refusals = int(unknown_host_panel.get("hits_24h") or 0)
     health, health_breakdown = _compute_health_score(active, efficiency, layers)
+    crs_quiet = crs_present and detections == 0 and blocks == 0
     return {
-        "present": efficiency.get("present") or unknown_host_panel.get("present"),
+        "present": crs_present or unknown_host_panel.get("present"),
         "inspected": inspected,
+        "inspected_display": format_kpi_count(inspected),
+        "detections": detections,
+        "detections_display": format_kpi_count(detections),
         "blocks": blocks,
+        "blocks_display": format_kpi_count(blocks),
         "blocks_trend_pct": trend,
         "health_score": health,
         "health_breakdown": health_breakdown,
         "health_gauge_svg": render_health_gauge(health),
-        "live_suspicious": live_suspicious,
+        "host_refusals": host_refusals,
+        "host_refusals_display": format_kpi_count(host_refusals),
+        "crs_quiet": crs_quiet,
+        "activity_hint": (
+            (
+                f"Aucune détection CRS sur 24 h — l'activité visible "
+                f"({format_kpi_count(host_refusals)} refus) vient du filtrage "
+                f"d'hôtes non enregistrés, pas de ModSecurity."
+            )
+            if crs_quiet and host_refusals > 0
+            else None
+        ),
+        "coverage_note": build_coverage_note(active),
         "generated_at": efficiency.get("generated_at"),
     }
 
@@ -1589,6 +1681,8 @@ def build_threat_intel_visuals(
         else "Origine des attaques (réseaux /24 × heure)"
     )
     empty_variant = "measured_zero" if measured_zero else "empty"
+    quiet = _measured_zero_chart_copy() if measured_zero else {}
+    zero_caption = quiet.get("zero_caption")
     top_attackers = [
         {"label": a.get("ip") or a.get("label") or "—", "count": a.get("count")}
         for a in (window.get("top_attackers") or [])[:5]
@@ -1599,13 +1693,16 @@ def build_threat_intel_visuals(
             series_24h,
             title="Trafic vs tentatives d'intrusion (24 h)",
             empty_variant=empty_variant,
+            empty_message=quiet.get("empty", "Aucune donnée sur la période"),
+            zero_caption=zero_caption,
         ),
         "blocks_hourly_svg": render_series_chart(
             series_24h,
             value_key="blocks",
             title="Blocages CRS / heure (24 h)",
             empty_variant=empty_variant,
-            empty_message="Aucun blocage sur 24 h",
+            empty_message=quiet.get("blocks", "Aucun blocage sur 24 h"),
+            zero_caption=zero_caption,
             height=180,
         ),
         "origin_heatmap_svg": render_attack_heatmap(
@@ -1613,15 +1710,19 @@ def build_threat_intel_visuals(
             row_labels=row_labels,
             col_labels=col_labels,
             title=heatmap_title,
+            empty_variant=empty_variant,
+            empty_message=quiet.get("heatmap", "Aucune origine agrégée sur 24 h"),
         ),
         "families_svg": render_family_breakdown(
             families,
             title="Familles de menaces (24 h)",
+            empty_message=quiet.get("families", "Aucune famille détectée"),
         ),
         "top_attackers_svg": render_horizontal_bars(
             top_attackers,
             label_key="label",
             title="Top IP attaquantes (24 h)",
+            empty_message=quiet.get("attackers", "Aucune entrée sur la période"),
         ),
         "owasp_rules_svg": render_owasp_bars(
             [
@@ -1633,6 +1734,7 @@ def build_threat_intel_visuals(
                 for r in top_rules
             ],
             title="Top 5 règles OWASP déclenchées",
+            empty_message=quiet.get("rules", "Aucune entrée sur la période"),
         ),
         "top_rules": top_rules,
     }
@@ -1773,6 +1875,8 @@ def _efficiency_chart_svgs(
     series_7d = series.get("7d") or []
     measured_zero = efficiency.get("status") == "measured_zero"
     empty_variant = "measured_zero" if measured_zero else "empty"
+    quiet = _measured_zero_chart_copy() if measured_zero else {}
+    zero_caption = quiet.get("zero_caption")
 
     top_rules = [
         {
@@ -1794,25 +1898,36 @@ def _efficiency_chart_svgs(
             series_24h,
             title="Détections / heure (24 h)",
             empty_variant=empty_variant,
-            empty_message="Aucune détection sur 24 h",
+            empty_message=quiet.get("empty", "Aucune détection sur 24 h"),
+            zero_caption=zero_caption,
         ),
         "detections_daily_svg": render_series_chart(
             series_7d,
             title="Détections / jour (7 j)",
             empty_variant=empty_variant,
-            empty_message="Aucune détection sur 7 j",
+            empty_message=(
+                "Aucune activité CRS sur 7 j (mesure effectuée)"
+                if measured_zero
+                else "Aucune détection sur 7 j"
+            ),
+            zero_caption=zero_caption,
         ),
         "top_rules_svg": render_horizontal_bars(
             top_rules,
             label_key="label",
             title="Top 5 règles CRS",
+            empty_message=quiet.get("rules", "Aucune entrée sur la période"),
         ),
         "top_hosts_svg": render_horizontal_bars(
             top_hosts,
             label_key="label",
             title="Top 5 hosts",
+            empty_message=quiet.get("empty", "Aucune entrée sur la période"),
         ),
-        "families_svg": render_family_breakdown(families),
+        "families_svg": render_family_breakdown(
+            families,
+            empty_message=quiet.get("families", "Aucune famille détectée"),
+        ),
     }
 
 

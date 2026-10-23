@@ -17,9 +17,11 @@ def test_series_chart_measured_zero_draws_axes():
         value_key="blocks",
         title="Blocages CRS / heure (24 h)",
         empty_variant="measured_zero",
+        zero_caption="CRS silencieux sur 24 h",
     )
     assert "waf-chart-series" in svg
     assert "waf-chart-baseline" in svg
+    assert "CRS silencieux sur 24 h" in svg
     assert "Mesure effectuée" not in svg
     assert "waf-chart-empty" not in svg
 
@@ -32,20 +34,29 @@ def test_dual_area_chart_all_zeros_is_flat_line():
         {"label": "11h", "inspected": 0, "detections": 0},
         {"label": "12h", "inspected": 0, "detections": 0},
     ]
-    svg = render_dual_area_chart(series, title="Trafic vs tentatives d'intrusion (24 h)")
+    svg = render_dual_area_chart(
+        series,
+        title="Trafic vs tentatives d'intrusion (24 h)",
+        zero_caption="CRS silencieux sur 24 h",
+    )
     assert "sentinel-line-primary" in svg
     assert "sentinel-chart-axis-y" in svg
     assert ">0<" in svg
+    assert "CRS silencieux sur 24 h" in svg
     assert "Mesure effectuée" not in svg
 
 
 def test_donut_chart_zero_shows_empty_ring():
     from app.bastion.waf_charts import render_donut_chart
 
-    svg = render_donut_chart([], title="Familles de menaces (24 h)")
+    svg = render_donut_chart(
+        [],
+        title="Familles de menaces (24 h)",
+        empty_message="Aucune famille — CRS silencieux",
+    )
     assert "waf-chart-donut" in svg
     assert ">0<" in svg
-    assert "Aucune famille détectée" in svg
+    assert "Aucune famille — CRS silencieux" in svg
     assert "waf-chart-empty" not in svg
 
 

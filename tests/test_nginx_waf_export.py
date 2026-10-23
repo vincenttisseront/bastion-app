@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.bastion.nginx_waf_export import (
+    EXCLUSION_SECRULE_ID_BASE,
+    _sanitize_generated_rules,
     apply_waf_exports,
     clamp_anomaly_threshold,
     list_promoted_deny_ips,
@@ -357,3 +359,93 @@ def test_render_exclusions_decodes_percent_uri():
     meta = [ln for ln in out.splitlines() if ln.startswith("# exclusion id=8")][0]
     assert "%" not in meta
     assert all(ord(c) < 128 for c in meta)
+
+
+def test_render_exclusions_skips_undecodable_percent_uri():
+    """Leftover % after decode must not emit a SecRule (libmodsecurity macro parse)."""
+    excl = WafExclusion(
+        id=9,
+        crs_rule_id=930100,
+        reason="bad pct",
+        uri_pattern="/path%ZZstill",
+        active=True,
+        scope_kind="rule",
+        uri_match="exact",
+    )
+    out = render_exclusions_generated([excl])
+    rule_lines = [
+        ln for ln in out.splitlines() if ln.strip() and not ln.lstrip().startswith("#")
+    ]
+    assert rule_lines == []
+    assert "skip SecRule: URI still contains pct" in out
+    assert "%" not in "".join(rule_lines)
+
+
+def test_render_exclusions_sec_rule_id_band_outside_crs():
+    """Bastion exclusion wrappers must not collide with OWASP CRS 9xxxxx ids."""
+    excl = WafExclusion(
+        id=12,
+        crs_rule_id=942100,
+        reason="band",
+        uri_pattern="/ok",
+        active=True,
+        scope_kind="rule",
+        uri_match="exact",
+    )
+    out = render_exclusions_generated([excl])
+    expected = EXCLUSION_SECRULE_ID_BASE + 12
+    assert f"id:{expected}" in out
+    assert expected >= 1_500_000
+    assert "id:901110" not in out
+    crs = render_crs_setup_generated(
+        WafProfile(name="x", mode="on", anomaly_threshold=5)
+    )
+    assert "id:1000900110" in crs
+    assert "id:901110" not in crs
+
+
+def test_sanitize_drops_dangling_chain_and_orphan_body():
+    dangling = _sanitize_generated_rules(
+        'SecRule ARGS "@rx x" "id:2,phase:1,pass,nolog,chain"\n'
+        "# only comment\n"
+    )
+    assert "dangling chain" in dangling
+    assert 'SecRule ARGS "@rx x"' not in dangling
+
+    orphan = _sanitize_generated_rules(
+        'SecRule ARGS "@rx %" "id:1,phase:1,pass,nolog,chain"\n'
+        'SecRule ARGS "@rx y" "ctl:ruleRemoveById=1"\n'
+    )
+    assert "skipped unsafe" in orphan
+    assert "orphan chain body" in orphan
+    assert "ctl:ruleRemoveById=1" not in orphan
+
+    intact = _sanitize_generated_rules(
+        'SecRule REQUEST_HEADERS:Host "@streq app.example.com" '
+        '"id:1500001,phase:1,pass,nolog,chain"\n'
+        'SecRule REQUEST_URI "@streq /ok" "ctl:ruleRemoveById=942100"\n'
+    )
+    assert "dangling" not in intact
+    assert "orphan" not in intact
+    assert "ctl:ruleRemoveById=942100" in intact
+
+
+def test_render_exclusions_host_uri_chain_is_complete():
+    """Host+URI exclusions emit a chain head and body (no dangling continuation)."""
+    excl = WafExclusion(
+        id=3,
+        crs_rule_id=941100,
+        reason="chain",
+        host="app.example.com",
+        uri_pattern="/edit",
+        active=True,
+        scope_kind="rule",
+        uri_match="exact",
+    )
+    out = render_exclusions_generated([excl])
+    lines = [ln for ln in out.splitlines() if ln.lstrip().startswith("SecRule")]
+    assert len(lines) == 2
+    assert "nolog,chain" in lines[0]
+    assert "id:1500003" in lines[0]
+    assert "ctl:ruleRemoveById=941100" in lines[1]
+    assert not any(ln.rstrip().endswith("\\") for ln in out.splitlines())
