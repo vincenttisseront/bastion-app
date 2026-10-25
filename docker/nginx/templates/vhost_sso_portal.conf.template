@@ -197,8 +197,9 @@ server {
         }
 
         # Connector on even when server switch is off; engine DetectionOnly for this location.
+        # Inherit server-level modsecurity_rules_file — do NOT reload main-portal.conf here
+        # (duplicate SecRule id:200000 → nginx -t emerg, workers never bind :8080).
         modsecurity on;
-        modsecurity_rules_file /etc/nginx/modsecurity/main-portal.conf;
         modsecurity_rules 'SecRuleEngine DetectionOnly';
 
         # Strip prefix so CRS / packs see the admin-supplied path (break keeps this location).

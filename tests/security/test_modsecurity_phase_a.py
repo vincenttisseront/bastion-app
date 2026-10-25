@@ -28,7 +28,11 @@ def test_docker_portal_keeps_modsecurity_wiring_but_off():
     assert "allow 172.16.0.0/12;" in sandbox
     assert "deny all;" in sandbox
     assert "SecRuleEngine DetectionOnly" in sandbox
-    assert "modsecurity_rules_file /etc/nginx/modsecurity/main-portal.conf;" in sandbox
+    # Sandbox must inherit server-level rules_file (re-include → duplicate id:200000).
+    sandbox_live = "\n".join(
+        ln for ln in sandbox.splitlines() if ln.strip() and not ln.strip().startswith("#")
+    )
+    assert "modsecurity_rules_file" not in sandbox_live
     assert (
         "modsecurity_rules_file /etc/nginx/modsecurity/main-portal.conf;" in text
     )
