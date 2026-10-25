@@ -938,9 +938,8 @@ def admin_waf_promote_portal_on(
             db,
             actor=admin_actor(user),
             action="security.waf.promote_portal_on",
-            resource_type="waf",
-            resource_id="portal",
-            detail={"mode": "on", "smoke_ok": True},
+            target="waf:portal",
+            details={"mode": "on", "smoke_ok": True},
             ip_address=client_ip_from_request(request) or None,
         )
         flash_redirect(
