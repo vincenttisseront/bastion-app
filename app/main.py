@@ -382,7 +382,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
-from app.auth.mfa_gate import MfaChallengeRequired  # noqa: E402
+from app.auth.mfa_gate import (  # noqa: E402
+    MfaChallengeRequired,
+    MfaEnrollmentRequired,
+)
 
 
 @app.exception_handler(MfaChallengeRequired)
@@ -392,6 +395,20 @@ async def mfa_challenge_required_handler(request: Request, exc: MfaChallengeRequ
     if _wants_json_response(request) or _json_api_path(request.url.path):
         return JSONResponse(
             {"detail": "mfa_required", "challenge_url": exc.redirect_url},
+            status_code=401,
+        )
+    return RedirectResponse(url=exc.redirect_url, status_code=303)
+
+
+@app.exception_handler(MfaEnrollmentRequired)
+async def mfa_enrollment_required_handler(
+    request: Request, exc: MfaEnrollmentRequired
+):
+    from fastapi.responses import JSONResponse, RedirectResponse
+
+    if _wants_json_response(request) or _json_api_path(request.url.path):
+        return JSONResponse(
+            {"detail": "mfa_enrollment_required", "enroll_url": exc.redirect_url},
             status_code=401,
         )
     return RedirectResponse(url=exc.redirect_url, status_code=303)

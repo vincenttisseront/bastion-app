@@ -204,6 +204,10 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         for m in messages
     ]
 
+    mfa_grace_warning = getattr(request.state, "mfa_grace_warning", None) or extra.pop(
+        "mfa_grace_warning", None
+    )
+
     ctx_out = {
         "request": request,
         "current_user": user,
@@ -212,6 +216,7 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         "realm_slug": realm_slug,
         "app_version": app_version,
         "messages": messages,
+        "mfa_grace_warning": mfa_grace_warning,
         "csrf_token": make_csrf_token(request, portal_signing_secret(settings)),
         "hide_chrome": extra.pop("hide_chrome", False),
         "now": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),

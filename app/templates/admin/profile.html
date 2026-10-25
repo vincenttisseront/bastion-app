@@ -3,8 +3,9 @@
 {% block breadcrumb %}Admin / {{ _('Profil') }}{% endblock %}
 
 {% block content %}
-{% set mfa = mfa | default({'totp_enabled': false, 'totp_pending': false}) %}
-<div class="page" id="admin-profile-page">
+{% set mfa = mfa | default({'totp_enabled': false, 'totp_pending': false, 'webauthn_enabled': false}) %}
+<div class="page" id="admin-profile-page"
+     data-force-mfa="{{ '1' if force_mfa else '0' }}">
   <div class="page-header">
     <div>
       <h1 class="page-title">{{ _('Profil administrateur') }}</h1>
@@ -12,69 +13,192 @@
     </div>
   </div>
 
+  {% if force_mfa and not (mfa.totp_enabled or mfa.webauthn_enabled) %}
+  <div class="alert alert-warn mb-4">
+    <div class="alert-body">
+      <strong>{{ _('Enrôlement MFA obligatoire') }}</strong>
+      {{ _('La période de grâce est écoulée. Activez un TOTP ou une Passkey pour continuer.') }}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="card mb-4" id="mfa">
     <div class="card-header">
-      <span class="card-title">{{ _('Authentification à deux facteurs (TOTP)') }}</span>
-      {% if mfa.totp_enabled %}
+      <span class="card-title">{{ _('Authentification à deux facteurs') }}</span>
+      {% if mfa.totp_enabled or mfa.webauthn_enabled %}
       <span class="badge badge-ok">{{ _('Activé') }}</span>
       {% else %}
       <span class="badge badge-muted">{{ _('Désactivé') }}</span>
       {% endif %}
     </div>
-    <div class="card-body stack" style="gap:var(--sp-3)">
+    <div class="card-body stack" style="gap:var(--sp-4)">
       <p class="form-prose mb-0">
-        {{ _('Protection volontaire de la console Admin. Une fois activé, chaque nouvelle session exigera un code TOTP.') }}
+        {{ _('Protégez la console Admin avec un TOTP et/ou une Passkey (WebAuthn). Une fois activé, chaque nouvelle session exigera un second facteur.') }}
       </p>
 
-      {% if not mfa.totp_enabled %}
-      <form method="post" action="/admin/profile/mfa/totp/start">
-        <button type="submit" class="btn btn-primary btn-sm">{{ _('Activer le TOTP') }}</button>
-      </form>
-      {% endif %}
+      {# —— TOTP —— #}
+      <section class="stack" style="gap:var(--sp-3)">
+        <h2 class="card-title" style="font-size:1rem;margin:0">
+          {{ _('TOTP') }}
+          {% if mfa.totp_enabled %}
+          <span class="badge badge-ok">{{ _('Activé') }}</span>
+          {% else %}
+          <span class="badge badge-muted">{{ _('Désactivé') }}</span>
+          {% endif %}
+        </h2>
 
-      {% if setup %}
-      <div class="alert alert-info">
-        <div class="alert-body">
-          <strong>{{ _('Scannez ce QR code') }}</strong>
-          {{ _('puis saisissez un code pour confirmer.') }}
-        </div>
-      </div>
-      <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-start">
-        <img src="{{ setup.qr_data_url }}" alt="QR TOTP" width="180" height="180"
-             style="border:1px solid var(--border, #ccc);border-radius:8px;background:#fff">
-        <div>
-          <div class="form-hint">{{ _('Clé de secours (affichée une seule fois)') }}</div>
-          <code class="mono" style="word-break:break-all">{{ setup.secret_display }}</code>
-        </div>
-      </div>
-      <form method="post" action="/admin/profile/mfa/totp/confirm" class="form-row" style="gap:0.75rem;align-items:flex-end;flex-wrap:wrap">
-        <div class="form-group" style="margin:0">
-          <label class="form-label" for="totp-confirm">{{ _('Code de confirmation') }}</label>
-          <input type="text" id="totp-confirm" name="code" class="form-input is-mono"
-                 inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}"
-                 maxlength="6" required placeholder="000000">
-        </div>
-        <button type="submit" class="btn btn-primary btn-sm">{{ _('Confirmer et activer') }}</button>
-      </form>
-      {% elif mfa.totp_pending %}
-      <p class="form-hint mb-0">
-        {{ _('Un enrôlement est en cours — cliquez à nouveau sur « Activer le TOTP » pour régénérer le QR.') }}
-      </p>
-      {% endif %}
+        {% if not mfa.totp_enabled %}
+        <form method="post" action="/admin/profile/mfa/totp/start">
+          <button type="submit" class="btn btn-primary btn-sm">{{ _('Activer le TOTP') }}</button>
+        </form>
+        {% endif %}
 
-      {% if mfa.totp_enabled %}
-      <form method="post" action="/admin/profile/mfa/totp/disable" class="form-row" style="gap:0.75rem;align-items:flex-end;flex-wrap:wrap"
-            onsubmit="return confirm('Désactiver le TOTP sur ce compte ?');">
-        <div class="form-group" style="margin:0">
-          <label class="form-label" for="totp-disable">{{ _('Code actuel') }}</label>
-          <input type="text" id="totp-disable" name="code" class="form-input is-mono"
-                 inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}"
-                 maxlength="6" required placeholder="000000">
+        {% if setup %}
+        <div class="alert alert-info">
+          <div class="alert-body">
+            <strong>{{ _('Scannez ce QR code') }}</strong>
+            {{ _('puis saisissez un code pour confirmer.') }}
+          </div>
         </div>
-        <button type="submit" class="btn btn-danger btn-sm">{{ _('Désactiver le TOTP') }}</button>
-      </form>
-      {% endif %}
+        <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-start">
+          <img src="{{ setup.qr_data_url }}" alt="QR TOTP" width="180" height="180"
+               style="border:1px solid var(--border, #ccc);border-radius:8px;background:#fff">
+          <div>
+            <div class="form-hint">{{ _('Clé de secours (affichée une seule fois)') }}</div>
+            <code class="mono" style="word-break:break-all">{{ setup.secret_display }}</code>
+          </div>
+        </div>
+        <form method="post" action="/admin/profile/mfa/totp/confirm" class="form-row" style="gap:0.75rem;align-items:flex-end;flex-wrap:wrap">
+          <div class="form-group" style="margin:0">
+            <label class="form-label" for="totp-confirm">{{ _('Code de confirmation') }}</label>
+            <input type="text" id="totp-confirm" name="code" class="form-input is-mono"
+                   inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}"
+                   maxlength="6" required placeholder="000000">
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">{{ _('Confirmer et activer') }}</button>
+        </form>
+        {% elif mfa.totp_pending %}
+        <p class="form-hint mb-0">
+          {{ _('Un enrôlement est en cours — cliquez à nouveau sur « Activer le TOTP » pour régénérer le QR.') }}
+        </p>
+        {% endif %}
+
+        {% if mfa.totp_enabled %}
+        <form method="post" action="/admin/profile/mfa/totp/disable" class="form-row" style="gap:0.75rem;align-items:flex-end;flex-wrap:wrap"
+              onsubmit="return confirm('Désactiver le TOTP sur ce compte ?');">
+          <div class="form-group" style="margin:0">
+            <label class="form-label" for="totp-disable">{{ _('Code actuel') }}</label>
+            <input type="text" id="totp-disable" name="code" class="form-input is-mono"
+                   inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}"
+                   maxlength="6" required placeholder="000000">
+          </div>
+          <button type="submit" class="btn btn-danger btn-sm">{{ _('Désactiver le TOTP') }}</button>
+        </form>
+        {% endif %}
+      </section>
+
+      {# —— WebAuthn / Passkey —— #}
+      <section class="stack" style="gap:var(--sp-3)" id="mfa-webauthn">
+        <h2 class="card-title" style="font-size:1rem;margin:0">
+          {{ _('Passkey / WebAuthn') }}
+          {% if mfa.webauthn_enabled %}
+          <span class="badge badge-ok">{{ _('Activé') }}</span>
+          {% else %}
+          <span class="badge badge-muted">{{ _('Désactivé') }}</span>
+          {% endif %}
+        </h2>
+        <p class="form-hint mb-0">
+          {{ _('Clé de sécurité matérielle ou enclave biométrique. La clé publique COSE est stockée en Base64URL.') }}
+        </p>
+
+        {% if not mfa.webauthn_enabled %}
+        <button type="button" class="btn btn-primary btn-sm" id="mfa-webauthn-register">
+          {{ _('Enregistrer une Passkey') }}
+        </button>
+        <p class="form-hint mb-0" id="mfa-webauthn-reg-status" hidden></p>
+        {% else %}
+        {% if mfa.webauthn_credential_id %}
+        <p class="form-hint mb-0 mono" style="word-break:break-all;font-size:0.8rem">
+          credential_id: {{ mfa.webauthn_credential_id[:24] }}…
+        </p>
+        {% endif %}
+        <form method="post" action="/admin/profile/mfa/webauthn/disable"
+              onsubmit="return confirm('Désactiver la Passkey sur ce compte ?');">
+          <button type="submit" class="btn btn-danger btn-sm">{{ _('Désactiver la Passkey') }}</button>
+        </form>
+        {% endif %}
+      </section>
     </div>
   </div>
 </div>
+{% if not mfa.webauthn_enabled %}
+<script>
+(function () {
+  var btn = document.getElementById('mfa-webauthn-register');
+  var status = document.getElementById('mfa-webauthn-reg-status');
+  if (!btn || !window.PublicKeyCredential) return;
+  function b64urlToBuf(b64url) {
+    var pad = '='.repeat((4 - (b64url.length % 4)) % 4);
+    var b64 = (b64url + pad).replace(/-/g, '+').replace(/_/g, '/');
+    var str = atob(b64);
+    var buf = new ArrayBuffer(str.length);
+    var view = new Uint8Array(buf);
+    for (var i = 0; i < str.length; i++) view[i] = str.charCodeAt(i);
+    return buf;
+  }
+  function bufToB64url(buf) {
+    var bytes = new Uint8Array(buf);
+    var str = '';
+    for (var i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function publicKeyFromJson(opts) {
+    var pk = Object.assign({}, opts);
+    pk.challenge = b64urlToBuf(opts.challenge);
+    if (pk.user && pk.user.id) pk.user = Object.assign({}, opts.user, { id: b64urlToBuf(opts.user.id) });
+    if (pk.excludeCredentials) {
+      pk.excludeCredentials = opts.excludeCredentials.map(function (c) {
+        return Object.assign({}, c, { id: b64urlToBuf(c.id) });
+      });
+    }
+    return pk;
+  }
+  btn.addEventListener('click', async function () {
+    status.hidden = false;
+    status.textContent = '…';
+    try {
+      var optRes = await fetch('/admin/profile/mfa/webauthn/options', {
+        method: 'POST', credentials: 'same-origin'
+      });
+      var optBody = await optRes.json();
+      if (!optRes.ok) throw new Error(optBody.error || 'options');
+      var cred = await navigator.credentials.create({
+        publicKey: publicKeyFromJson(optBody.options)
+      });
+      var payload = {
+        id: cred.id,
+        rawId: bufToB64url(cred.rawId),
+        type: cred.type,
+        response: {
+          clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+          attestationObject: bufToB64url(cred.response.attestationObject),
+          transports: cred.response.getTransports ? cred.response.getTransports() : []
+        }
+      };
+      var verRes = await fetch('/admin/profile/mfa/webauthn/verify', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      var verBody = await verRes.json();
+      if (!verRes.ok || !verBody.ok) throw new Error(verBody.error || 'verify');
+      window.location.href = verBody.redirect || '/admin/profile#mfa';
+    } catch (err) {
+      status.textContent = (err && err.message) ? err.message : 'Échec enregistrement Passkey';
+    }
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

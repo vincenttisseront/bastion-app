@@ -25,6 +25,14 @@
       {% if messages %}
         <div class="flash-container">{% include 'partials/_flash.html' %}</div>
       {% endif %}
+      {% if mfa_grace_warning %}
+      <div class="alert alert-warn" style="margin:0.75rem 1.25rem 0;border-radius:8px">
+        <div class="alert-body">
+          <strong>{{ _('MFA') }}</strong> — {{ mfa_grace_warning }}
+          <a href="/admin/profile#mfa" style="margin-left:0.75rem">{{ _('Configurer maintenant') }}</a>
+        </div>
+      </div>
+      {% endif %}
       <main class="main-content" id="main-content">
   {% else %}
     <main class="main-content" id="main-content">
