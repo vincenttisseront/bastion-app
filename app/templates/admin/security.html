@@ -19,6 +19,7 @@
   <div class="tabs" role="tablist" aria-label="{{ _('Sections sécurité') }}" id="security-tabs">
     <a href="#api" class="tab active" role="tab" data-tab="api" id="tab-api" aria-selected="true">{{ _('Clés API') }}</a>
     <a href="#tls" class="tab" role="tab" data-tab="tls" id="tab-tls">TLS</a>
+    <a href="#mtls" class="tab" role="tab" data-tab="mtls" id="tab-mtls">{{ _('Confiance mTLS') }}</a>
     <a href="#subdomain-sso" class="tab" role="tab" data-tab="subdomain-sso" id="tab-subdomain-sso">{{ _('SSO sous-domaine') }}</a>
     <a href="#breakglass-jwt" class="tab" role="tab" data-tab="breakglass-jwt" id="tab-breakglass-jwt">
       Break-glass JWT
@@ -67,13 +68,136 @@
     </div>
     <div class="form-body">
       <p class="form-prose">
-        Apps <strong>{{ _('et portail') }}</strong> {{ _(': certificats ACME DNS-01 sur le bastion') }}
-
-        {{ _('(nginx :8443 → :8080). Voir la liste complète dans Admin → ACME.') }}
+        Apps <strong>{{ _('et portail') }}</strong> {{ _(': certificats ACME hybrides (DNS-01 / HTTP-01) sur le bastion') }}
+        {{ _('(nginx :443 → :8080). Voir la liste complète dans Admin → ACME.') }}
       </p>
       <p class="form-prose form-prose-spaced">
-        <a href="/admin/acme" class="btn btn-primary">{{ _('Ouvrir Admin → ACME') }}</a>
+        <a href="/admin/acme#certificates" class="btn btn-primary">{{ _('Ouvrir Admin → ACME') }}</a>
+        <a href="#mtls" class="btn btn-secondary" data-tab="mtls">{{ _('Confiance mTLS') }}</a>
       </p>
+    </div>
+  </div>
+
+  <div class="form-section security-panel" id="mtls" role="tabpanel" aria-labelledby="tab-mtls" hidden>
+    {% set mtls = mtls | default({'ca': none, 'clients': [], 'counts': {}}) %}
+    <div class="form-section-header">
+      <div class="form-section-title">{{ _('Confiance mTLS inter-apps') }}</div>
+      <div class="form-section-sub">{{ _('CA interne Self-Managed (ECDSA P-256) + CRL Nginx') }}</div>
+    </div>
+    <div class="form-body">
+      <div class="stats-row mb-4" style="display:flex;gap:1.5rem;flex-wrap:wrap">
+        <div>
+          <div class="form-hint">{{ _('Clients actifs') }}</div>
+          <div class="mono" style="font-size:1.25rem;color:var(--ok,#3d9)">{{ mtls.counts.active | default(0) }}</div>
+        </div>
+        <div>
+          <div class="form-hint">{{ _('Révoqués') }}</div>
+          <div class="mono" style="font-size:1.25rem;color:var(--err,#e55)">{{ mtls.counts.revoked | default(0) }}</div>
+        </div>
+        <div>
+          <div class="form-hint">{{ _('Total') }}</div>
+          <div class="mono" style="font-size:1.25rem">{{ mtls.counts.total | default(0) }}</div>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header">
+          <span class="card-title">{{ _('CA Racine interne') }}</span>
+          {% if mtls.ca %}
+          <span class="badge badge-ok">{{ _('Self-Managed') }}</span>
+          {% else %}
+          <span class="badge badge-warn">{{ _('Non initialisé') }}</span>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          {% if mtls.ca %}
+          <dl class="stack" style="gap:0.5rem;margin:0">
+            <div><span class="form-hint">{{ _('Empreinte SHA-256') }}</span><div class="mono" style="word-break:break-all">{{ mtls.ca.fingerprint_sha256 }}</div></div>
+            <div><span class="form-hint">{{ _('Expiration') }}</span><div class="mono">{{ mtls.ca.not_after }}</div></div>
+            <div><span class="form-hint">Subject</span><div class="mono">{{ mtls.ca.subject }}</div></div>
+          </dl>
+          {% else %}
+          <p class="form-help mb-0">{{ _('Le CA sera créé automatiquement au prochain démarrage du portail.') }}</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header">
+          <span class="card-title">{{ _('Provisionner un client') }}</span>
+        </div>
+        <div class="card-body">
+          <form method="post" action="/admin/security/mtls/provision" class="form-row" style="gap:0.75rem;align-items:flex-end;flex-wrap:wrap">
+            <div class="form-group" style="margin:0;flex:1;min-width:12rem">
+              <label class="form-label" for="mtls-app-name">{{ _('Slug application') }}</label>
+              <input type="text" id="mtls-app-name" name="app_name" class="form-input is-mono"
+                     placeholder="billing" pattern="[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?" required
+                     autocomplete="off">
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">{{ _('Émettre certificat') }}</button>
+          </form>
+          <p class="form-hint mt-2 mb-0">
+            {{ _('CN =') }} <span class="mono">&lt;slug&gt;.bastion.internal</span>
+            — {{ _('bundle dans') }} <span class="mono">certs/mtls/clients/&lt;slug&gt;/</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">{{ _('Applications autorisées') }}</span>
+        </div>
+        <div class="card-body card-flush">
+          {% if mtls.clients %}
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>{{ _('App') }}</th>
+                  <th>CN</th>
+                  <th>{{ _('Statut') }}</th>
+                  <th>{{ _('Émis') }}</th>
+                  <th>{{ _('Expire') }}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for c in mtls.clients %}
+                <tr>
+                  <td class="mono">{{ c.app_name }}</td>
+                  <td class="mono">{{ c.cn }}</td>
+                  <td>
+                    {% if c.status == 'active' %}
+                    <span class="badge badge-ok">{{ _('Actif') }}</span>
+                    {% else %}
+                    <span class="badge badge-err">{{ _('Révoqué') }}</span>
+                    {% endif %}
+                  </td>
+                  <td class="mono">{{ c.issued_at or '—' }}</td>
+                  <td class="mono">{{ c.valid_until or '—' }}</td>
+                  <td>
+                    {% if c.status == 'active' %}
+                    <form method="post" action="/admin/security/mtls/revoke/{{ c.app_name }}" style="display:inline"
+                          onsubmit="return confirm('Révoquer l\'accès mTLS pour {{ c.app_name }} ?');">
+                      <button type="submit" class="btn btn-danger btn-sm">{{ _('Révoquer l\'accès') }}</button>
+                    </form>
+                    {% else %}
+                    <span class="form-hint">{{ c.revoked_at or '—' }}</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <div class="empty-state" style="padding:2rem">
+            <div class="empty-title">{{ _('Aucun client mTLS') }}</div>
+            <div class="empty-desc">{{ _('Provisionnez un slug pour émettre le premier certificat client.') }}</div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
     </div>
   </div>
 
