@@ -273,7 +273,7 @@ server {
 
     location = /logout {
         auth_request off;
-        limit_req zone=portal_login burst=10 nodelay;
+        include /etc/nginx/includes/limit_req_portal_login.conf;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -289,7 +289,7 @@ server {
         allow 172.16.0.0/12;
         allow 192.168.0.0/16;
         deny all;
-        limit_req zone=portal_login burst=5 nodelay;
+        include /etc/nginx/includes/limit_req_portal_login.conf;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -305,7 +305,7 @@ server {
         allow 172.16.0.0/12;
         allow 192.168.0.0/16;
         deny all;
-        limit_req zone=portal_login burst=5 nodelay;
+        include /etc/nginx/includes/limit_req_portal_login.conf;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -318,7 +318,7 @@ server {
         allow 172.16.0.0/12;
         allow 192.168.0.0/16;
         deny all;
-        limit_req zone=portal_login burst=5 nodelay;
+        include /etc/nginx/includes/limit_req_portal_login.conf;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -327,7 +327,7 @@ server {
 
     location ^~ /auth/ {
         auth_request off;
-        limit_req zone=portal_login burst=10 nodelay;
+        include /etc/nginx/includes/limit_req_portal_login.conf;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -338,7 +338,7 @@ server {
     # location / (auth_request) and can bounce absolute subdomain rd= in a loop.
     location = /login {
         auth_request off;
-        limit_req zone=portal_login burst=10 nodelay;
+        include /etc/nginx/includes/limit_req_portal_login.conf;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -396,7 +396,7 @@ server {
     # auth_request 401 still hits error_page → @portal_oauth2_signin.
     # CRS off: POST password + CSRF must not be blocked (open-with-identity).
     location ^~ /api/apps/ {
-        limit_req zone=portal_api burst=60 nodelay;
+        include /etc/nginx/includes/limit_req_portal_api.conf;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
         proxy_intercept_errors off;
@@ -423,7 +423,7 @@ server {
     }
 
     location ^~ /api/admin {
-        limit_req zone=portal_api burst=60 nodelay;
+        include /etc/nginx/includes/limit_req_portal_api.conf;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
         add_header Cache-Control "no-store" always;
@@ -451,7 +451,7 @@ server {
     }
 
     location ^~ /admin {
-        limit_req zone=portal_api burst=60 nodelay;
+        include /etc/nginx/includes/limit_req_portal_api.conf;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
         # no-store : éviter de réutiliser un 403 CRS/auth en cache.
@@ -482,7 +482,7 @@ server {
     # Accueil admin : /dashboard (hors /admin). CRS off ici pour rester joignable
     # quand le moteur est en On sur location /.
     location = /dashboard {
-        limit_req zone=portal_api burst=60 nodelay;
+        include /etc/nginx/includes/limit_req_portal_api.conf;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
         add_header Cache-Control "no-store" always;
@@ -516,7 +516,7 @@ server {
     location = /api/internal/session-cookie-hop {
         auth_request off;
         modsecurity off;
-        limit_req zone=portal_api burst=30 nodelay;
+        include /etc/nginx/includes/limit_req_portal_api.conf;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -525,7 +525,7 @@ server {
     location = /api/internal/crush-cookie-hop {
         auth_request off;
         modsecurity off;
-        limit_req zone=portal_api burst=30 nodelay;
+        include /etc/nginx/includes/limit_req_portal_api.conf;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -560,7 +560,7 @@ server {
     include /etc/nginx/snippets/subdomain_auth_common.conf;
 
     location / {
-        limit_req zone=portal_api burst=60 nodelay;
+        include /etc/nginx/includes/limit_req_portal_standard.conf;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
 

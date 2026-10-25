@@ -370,17 +370,41 @@ def _network_acl_kpis(
     db: Session, profile: WafProfile
 ) -> dict[str, Any]:
     """Active bans + allowlist + promoted nginx deny (ACL load shed)."""
+    from datetime import timedelta
+
     from app.bastion.nginx_waf_export import (
         DEFAULT_IP_DENY_MIN,
         list_allowlist_ips,
         list_promoted_deny_ips,
     )
+    from app.models import SecurityBan, utcnow
+    from app.security.banning.engine import RULE_NGINX_LIMIT_REQ
+    from app.security.banning.nginx_ratelimit_sensor import count_nginx_429_events_24h
     from app.security.banning.service import list_active_bans, list_allowlist
 
     active_bans = list_active_bans(db) if db is not None else []
     banned_ips = [
         b for b in active_bans if (getattr(b, "target_type", None) or "") == "ip"
     ]
+    auto_bans_active = [
+        b
+        for b in banned_ips
+        if (getattr(b, "rule_type", None) or "") == RULE_NGINX_LIMIT_REQ
+    ]
+    auto_bans_24h = 0
+    rate_429 = 0
+    if db is not None:
+        cutoff = utcnow() - timedelta(hours=24)
+        auto_bans_24h = (
+            db.query(SecurityBan)
+            .filter(
+                SecurityBan.target_type == "ip",
+                SecurityBan.rule_type == RULE_NGINX_LIMIT_REQ,
+                SecurityBan.banned_at >= cutoff,
+            )
+            .count()
+        )
+        rate_429 = count_nginx_429_events_24h(db)
     min_occ = max(
         1, int(getattr(profile, "ip_deny_min_occurrences", None) or DEFAULT_IP_DENY_MIN)
     )
@@ -405,4 +429,9 @@ def _network_acl_kpis(
             "Compteur 403 ACL (access.log) non branché — "
             f"{len(promoted)} IP(s) dans waf-ip-deny.conf (rejet amont ModSec)."
         ),
+        "rate_limit_429_24h": rate_429,
+        "rate_limit_429_display": _fmt_count(rate_429),
+        "auto_bans_active": len(auto_bans_active),
+        "auto_bans_active_display": _fmt_count(len(auto_bans_active)),
+        "auto_bans_24h": auto_bans_24h,
     }

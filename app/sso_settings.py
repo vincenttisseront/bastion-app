@@ -321,6 +321,14 @@ class Settings(BaseSettings):
             "mfa_enforcement_grace_days",
         ),
     )
+    # Nginx limit_req 429 access log (sensor → progressive SecurityBan).
+    nginx_rate_limit_log_path: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "NGINX_RATE_LIMIT_LOG_PATH",
+            "nginx_rate_limit_log_path",
+        ),
+    )
 
     @field_validator("mfa_enforcement_pivot_date", mode="before")
     @classmethod
