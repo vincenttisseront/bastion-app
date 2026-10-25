@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -36,6 +38,9 @@ from app.sso_settings import Settings
 _WAF_EFFECTIVE_STATUS_JSON = 'waf-effective-status.json'
 
 logger = logging.getLogger(__name__)
+
+# Serialize export writes across concurrent Admin "Appliquer" / background jobs.
+_EXPORT_WRITE_LOCK = threading.Lock()
 
 ANOMALY_MIN = 3
 ANOMALY_MAX = 10
@@ -709,8 +714,28 @@ def _restore_file(path: Path) -> bool:
     return True
 
 
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write via temp + os.replace so concurrent readers never see a truncated file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}.{threading.get_ident()}")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        if tmp.is_file():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
 def write_waf_exports(db: Session, settings: Settings) -> dict[str, str]:
     """Generate WAF overlay files. Safe to call on every catalogue export."""
+    with _EXPORT_WRITE_LOCK:
+        return _write_waf_exports_locked(db, settings)
+
+
+def _write_waf_exports_locked(db: Session, settings: Settings) -> dict[str, str]:
     profile = ensure_active_profile(db)
     exclusions = (
         db.query(WafExclusion)
@@ -744,8 +769,7 @@ def write_waf_exports(db: Session, settings: Settings) -> dict[str, str]:
     paths: dict[str, str] = {}
     for path, content in files.items():
         _backup_file(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        _atomic_write_text(path, content)
         paths[path.name] = str(path)
 
     # Status snapshot for the admin UI (effective generated config).
@@ -777,8 +801,9 @@ def write_waf_exports(db: Session, settings: Settings) -> dict[str, str]:
 
     status_path = mod_dir / _WAF_EFFECTIVE_STATUS_JSON
     _backup_file(status_path)
-    status_path.write_text(
-        json.dumps(status, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    _atomic_write_text(
+        status_path,
+        json.dumps(status, indent=2, ensure_ascii=False) + "\n",
     )
     paths[_WAF_EFFECTIVE_STATUS_JSON] = str(status_path)
     return paths
@@ -796,6 +821,7 @@ def restore_waf_exports_previous(settings: Settings) -> list[str]:
         mod_dir / "bastion-virtual-patches-enabled.conf",
         mod_dir / _WAF_EFFECTIVE_STATUS_JSON,
         mod_dir / "waf-engine-arm.json",
+        exports / "waf-ip-allow.conf",
         exports / "waf-ip-deny.conf",
         exports / "nginx-portal-rate-limits.conf",
         exports / "modsecurity-portal-switch.conf",
