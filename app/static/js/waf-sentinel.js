@@ -218,4 +218,47 @@
       ruleDialog.close();
     });
   }
+
+  /* Ban IP modal (Bilan remediation) */
+  (function () {
+    var banDialog = document.getElementById('waf-ban-dialog');
+    if (!banDialog) return;
+    var ipField = document.getElementById('waf-ban-ip');
+    var ipDisplay = document.getElementById('waf-ban-ip-display');
+    var reasonField = document.getElementById('waf-ban-reason');
+    var modeField = document.getElementById('waf-ban-mode');
+    var minutesWrap = document.getElementById('waf-ban-minutes-wrap');
+    var confirmWrap = document.getElementById('waf-ban-confirm-wrap');
+    var confirmBox = document.getElementById('waf-ban-confirm');
+
+    function syncMode() {
+      var permanent = modeField && modeField.value === 'permanent';
+      if (minutesWrap) minutesWrap.hidden = !!permanent;
+      if (confirmWrap) confirmWrap.hidden = !permanent;
+      if (confirmBox && !permanent) confirmBox.checked = false;
+    }
+
+    document.addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest('[data-waf-ban-ip]') : null;
+      if (!btn) return;
+      e.preventDefault();
+      var ip = btn.getAttribute('data-waf-ban-ip') || '';
+      var reason = btn.getAttribute('data-waf-ban-reason') || '';
+      if (ipField) ipField.value = ip;
+      if (ipDisplay) ipDisplay.value = ip;
+      if (reasonField) reasonField.value = reason;
+      if (modeField) modeField.value = 'temporary';
+      syncMode();
+      if (typeof banDialog.showModal === 'function') banDialog.showModal();
+    });
+
+    if (modeField) modeField.addEventListener('change', syncMode);
+    var banClose = document.getElementById('waf-ban-close');
+    var banCancel = document.getElementById('waf-ban-cancel');
+    function closeBan() {
+      banDialog.close();
+    }
+    if (banClose) banClose.addEventListener('click', closeBan);
+    if (banCancel) banCancel.addEventListener('click', closeBan);
+  })();
 })();

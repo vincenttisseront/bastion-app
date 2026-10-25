@@ -37,6 +37,7 @@ router = APIRouter(tags=["admin-waf"], dependencies=[Depends(require_admin)])
 
 _WAF_URL_BILAN = "/admin/security/waf#bilan"
 _WAF_URL_EXCLUSIONS = "/admin/security/waf#exclusions"
+_WAF_URL_NETWORK = "/admin/security/waf#network-control"
 _WAF_ANCHOR_BILAN = "#bilan"
 _WAF_ANCHOR_REACTIVATION = "#reactivation"
 
@@ -90,11 +91,15 @@ def _waf_page_context(
         {"id": rid, "label": f"{rid} — {label}"}
         for rid, label in sorted(suggestions.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0)
     ]
+    from app.security.banning.service import list_allowlist
+
+    allowlist = list_allowlist(db)
     return {
         "profile": profile,
         "profiles": waf_service.list_profiles(db),
         "waf_profiles_map": waf_service.profiles_for_ui(db),
         "exclusions": exclusions,
+        "allowlist": allowlist,
         "exclusion_hosts": hosts,
         "crs_rule_suggestions": rule_suggestions,
         "anomaly_min": ANOMALY_MIN,
@@ -675,8 +680,75 @@ def admin_waf_lift_ban(
         actor=admin_actor(user),
         ip_address=client_ip_from_request(request) or None,
     )
-    response = RedirectResponse(url=_WAF_URL_BILAN, status_code=302)
-    flash_redirect(response, "IP débloquée.", "success", _flash_secret(settings))
+    response = RedirectResponse(url=_WAF_URL_NETWORK, status_code=302)
+    flash_redirect(
+        response,
+        "Ban levé. Cliquez Appliquer si l’IP était dans waf-ip-deny.conf.",
+        "success",
+        _flash_secret(settings),
+    )
+    return response
+
+
+@router.post("/admin/security/waf/allowlist/add")
+def admin_waf_allowlist_add(
+    request: Request,
+    value: str = Form(...),
+    comment: str = Form(...),
+    entry_type: str = Form("ip"),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.security.banning.service import add_allowlist_entry
+
+    response = RedirectResponse(url=_WAF_URL_NETWORK, status_code=302)
+    try:
+        add_allowlist_entry(
+            db,
+            entry_type=(entry_type or "ip").strip().lower(),
+            value=value,
+            comment=(comment or "").strip(),
+            actor=admin_actor(user),
+            ip_address=client_ip_from_request(request) or None,
+        )
+        flash_redirect(
+            response,
+            "Entrée allowlist ajoutée. Cliquez Appliquer pour pousser waf-ip-allow.conf.",
+            "success",
+            _flash_secret(settings),
+        )
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", _flash_secret(settings))
+    return response
+
+
+@router.post("/admin/security/waf/allowlist/{entry_id}/remove")
+def admin_waf_allowlist_remove(
+    entry_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.security.banning.service import remove_allowlist_entry
+
+    response = RedirectResponse(url=_WAF_URL_NETWORK, status_code=302)
+    try:
+        remove_allowlist_entry(
+            db,
+            entry_id,
+            actor=admin_actor(user),
+            ip_address=client_ip_from_request(request) or None,
+        )
+        flash_redirect(
+            response,
+            "Entrée allowlist retirée. Cliquez Appliquer pour synchroniser nginx.",
+            "success",
+            _flash_secret(settings),
+        )
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", _flash_secret(settings))
     return response
 
 
