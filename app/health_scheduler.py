@@ -156,6 +156,25 @@ def start_health_scheduler(settings: Settings) -> None:
         "App credential renewal worker scheduled (every 60 min, disabled by default)"
     )
 
+    from app.reporting.security_report import monthly_compliance_report_job
+
+    scheduler.add_job(
+        monthly_compliance_report_job,
+        "cron",
+        day=1,
+        hour=6,
+        minute=30,
+        timezone=recap_timezone(),
+        id="monthly_compliance_report",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        kwargs={"settings": settings},
+    )
+    logger.info(
+        "Monthly compliance PDF scheduled (1st of month 06:30 Europe/Paris)"
+    )
+
 
 def stop_health_scheduler() -> None:
     if scheduler.running:
