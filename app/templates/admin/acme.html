@@ -10,8 +10,7 @@
     <div>
       <h1 class="page-title">ACME / Let's Encrypt</h1>
       <p class="page-sub">
-{{ _('Certificats DNS-01 pour') }} <strong>tous</strong> {{ _('les FQDN du bastion (portail, sous-domaines SSO, proxy public) — sidecar → nginx :443 → :8080.') }}
-
+{{ _('Certificats hybrides') }} <strong>DNS-01</strong> {{ _('(sidecar Cloudflare) et') }} <strong>HTTP-01</strong> {{ _('(client natif) pour tous les FQDN du bastion — nginx :443 → :8080.') }}
       </p>
     </div>
     <div class="page-header-actions">
@@ -25,10 +24,12 @@
 
   <div class="alert alert-info mb-4">
     <div class="alert-body">
-      <strong>{{ _('DNS-01 Cloudflare — pas de record manuel.') }}</strong>
-      {{ _('acme.sh crée et supprime automatiquement les TXT') }}
-      <span class="mono">_acme-challenge.&lt;fqdn&gt;</span> {{ _('via l’API (token Zone.DNS Edit). Seuls les enregistrements publics A/AAAA/CNAME vers le bastion restent hors ACME.') }}
-
+      <strong>{{ _('Hybride DNS-01 + HTTP-01.') }}</strong>
+      {{ _('DNS-01 Cloudflare : acme.sh crée/supprime les TXT') }}
+      <span class="mono">_acme-challenge.&lt;fqdn&gt;</span>
+      {{ _('(wildcards, zones CF). HTTP-01 natif : jeton servi sur') }}
+      <span class="mono">/.well-known/acme-challenge/</span>
+      {{ _('(port 80) pour les domaines hors Cloudflare.') }}
     </div>
   </div>
 
@@ -102,9 +103,12 @@
     </div>
   </div>
 
-  <div class="card mb-4">
+  <div class="card mb-4" id="certificates">
     <div class="card-header">
-      <span class="card-title">{{ _('Domaines couverts (bastion)') }}</span>
+      <span class="card-title">{{ _('Certificats') }}</span>
+      <div class="card-header-actions">
+        <span class="form-hint">{{ _('DNS-01 sidecar + HTTP-01 natif') }}</span>
+      </div>
     </div>
     <div class="card-body card-flush">
       {% if domains %}
@@ -115,10 +119,12 @@
               <th>FQDN</th>
               <th>Slug</th>
               <th>Mode</th>
+              <th>{{ _('Provider') }}</th>
               <th>{{ _('Statut') }}</th>
               <th>Expire</th>
               <th>{{ _('Jours') }}</th>
               <th>{{ _('Émetteur') }}</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="acme-domains-tbody">
@@ -141,6 +147,20 @@
                 <span class="badge badge-muted">{{ _('Proxy public') }}</span>
                 {% endif %}
               </td>
+              <td class="acme-provider-cell">
+                {% if d.provider_type == 'http_native' %}
+                <span class="badge badge-ok">HTTP-01</span>
+                {% else %}
+                <span class="badge badge-muted">DNS-01</span>
+                {% endif %}
+                <form method="post" action="/admin/acme/domains/{{ d.fqdn }}/provider" style="display:inline;margin-left:0.35rem">
+                  <select name="provider_type" class="form-select" style="display:inline;width:auto;padding:0.15rem 0.4rem;font-size:0.75rem"
+                          onchange="this.form.submit()" title="{{ _('Changer le provider') }}">
+                    <option value="dns_cloudflare" {% if d.provider_type != 'http_native' %}selected{% endif %}>DNS-01 CF</option>
+                    <option value="http_native" {% if d.provider_type == 'http_native' %}selected{% endif %}>HTTP-01</option>
+                  </select>
+                </form>
+              </td>
               <td class="acme-status-cell">
                 {% if d.status == 'ok' %}
                 <span class="badge badge-ok">OK</span>
@@ -153,10 +173,20 @@
                 {% else %}
                 <span class="badge badge-err">Absent</span>
                 {% endif %}
+                {% if d.last_error %}
+                <div class="form-hint" style="max-width:12rem;overflow:hidden;text-overflow:ellipsis" title="{{ d.last_error }}">{{ d.last_error }}</div>
+                {% endif %}
               </td>
               <td class="mono acme-expire-cell">{{ d.not_after or '—' }}</td>
               <td class="mono acme-days-cell">{{ d.days_left if d.days_left is not none else '—' }}</td>
               <td class="form-hint acme-issuer-cell" style="max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ d.issuer or '' }}">{{ d.issuer or '—' }}</td>
+              <td>
+                <form method="post" action="/admin/acme/domains/{{ d.fqdn }}/renew" style="display:inline">
+                  <button type="submit" class="btn btn-secondary btn-sm" {% if not cfg.enabled %}disabled title="{{ _('Activez ACME d’abord') }}"{% endif %}>
+                    {{ _('Renouveler') }}
+                  </button>
+                </form>
+              </td>
             </tr>
             {% endfor %}
           </tbody>

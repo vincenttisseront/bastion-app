@@ -8,6 +8,12 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.acme.certificate_domain_service import (
+    PROVIDERS,
+    set_provider_type,
+    sync_certificate_domains_from_manifest,
+)
+from app.acme.renew_service import renew_domain
 from app.acme.settings_service import (
     build_acme_live_status,
     get_acme_config,
@@ -16,6 +22,7 @@ from app.acme.settings_service import (
     trigger_reconcile,
     update_acme_settings,
 )
+from app.bastion.acme_domains_export import write_acme_domains_export
 from app.database import get_db
 from app.secret_crypto import encryption_configured
 from app.sso_settings import Settings, get_settings
@@ -43,6 +50,8 @@ def admin_acme_page(
     settings: Settings = Depends(get_settings),
 ):
     sync_reconcile_from_sidecar(db, settings)
+    sync_certificate_domains_from_manifest(db, settings)
+    write_acme_domains_export(db, settings)
     cfg = get_acme_config(db)
     domains = list_domain_statuses(db, settings)
     counts = {
@@ -131,4 +140,58 @@ def admin_acme_reconcile_post(
         "success" if ok else "error",
         portal_signing_secret(settings),
     )
+    return response
+
+
+@router.post("/admin/acme/domains/{fqdn}/renew")
+def admin_acme_domain_renew_post(
+    fqdn: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    response = RedirectResponse(
+        url="/admin/acme#certificates", status_code=302
+    )
+    ok, message = renew_domain(db, settings, fqdn, actor=user.email)
+    flash_redirect(
+        response,
+        message,
+        "success" if ok else "error",
+        portal_signing_secret(settings),
+    )
+    return response
+
+
+@router.post("/admin/acme/domains/{fqdn}/provider")
+def admin_acme_domain_provider_post(
+    fqdn: str,
+    request: Request,
+    provider_type: str = Form("dns_cloudflare"),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    response = RedirectResponse(
+        url="/admin/acme#certificates", status_code=302
+    )
+    try:
+        if provider_type not in PROVIDERS:
+            raise ValueError(f"provider_type invalide: {provider_type}")
+        set_provider_type(db, fqdn, provider_type)
+        write_acme_domains_export(db, settings)
+        flash_redirect(
+            response,
+            f"Provider ACME mis à jour pour {fqdn}",
+            "success",
+            portal_signing_secret(settings),
+        )
+    except ValueError as exc:
+        flash_redirect(
+            response,
+            str(exc),
+            "error",
+            portal_signing_secret(settings),
+        )
     return response

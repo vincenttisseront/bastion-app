@@ -87,10 +87,12 @@ services:
       VAULT_KEYS_DIR: /var/lib/sso-portal/keys
       OAUTH2_PROXY_NETWORK_MODE: docker
       OAUTH2_PROXY_DEFAULT_URL: http://oauth2-proxy-core:4180
+      ACME_CHALLENGE_WEBROOT: /var/www/acme-challenge
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
       - ${SSO_PORTAL_FILES_DATA_DIR:-./data/sso-portal-files}:/var/lib/sso-portal-files
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/nginx-logs:/var/lib/sso-portal/nginx-logs
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/acme-challenge:/var/www/acme-challenge
     networks:
       vpcbr:
         aliases:
@@ -143,10 +145,12 @@ services:
       PORTAL_INTERNAL_TOKEN: ${VAULT_PORTAL_INTERNAL_TOKEN:-${PORTAL_INTERNAL_TOKEN:-}}
       PORTAL_DOMAIN: ${PORTAL_DOMAIN:-portal.example.com}
       SSO_PORTAL_DEFAULT_REALM_SLUG: ${SSO_PORTAL_DEFAULT_REALM_SLUG:-default}
+      ACME_CHALLENGE_WEBROOT: /var/www/acme-challenge
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/exports:/var/lib/sso-portal/exports:ro
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/certs:/etc/nginx/ssl:ro
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/nginx-logs:/var/log/nginx/apps
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/acme-challenge:/var/www/acme-challenge:ro
     networks:
       vpcbr:
         aliases:

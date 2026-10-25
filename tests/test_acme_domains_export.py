@@ -47,7 +47,7 @@ def test_acme_domains_manifest_includes_all_families(db_session, tmp_path):
     db_session.commit()
 
     manifest = build_acme_domains_manifest(db_session, settings)
-    assert manifest["challenge"] == "dns-01"
+    assert manifest["challenge"] == "hybrid"
     assert manifest["scope"] == "all_bastion_hosts"
     by_family = {d["family"]: d["fqdn"] for d in manifest["domains"]}
     assert by_family["portal"] == "portal.example.fr"

@@ -58,7 +58,7 @@ SHORTCUTS: list[dict[str, str]] = [
     {
         "id": "acme",
         "label": "ACME",
-        "href": "/admin/acme",
+        "href": "/admin/acme#certificates",
         "hint": "Certificats Let's Encrypt",
     },
     {
@@ -489,6 +489,58 @@ def build_notification_feed(
                         "dismissible": True,
                     }
                 )
+
+    try:
+        from app.acme.certificate_domain_service import (
+            domains_needing_attention,
+            sync_certificate_domains_from_manifest,
+        )
+
+        sync_certificate_domains_from_manifest(db, settings)
+        acme_due = domains_needing_attention(db)
+        if acme_due:
+            worst = "error"
+            for row in acme_due:
+                if row.status in ("expired", "failed"):
+                    worst = "error"
+                    break
+                if row.status == "pending":
+                    worst = "warn"
+                elif worst != "error":
+                    worst = "warn"
+            sample = acme_due[0].domain
+            items.append(
+                {
+                    "id": "acme",
+                    "fingerprint": _set_fingerprint(
+                        "acme",
+                        [
+                            f"{r.domain}|{r.status}|{r.valid_until}"
+                            for r in acme_due
+                        ],
+                    ),
+                    "dismiss_mode": "set",
+                    "severity": worst,
+                    "category": "config",
+                    "title": (
+                        t("{n} certificat à traiter", loc, n=len(acme_due))
+                        if len(acme_due) == 1
+                        else t("{n} certificats à traiter", loc, n=len(acme_due))
+                    ),
+                    "body": t(
+                        "Expire ≤30j / manquant / échec — ex. {sample}",
+                        loc,
+                        sample=sample,
+                    ),
+                    "href": "/admin/acme#certificates",
+                    "time": None,
+                    "count": len(acme_due),
+                    "counts_for_badge": True,
+                    "dismissible": True,
+                }
+            )
+    except Exception:
+        logger.exception("ACME certificate freshness poll failed")
 
     bad_realms = (
         db.query(RealmConfig)

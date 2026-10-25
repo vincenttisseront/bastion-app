@@ -237,6 +237,14 @@ class Settings(BaseSettings):
             "nginx_app_logs_dir",
         ),
     )
+    # HTTP-01 challenge webroot (shared volume with nginx :80 acme-challenge).
+    acme_challenge_webroot: str = Field(
+        default="/var/www/acme-challenge",
+        validation_alias=AliasChoices(
+            "ACME_CHALLENGE_WEBROOT",
+            "acme_challenge_webroot",
+        ),
+    )
     # WAF dashboard geolocation (ip-api.com free tier — HTTP batch, 15 req/min).
     ip_geoloc_enabled: bool = Field(
         default=True,

@@ -60,6 +60,9 @@ class AcmeDomainStatus:
     renew_due: bool
     issuer: str | None
     status: str  # missing | ok | renew_soon | expired | placeholder
+    provider_type: str = "dns_cloudflare"
+    last_error: str | None = None
+    db_status: str | None = None
 
 
 def ensure_acme_settings(db: Session) -> AcmeSettings:
@@ -179,6 +182,10 @@ def _domain_status_from_entry(
     entry: dict[str, Any],
     root: Path,
     now: datetime,
+    *,
+    provider_type: str = "dns_cloudflare",
+    last_error: str | None = None,
+    db_status: str | None = None,
 ) -> AcmeDomainStatus | None:
     fqdn = str(entry.get("fqdn") or "").strip()
     if not fqdn:
@@ -207,16 +214,38 @@ def _domain_status_from_entry(
         renew_due=renew_due,
         issuer=meta.get("issuer"),
         status=status,
+        provider_type=provider_type or str(entry.get("provider") or "dns_cloudflare"),
+        last_error=last_error,
+        db_status=db_status,
     )
 
 
 def list_domain_statuses(db: Session, settings: Settings) -> list[AcmeDomainStatus]:
+    from app.acme.certificate_domain_service import (
+        get_certificate_domain,
+        resolve_provider_for_domain,
+        sync_certificate_domains_from_manifest,
+    )
+
+    sync_certificate_domains_from_manifest(db, settings)
     manifest = build_acme_domains_manifest(db, settings)
     root = certs_dir(settings)
     now = datetime.now(timezone.utc)
     out: list[AcmeDomainStatus] = []
     for entry in manifest.get("domains", []):
-        status = _domain_status_from_entry(entry, root, now)
+        fqdn = str(entry.get("fqdn") or "").strip()
+        row = get_certificate_domain(db, fqdn) if fqdn else None
+        provider = resolve_provider_for_domain(
+            db, settings, fqdn, existing=row
+        ) if fqdn else "dns_cloudflare"
+        status = _domain_status_from_entry(
+            entry,
+            root,
+            now,
+            provider_type=provider,
+            last_error=row.last_error if row else None,
+            db_status=row.status if row else None,
+        )
         if status is not None:
             out.append(status)
     return out
