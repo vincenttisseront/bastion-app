@@ -168,6 +168,7 @@ services:
       - /etc/nginx/conf.d:size=16M,uid=101,gid=101,mode=0755
       - /etc/nginx/snippets:size=8M,uid=101,gid=101,mode=0755
       - /etc/nginx/includes:size=16M,uid=101,gid=101,mode=0755
+      - /etc/nginx/modsecurity/generated:size=8M,uid=101,gid=101,mode=0755
       - /etc/nginx/ssl-local:size=8M,uid=101,gid=101,mode=0755
     environment:
       PORTAL_INTERNAL_TOKEN: ${VAULT_PORTAL_INTERNAL_TOKEN:-${PORTAL_INTERNAL_TOKEN:-}}

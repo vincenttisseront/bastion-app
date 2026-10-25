@@ -8,7 +8,8 @@ export SSO_PORTAL_DEFAULT_REALM_SLUG="${SSO_PORTAL_DEFAULT_REALM_SLUG:-default}"
 export EXPORTS_DIR="${EXPORTS_DIR:-/var/lib/sso-portal/exports}"
 export BASTION_NGINX_SEED="${BASTION_NGINX_SEED:-/usr/share/bastion-nginx/seed}"
 
-# When compose mounts empty tmpfs over conf.d/snippets/includes, restore image defaults.
+# When compose mounts empty tmpfs over conf.d/snippets/includes/generated, restore defaults.
+# Non-root: never ``cp -a`` (BusyBox fails preserving root ownership → set -e abort).
 _seed_nginx_writable_dirs() {
   local name dest seed
   for name in conf.d snippets includes; do
@@ -16,11 +17,23 @@ _seed_nginx_writable_dirs() {
     seed="${BASTION_NGINX_SEED}/${name}"
     mkdir -p "$dest" 2>/dev/null || true
     if [[ -d "$seed" ]] && [[ ! -f "${dest}/.bastion-seeded" ]]; then
-      cp -a "${seed}/." "${dest}/" 2>/dev/null \
-        || echo "WARN: could not seed ${dest} from ${seed}" >&2
+      # -r not -a: drop ownership/mode preserve (uid 101 cannot chown root-owned seed).
+      if ! cp -rf "${seed}/." "${dest}/" 2>/dev/null; then
+        echo "WARN: could not seed ${dest} from ${seed}" >&2
+      fi
       touch "${dest}/.bastion-seeded" 2>/dev/null || true
     fi
   done
+  # WAF overlays written by sync-exports (read_only rootfs needs tmpfs here).
+  dest="/etc/nginx/modsecurity/generated"
+  seed="${BASTION_NGINX_SEED}/generated"
+  mkdir -p "$dest" 2>/dev/null || true
+  if [[ -d "$seed" ]] && [[ ! -f "${dest}/.bastion-seeded" ]]; then
+    if ! cp -rf "${seed}/." "${dest}/" 2>/dev/null; then
+      echo "WARN: could not seed ${dest} from ${seed}" >&2
+    fi
+    touch "${dest}/.bastion-seeded" 2>/dev/null || true
+  fi
   mkdir -p /tmp/modsecurity/data /tmp/modsecurity/tmp /tmp/modsecurity/upload \
     /var/cache/nginx /var/run /etc/nginx/ssl-local 2>/dev/null || true
 }

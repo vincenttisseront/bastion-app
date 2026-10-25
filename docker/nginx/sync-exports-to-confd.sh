@@ -7,6 +7,12 @@ EXPORTS="${EXPORTS_DIR:-/var/lib/sso-portal/exports}"
 PORTAL_DOMAIN_EFF="${PORTAL_DOMAIN:-portal.example.com}"
 SSO_PORTAL_DEFAULT_REALM_SLUG_EFF="${SSO_PORTAL_DEFAULT_REALM_SLUG:-default}"
 
+# Non-root + tmpfs: BusyBox ``cp -a`` fails preserving root ownership and aborts
+# this script under ``set -e`` before rate-limit zones are written.
+_cp() {
+  cp -f "$1" "$2"
+}
+
 # Setup wizard / Admin may publish site identity here (preferred over compose env).
 if [[ -f "$EXPORTS/bastion-site.env" ]]; then
   # shellcheck disable=SC1090
@@ -44,14 +50,14 @@ else
 fi
 
 if [[ -f "$EXPORTS/nginx-subdomain-apps.conf" ]]; then
-  cp -a "$EXPORTS/nginx-subdomain-apps.conf" \
+  _cp "$EXPORTS/nginx-subdomain-apps.conf" \
     /etc/nginx/conf.d/nginx-subdomain-apps.conf
 else
   echo "# no subdomain_proxy apps exported yet" > /etc/nginx/conf.d/nginx-subdomain-apps.conf
 fi
 
 if [[ -f "$EXPORTS/nginx-public-proxy-apps.conf" ]]; then
-  cp -a "$EXPORTS/nginx-public-proxy-apps.conf" \
+  _cp "$EXPORTS/nginx-public-proxy-apps.conf" \
     /etc/nginx/conf.d/nginx-public-proxy-apps.conf
 else
   echo "# no public_proxy apps exported yet" > /etc/nginx/conf.d/nginx-public-proxy-apps.conf
@@ -68,7 +74,7 @@ else
 fi
 
 if [[ -f "$EXPORTS/nginx-infra-proxy-apps.conf" ]]; then
-  cp -a "$EXPORTS/nginx-infra-proxy-apps.conf" \
+  _cp "$EXPORTS/nginx-infra-proxy-apps.conf" \
     /etc/nginx/conf.d/nginx-infra-proxy-apps.conf
 else
   echo "# no infra proxy vhosts exported yet" > /etc/nginx/conf.d/nginx-infra-proxy-apps.conf
@@ -113,7 +119,7 @@ if [[ -f "$EXPORTS/modsecurity/crs-setup-generated.conf" ]]; then
     echo "WARN: sanitizing exports/modsecurity/crs-setup-generated.conf (CRS 901xxx rule id)" >&2
     sed -i 's/id:901110,/id:1000900110,/g' "$EXPORTS/modsecurity/crs-setup-generated.conf" || true
   fi
-  cp -a "$EXPORTS/modsecurity/crs-setup-generated.conf" \
+  _cp "$EXPORTS/modsecurity/crs-setup-generated.conf" \
     /etc/nginx/modsecurity/generated/crs-setup-generated.conf
 else
   cat > /etc/nginx/modsecurity/generated/crs-setup-generated.conf <<'EOF'
@@ -131,7 +137,7 @@ fi
 
 # Portal ModSecurity connector (Admin → WAF → Réactiver / Couper).
 if [[ -f "$EXPORTS/modsecurity-portal-switch.conf" ]]; then
-  cp -a "$EXPORTS/modsecurity-portal-switch.conf" \
+  _cp "$EXPORTS/modsecurity-portal-switch.conf" \
     /etc/nginx/includes/modsecurity-portal-switch.conf
 else
   cat > /etc/nginx/includes/modsecurity-portal-switch.conf <<'EOF'
@@ -145,7 +151,7 @@ for _fam in subdomain public; do
   _export="$EXPORTS/modsecurity-${_fam}-switch.conf"
   _dest="/etc/nginx/includes/modsecurity-${_fam}-switch.conf"
   if [[ -f "$_export" ]]; then
-    cp -a "$_export" "$_dest"
+    _cp "$_export" "$_dest"
   else
     cat > "$_dest" <<EOF
 # Default safe state — no export yet.
@@ -195,7 +201,7 @@ fi
 # Exclusions: always materialize an Include-safe file (never leave a missing path
 # or a stale broken export from a previous image layer).
 if [[ -f "$EXPORTS/modsecurity/bastion-exclusions-generated.conf" ]]; then
-  cp -a "$EXPORTS/modsecurity/bastion-exclusions-generated.conf" \
+  _cp "$EXPORTS/modsecurity/bastion-exclusions-generated.conf" \
     /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf
 else
   cat > /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf <<'EOF'
@@ -205,7 +211,7 @@ fi
 
 # Virtual-patch packs overlay (php2shell Include or disabled stub).
 if [[ -f "$EXPORTS/modsecurity/bastion-virtual-patches-enabled.conf" ]]; then
-  cp -a "$EXPORTS/modsecurity/bastion-virtual-patches-enabled.conf" \
+  _cp "$EXPORTS/modsecurity/bastion-virtual-patches-enabled.conf" \
     /etc/nginx/modsecurity/generated/bastion-virtual-patches-enabled.conf
 else
   cat > /etc/nginx/modsecurity/generated/bastion-virtual-patches-enabled.conf <<'EOF'
@@ -216,7 +222,7 @@ fi
 
 # IP allow (trust): reset to empty stub when export missing.
 if [[ -f "$EXPORTS/waf-ip-allow.conf" ]]; then
-  cp -a "$EXPORTS/waf-ip-allow.conf" /etc/nginx/includes/waf-ip-allow.conf
+  _cp "$EXPORTS/waf-ip-allow.conf" /etc/nginx/includes/waf-ip-allow.conf
 else
   cat > /etc/nginx/includes/waf-ip-allow.conf <<'EOF'
 # No export yet — no allowlist IP/CIDR.
@@ -225,20 +231,17 @@ fi
 
 # IP deny: reset to empty stub when export missing (avoid stale denies after wipe).
 if [[ -f "$EXPORTS/waf-ip-deny.conf" ]]; then
-  cp -a "$EXPORTS/waf-ip-deny.conf" /etc/nginx/includes/waf-ip-deny.conf
+  _cp "$EXPORTS/waf-ip-deny.conf" /etc/nginx/includes/waf-ip-deny.conf
 else
   cat > /etc/nginx/includes/waf-ip-deny.conf <<'EOF'
 # No export yet — no promoted IP denies.
 EOF
 fi
 
-# Rate-limit zones must always exist (nginx.conf references portal_* zones).
-if [[ -f "$EXPORTS/nginx-portal-rate-limits.conf" ]]; then
-  cp -a "$EXPORTS/nginx-portal-rate-limits.conf" \
-    /etc/nginx/includes/nginx-portal-rate-limits.conf
-else
+# Rate-limit zones must always exist (vhost limit_req → else "zero size shared memory zone").
+_write_default_rate_limits() {
   cat > /etc/nginx/includes/nginx-portal-rate-limits.conf <<'EOF'
-# No export yet — default portal rate zones (Include-safe).
+# Default portal rate zones (Include-safe).
 limit_req_status 429;
 map $status $bastion_is_limit_req {
     429     1;
@@ -251,13 +254,30 @@ limit_req_zone $binary_remote_addr zone=portal_api:10m rate=50r/s;
 limit_req_zone $binary_remote_addr zone=portal_standard:10m rate=20r/s;
 limit_req_zone $binary_remote_addr zone=portal_unknown_host:10m rate=5r/s;
 EOF
+}
+if [[ -f "$EXPORTS/nginx-portal-rate-limits.conf" ]] \
+  && grep -qE 'zone=portal_standard:[1-9][0-9]*[mMkK]' \
+    "$EXPORTS/nginx-portal-rate-limits.conf"; then
+  _cp "$EXPORTS/nginx-portal-rate-limits.conf" \
+    /etc/nginx/includes/nginx-portal-rate-limits.conf
+else
+  if [[ -f "$EXPORTS/nginx-portal-rate-limits.conf" ]]; then
+    echo "WARN: exports/nginx-portal-rate-limits.conf missing portal_standard zone — using defaults" >&2
+  fi
+  _write_default_rate_limits
+fi
+# Belt-and-suspenders: never boot with a truncated/empty zones file.
+if ! grep -qE 'zone=portal_standard:[1-9][0-9]*[mMkK]' \
+  /etc/nginx/includes/nginx-portal-rate-limits.conf; then
+  echo "ERROR: nginx-portal-rate-limits.conf lacks portal_standard zone — rewriting defaults" >&2
+  _write_default_rate_limits
 fi
 
 # Dynamic burst snippets (included from vhost locations).
 _sync_limit_req_burst() {
   local name="$1" zone="$2" burst="$3"
   if [[ -f "$EXPORTS/${name}.conf" ]]; then
-    cp -a "$EXPORTS/${name}.conf" "/etc/nginx/includes/${name}.conf"
+    _cp "$EXPORTS/${name}.conf" "/etc/nginx/includes/${name}.conf"
   else
     cat > "/etc/nginx/includes/${name}.conf" <<EOF
 # No export yet — default burst for ${zone}.
@@ -272,7 +292,7 @@ _sync_limit_req_burst limit_req_portal_standard portal_standard 10
 # Inter-app mTLS verify snippet (ssl_verify_client + CA/CRL paths).
 # Include inside internal SSL server/location blocks that require client certs.
 if [[ -f "$EXPORTS/mtls-apps-generated.conf" ]]; then
-  cp -a "$EXPORTS/mtls-apps-generated.conf" \
+  _cp "$EXPORTS/mtls-apps-generated.conf" \
     /etc/nginx/includes/mtls-apps-generated.conf
 else
   cat > /etc/nginx/includes/mtls-apps-generated.conf <<'EOF'

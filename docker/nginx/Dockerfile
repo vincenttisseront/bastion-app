@@ -38,11 +38,12 @@ COPY watch-exports-reload.sh /watch-exports-reload.sh
 COPY export-waf-snapshot.sh /export-waf-snapshot.sh
 COPY errors/ /var/www/nginx-errors/
 
-# Seed tree for read_only + tmpfs overlays (conf.d / snippets / includes).
+# Seed tree for read_only + tmpfs overlays (conf.d / snippets / includes / generated).
 RUN mkdir -p /usr/share/bastion-nginx/seed \
     && cp -a /etc/nginx/conf.d /usr/share/bastion-nginx/seed/conf.d \
     && cp -a /etc/nginx/snippets /usr/share/bastion-nginx/seed/snippets \
     && cp -a /etc/nginx/includes /usr/share/bastion-nginx/seed/includes \
+    && cp -a /etc/nginx/modsecurity/generated /usr/share/bastion-nginx/seed/generated \
     && chmod -R a+rX /usr/share/bastion-nginx/seed
 
 RUN chmod +x /docker-entrypoint-portal.sh /sync-exports-to-confd.sh \
