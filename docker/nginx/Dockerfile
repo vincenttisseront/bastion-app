@@ -38,6 +38,13 @@ COPY watch-exports-reload.sh /watch-exports-reload.sh
 COPY export-waf-snapshot.sh /export-waf-snapshot.sh
 COPY errors/ /var/www/nginx-errors/
 
+# Seed tree for read_only + tmpfs overlays (conf.d / snippets / includes).
+RUN mkdir -p /usr/share/bastion-nginx/seed \
+    && cp -a /etc/nginx/conf.d /usr/share/bastion-nginx/seed/conf.d \
+    && cp -a /etc/nginx/snippets /usr/share/bastion-nginx/seed/snippets \
+    && cp -a /etc/nginx/includes /usr/share/bastion-nginx/seed/includes \
+    && chmod -R a+rX /usr/share/bastion-nginx/seed
+
 RUN chmod +x /docker-entrypoint-portal.sh /sync-exports-to-confd.sh \
          /sync-acme-tls.sh /sync-public-proxy-tls.sh /watch-exports-reload.sh \
          /export-waf-snapshot.sh \
@@ -51,12 +58,13 @@ RUN chmod +x /docker-entrypoint-portal.sh /sync-exports-to-confd.sh \
 ARG BASTION_NGINX_IMAGE_TAG=local
 ENV BASTION_NGINX_IMAGE_TAG=${BASTION_NGINX_IMAGE_TAG}
 ENV NGINX_WAF_SNAPSHOT_PATH=/var/log/nginx/apps/nginx-waf-snapshot.json
+ENV BASTION_NGINX_SEED=/usr/share/bastion-nginx/seed
 
 EXPOSE 80 443 8080
 
 ENTRYPOINT ["/docker-entrypoint-portal.sh"]
 CMD ["nginx", "-g", "daemon off;"]
 
-# Last USER must not be root (docker:S6471). The portal entrypoint still needs
-# root at runtime to render conf.d and start crond — compose sets user: "0:0".
+# Non-root (docker:S6471). Compose mounts writable tmpfs for conf.d/snippets/includes;
+# entrypoint seeds from BASTION_NGINX_SEED then renders vhosts as user nginx.
 USER nginx
