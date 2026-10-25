@@ -24,6 +24,7 @@ from app.admin.rbac_governance import router as admin_rbac_governance_router
 from app.admin.rbac_groups import router as admin_rbac_groups_router
 from app.admin.realms import router as admin_realms_router
 from app.admin.user_sessions import router as admin_user_sessions_router
+from app.admin.reporting import router as admin_reporting_router
 from app.admin.waf import router as admin_waf_router
 from app.api_errors import api_error_from_detail, api_error_response
 from app.auth.auth_request import router as auth_router
@@ -565,6 +566,7 @@ app.include_router(admin_acme_router)
 app.include_router(admin_mfa_router)
 app.include_router(admin_mtls_router)
 app.include_router(admin_waf_router)
+app.include_router(admin_reporting_router)
 app.include_router(infrastructure_router)
 app.include_router(admin_rbac_groups_router)
 # Before rbac_access: /admin/rbac/users/new must win over /admin/rbac/users/{keycloak_user_id}.
