@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.admin.acme import router as admin_acme_router
+from app.admin.mfa import router as admin_mfa_router
 from app.admin.mtls import router as admin_mtls_router
 from app.admin.activesync_devices import router as admin_activesync_devices_router
 from app.admin.files import router as admin_files_router
@@ -381,6 +382,21 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
+from app.auth.mfa_gate import MfaChallengeRequired  # noqa: E402
+
+
+@app.exception_handler(MfaChallengeRequired)
+async def mfa_challenge_required_handler(request: Request, exc: MfaChallengeRequired):
+    from fastapi.responses import JSONResponse, RedirectResponse
+
+    if _wants_json_response(request) or _json_api_path(request.url.path):
+        return JSONResponse(
+            {"detail": "mfa_required", "challenge_url": exc.redirect_url},
+            status_code=401,
+        )
+    return RedirectResponse(url=exc.redirect_url, status_code=303)
+
+
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     from app.i18n.middleware import get_request_locale
@@ -529,6 +545,7 @@ app.include_router(global_search_router)
 app.include_router(health_router)
 app.include_router(admin_realms_router)
 app.include_router(admin_acme_router)
+app.include_router(admin_mfa_router)
 app.include_router(admin_mtls_router)
 app.include_router(admin_waf_router)
 app.include_router(infrastructure_router)
