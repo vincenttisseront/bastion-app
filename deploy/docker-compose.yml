@@ -161,7 +161,8 @@ services:
   nginx:
     image: ${BASTION_NGINX_IMAGE:-vincenttisseront/bastion-pro-nginx:latest}
     container_name: bastion-nginx
-    user: "nginx"
+    # Root only for entrypoint: mirror root:600 ACME PEMs → ssl-local, then su-exec nginx.
+    user: "0:0"
     read_only: true
     security_opt:
       - no-new-privileges:true

@@ -190,7 +190,8 @@ services:
     image: bastion-nginx:local
     container_name: bastion-nginx
     # Non-root workers (image USER nginx). Entrypoint seeds tmpfs conf.d/snippets/includes.
-    user: "nginx"
+    # Root only for entrypoint: mirror root:600 ACME PEMs → ssl-local, then su-exec nginx.
+    user: "0:0"
     read_only: true
     security_opt:
       - no-new-privileges:true

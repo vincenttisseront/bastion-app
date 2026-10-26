@@ -52,16 +52,20 @@ def test_compose_hardening_flags():
     assert "/etc/nginx/conf.d:size=" in compose
     assert "/tmp:size=256M" in compose or "/tmp:size=64M" in compose
     assert "user: \"65532:65532\"" in compose
-    assert 'user: "nginx"' in compose
+    # nginx service starts as 0:0 then entrypoint su-exec to nginx
+    assert 'user: "0:0"' in compose
 
 
 def test_nginx_dockerfile_seeds_tmpfs_overlay():
     root = Path(__file__).resolve().parents[1]
     df = (root / "docker/nginx/Dockerfile").read_text(encoding="utf-8")
     assert "/usr/share/bastion-nginx/seed" in df
+    assert "su-exec" in df
+    assert "USER root" in df
     entry = (root / "docker/nginx/docker-entrypoint.sh").read_text(encoding="utf-8")
     assert "_seed_nginx_writable_dirs" in entry
     assert "BASTION_NGINX_SEED" in entry
+    assert "su-exec nginx:nginx" in entry
     # Non-root + exports:ro must not abort on modsec_audit touch.
     assert "modsec_audit.log" in entry
     assert "not writable" in entry
@@ -81,7 +85,7 @@ def test_nginx_dockerfile_seeds_tmpfs_overlay():
     acme = (root / "docker/nginx/sync-acme-tls.sh").read_text(encoding="utf-8")
     assert "acme-challenge webroot not writable" in acme
     assert "_mirror_cert" in acme
-    assert "not readable by uid=" in acme
+    assert "ACME TLS mirrored=" in acme
     assert "LOCAL_SSL/$fqdn" in acme or 'LOCAL_SSL/$fqdn' in acme
     reconcile = (root / "docker/acme/reconcile-certs.sh").read_text(encoding="utf-8")
     assert "_chmod_nginx_readable" in reconcile

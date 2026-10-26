@@ -153,8 +153,15 @@ elif [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 # Watch App catalogue exports → conf.d + reload (approve/edit without apply-infra-docker).
+# Keep the watcher as root when we started as root so ACME renewals (root:600 PEM)
+# can be re-mirrored into ssl-local; nginx workers still run as uid 101.
 if [[ "${BASTION_EXPORTS_WATCH:-1}" != "0" ]]; then
   /watch-exports-reload.sh &
 fi
 
+if [[ "$(id -u)" -eq 0 ]] && command -v su-exec >/dev/null 2>&1 \
+  && [[ "${BASTION_NGINX_KEEP_ROOT:-0}" != "1" ]]; then
+  echo "INFO: dropping privileges to nginx after cert mirror / conf render"
+  exec su-exec nginx:nginx "$@"
+fi
 exec "$@"
