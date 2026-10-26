@@ -185,8 +185,10 @@ def install_domain_cert(
     if not host or "/" in host or ".." in host:
         raise AcmeNativeError("invalid FQDN for cert install")
     dest = certs_dir(settings) / host
+    # 644 both: hardened nginx (cap_drop ALL, no DAC_OVERRIDE) mirrors as root
+    # then su-exec → uid 101; root:600 owned by app uid 65532 is unreadable.
     _atomic_write_bytes(dest / "fullchain.pem", fullchain_pem, mode=0o644)
-    _atomic_write_bytes(dest / "privkey.pem", privkey_pem, mode=0o600)
+    _atomic_write_bytes(dest / "privkey.pem", privkey_pem, mode=0o644)
     # Signal nginx reload watcher (same sentinel as acme.sh install-cert).
     try:
         (certs_dir(settings) / ".reload_nginx").write_text(

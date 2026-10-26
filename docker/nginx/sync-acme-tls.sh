@@ -151,16 +151,24 @@ emit_rows() {
   fi
 }
 
-# Host certs are often root:600 (acme.sh). Non-root nginx (uid 101) cannot read
-# them → every FQDN skipped → only bastion-default on :443. Mirror into ssl-local
-# tmpfs when readable; warn loudly when present but unreadable.
+# Host certs: acme.sh often root:600; HTTP-01 native may be uid 65532:600.
+# Under cap_drop ALL, root lacks DAC_OVERRIDE → cannot read foreign 600 PEMs
+# unless compose also cap_add DAC_OVERRIDE (and FOWNER to chmod). Prefer 644 on disk.
+# Unreadable / missing → FQDN skipped → :443 falls back to bastion-default (HSTS fail).
 _mirrored=0
 _skipped=0
+_try_make_readable() {
+  local f="$1"
+  [[ -f "$f" ]] || return 1
+  chmod 644 "$f" 2>/dev/null || true
+  [[ -r "$f" ]]
+}
 _mirror_cert() {
   local fqdn="$1" src_cert="$2" src_key="$3"
-  local dest="$LOCAL_SSL/$fqdn"
+  local dest="$LOCAL_SSL/$fqdn" st
   mkdir -p "$dest" 2>/dev/null || true
-  # Root entrypoint can read root:600; non-root needs host chmod 644.
+  _try_make_readable "$src_cert" || true
+  _try_make_readable "$src_key" || true
   if [[ -r "$src_cert" && -r "$src_key" ]]; then
     cp -f "$src_cert" "$dest/fullchain.pem" && cp -f "$src_key" "$dest/privkey.pem" || return 1
     chmod 644 "$dest/fullchain.pem" "$dest/privkey.pem" 2>/dev/null || true
@@ -168,11 +176,13 @@ _mirror_cert() {
     return 0
   fi
   if [[ -f "$src_cert" || -f "$src_key" ]]; then
-    echo "WARN: skip $fqdn — certs present but not readable by uid=$(id -u) (entrypoint must start as root to mirror)" >&2
+    st="$(ls -la "$src_cert" "$src_key" 2>&1 || true)"
+    echo "WARN: skip $fqdn — certs present but not readable by uid=$(id -u) (need 644 or cap_add DAC_OVERRIDE): ${st}" >&2
     _skipped=$((_skipped + 1))
     return 1
   fi
   echo "# skip $fqdn — certs not ready" >> "$OUT"
+  echo "WARN: skip $fqdn — missing ${src_cert} / ${src_key}" >&2
   _skipped=$((_skipped + 1))
   return 1
 }

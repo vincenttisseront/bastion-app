@@ -51,6 +51,8 @@ def test_compose_hardening_flags():
     assert "NET_BIND_SERVICE" in compose
     assert "SETUID" in compose
     assert "SETGID" in compose
+    assert "DAC_OVERRIDE" in compose
+    assert "FOWNER" in compose
     assert "/etc/nginx/conf.d:size=" in compose
     assert "mode=0777" in compose
     assert "/tmp:size=256M" in compose or "/tmp:size=64M" in compose
@@ -96,9 +98,13 @@ def test_nginx_dockerfile_seeds_tmpfs_overlay():
     assert "acme-challenge webroot not writable" in acme
     assert "_mirror_cert" in acme
     assert "_chmod_ssl_local_readable" in acme
+    assert "_try_make_readable" in acme
     assert "ACME TLS mirrored=" in acme
     assert "LOCAL_SSL/$fqdn" in acme or 'LOCAL_SSL/$fqdn' in acme
     assert 'umask 022' in acme or "chmod 644 \"$DEFAULT_KEY\"" in acme or 'chmod 644 "$DEFAULT_KEY"' in acme
+    assert "bastion-default" in acme
+    native = (root / "app/acme/native_client.py").read_text(encoding="utf-8")
+    assert 'dest / "privkey.pem", privkey_pem, mode=0o644)' in native
     reconcile = (root / "docker/acme/reconcile-certs.sh").read_text(encoding="utf-8")
     assert "_chmod_nginx_readable" in reconcile
     assert "chmod 644" in reconcile

@@ -50,7 +50,16 @@ while true; do
     continue
   fi
   echo "bastion-nginx: exports/certs changed (fp $LAST → $CUR) — sync + reload"
-  if "$SYNC" && nginx -t && nginx -s reload; then
+  # nginx -t as root under cap_drop ALL tries chown(client_temp,101) → fail;
+  # master already runs as uid 101 — test/reload as nginx when su-exec exists.
+  _test_reload() {
+    if [[ "$(id -u)" -eq 0 ]] && command -v su-exec >/dev/null 2>&1; then
+      su-exec nginx:nginx nginx -t && su-exec nginx:nginx nginx -s reload
+    else
+      nginx -t && nginx -s reload
+    fi
+  }
+  if "$SYNC" && _test_reload; then
     LAST="$CUR"
     /export-waf-snapshot.sh || echo "bastion-nginx: WARN export-waf-snapshot failed" >&2
     echo "bastion-nginx: reload ok — public_proxy TLS servers:"

@@ -170,10 +170,14 @@ services:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
-      # Entrypoint starts as 0:0 (ACME root:600 mirror) then su-exec → nginx.
+      # Entrypoint starts as 0:0 (ACME mirror) then su-exec → nginx.
       # cap_drop ALL removes these; without them: su-exec setgroups(101) EPERM.
       - SETUID
       - SETGID
+      # Read/chmod host PEMs owned by app uid 65532 mode 600 (HTTP-01 native).
+      # Without DAC_OVERRIDE every FQDN is skipped → :443 serves only bastion-default.
+      - DAC_OVERRIDE
+      - FOWNER
     mem_limit: ${BASTION_NGINX_MEM_LIMIT:-1g}
     cpus: ${BASTION_NGINX_CPUS:-1.0}
     ulimits:
