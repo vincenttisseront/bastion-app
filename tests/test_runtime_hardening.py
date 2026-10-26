@@ -80,6 +80,12 @@ def test_nginx_dockerfile_seeds_tmpfs_overlay():
     assert "chown -R 101:65532 /var/lib/sso-portal/nginx-logs" in migrate
     acme = (root / "docker/nginx/sync-acme-tls.sh").read_text(encoding="utf-8")
     assert "acme-challenge webroot not writable" in acme
+    assert "_mirror_cert" in acme
+    assert "not readable by uid=" in acme
+    assert "LOCAL_SSL/$fqdn" in acme or 'LOCAL_SSL/$fqdn' in acme
+    reconcile = (root / "docker/acme/reconcile-certs.sh").read_text(encoding="utf-8")
+    assert "_chmod_nginx_readable" in reconcile
+    assert "chmod 644" in reconcile
 
 
 def test_technical_template_has_runtime_panel():

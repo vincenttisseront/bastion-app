@@ -138,14 +138,35 @@ emit_rows() {
   fi
 }
 
+# Host certs are often root:600 (acme.sh). Non-root nginx (uid 101) cannot read
+# them → every FQDN skipped → only bastion-default on :443. Mirror into ssl-local
+# tmpfs when readable; warn loudly when present but unreadable.
+_mirror_cert() {
+  local fqdn="$1" src_cert="$2" src_key="$3"
+  local dest="$LOCAL_SSL/$fqdn"
+  mkdir -p "$dest" 2>/dev/null || true
+  if [[ -r "$src_cert" && -r "$src_key" ]]; then
+    cp -f "$src_cert" "$dest/fullchain.pem" && cp -f "$src_key" "$dest/privkey.pem" || return 1
+    chmod 644 "$dest/fullchain.pem" "$dest/privkey.pem" 2>/dev/null || true
+    return 0
+  fi
+  if [[ -f "$src_cert" || -f "$src_key" ]]; then
+    echo "WARN: skip $fqdn — certs present but not readable by uid=$(id -u) (fix host certs mode, expect 644)" >&2
+    return 1
+  fi
+  echo "# skip $fqdn — certs not ready" >> "$OUT"
+  return 1
+}
+
 while IFS=$'\t' read -r fqdn slug family; do
   [[ -n "${fqdn:-}" ]] || continue
   cert="$CERTS/$fqdn/fullchain.pem"
   key="$CERTS/$fqdn/privkey.pem"
-  if [[ ! -f "$cert" || ! -f "$key" ]]; then
-    echo "# skip $fqdn — certs not ready" >> "$OUT"
+  if ! _mirror_cert "$fqdn" "$cert" "$key"; then
     continue
   fi
+  cert="$LOCAL_SSL/$fqdn/fullchain.pem"
+  key="$LOCAL_SSL/$fqdn/privkey.pem"
   slug="${slug:-app}"
   family="${family:-app}"
   fqdn_esc="${fqdn//\\/\\\\}"
