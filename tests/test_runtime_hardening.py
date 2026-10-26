@@ -50,6 +50,7 @@ def test_compose_hardening_flags():
     assert "cap_drop:" in compose
     assert "NET_BIND_SERVICE" in compose
     assert "/etc/nginx/conf.d:size=" in compose
+    assert "mode=0777" in compose
     assert "/tmp:size=256M" in compose or "/tmp:size=64M" in compose
     assert "user: \"65532:65532\"" in compose
     # nginx service starts as 0:0 then entrypoint su-exec to nginx
@@ -66,6 +67,8 @@ def test_nginx_dockerfile_seeds_tmpfs_overlay():
     assert "_seed_nginx_writable_dirs" in entry
     assert "BASTION_NGINX_SEED" in entry
     assert "su-exec nginx:nginx" in entry
+    assert "entrypoint uid=" in entry
+    assert "tmpfs must be mode 0777" in entry or "mode 0777 under cap_drop" in entry
     # Non-root + exports:ro must not abort on modsec_audit touch.
     assert "modsec_audit.log" in entry
     assert "not writable" in entry

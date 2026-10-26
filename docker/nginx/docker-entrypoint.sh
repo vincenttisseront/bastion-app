@@ -8,20 +8,24 @@ export SSO_PORTAL_DEFAULT_REALM_SLUG="${SSO_PORTAL_DEFAULT_REALM_SLUG:-default}"
 export EXPORTS_DIR="${EXPORTS_DIR:-/var/lib/sso-portal/exports}"
 export BASTION_NGINX_SEED="${BASTION_NGINX_SEED:-/usr/share/bastion-nginx/seed}"
 
+echo "INFO: bastion-nginx entrypoint uid=$(id -u) gid=$(id -g)"
+
 # When compose mounts empty tmpfs over conf.d/snippets/includes/generated, restore defaults.
 # Non-root: never ``cp -a`` (BusyBox fails preserving root ownership → set -e abort).
+# Note: with cap_drop ALL, uid 0 loses DAC_OVERRIDE — tmpfs must be mode 0777 (see compose)
+# or seed/write fails even as "root".
 _seed_nginx_writable_dirs() {
-  local name dest seed
+  local name dest seed err
   for name in conf.d snippets includes; do
     dest="/etc/nginx/${name}"
     seed="${BASTION_NGINX_SEED}/${name}"
     mkdir -p "$dest" 2>/dev/null || true
     if [[ -d "$seed" ]] && [[ ! -f "${dest}/.bastion-seeded" ]]; then
       # -r not -a: drop ownership/mode preserve (uid 101 cannot chown root-owned seed).
-      if ! cp -rf "${seed}/." "${dest}/" 2>/dev/null; then
-        echo "WARN: could not seed ${dest} from ${seed}" >&2
+      err="$(cp -rf "${seed}/." "${dest}/" 2>&1)" && touch "${dest}/.bastion-seeded" 2>/dev/null || true
+      if [[ -n "${err}" ]]; then
+        echo "WARN: could not seed ${dest} from ${seed}: ${err}" >&2
       fi
-      touch "${dest}/.bastion-seeded" 2>/dev/null || true
     fi
   done
   # WAF overlays written by sync-exports (read_only rootfs needs tmpfs here).
@@ -29,10 +33,10 @@ _seed_nginx_writable_dirs() {
   seed="${BASTION_NGINX_SEED}/generated"
   mkdir -p "$dest" 2>/dev/null || true
   if [[ -d "$seed" ]] && [[ ! -f "${dest}/.bastion-seeded" ]]; then
-    if ! cp -rf "${seed}/." "${dest}/" 2>/dev/null; then
-      echo "WARN: could not seed ${dest} from ${seed}" >&2
+    err="$(cp -rf "${seed}/." "${dest}/" 2>&1)" && touch "${dest}/.bastion-seeded" 2>/dev/null || true
+    if [[ -n "${err}" ]]; then
+      echo "WARN: could not seed ${dest} from ${seed}: ${err}" >&2
     fi
-    touch "${dest}/.bastion-seeded" 2>/dev/null || true
   fi
   mkdir -p /tmp/modsecurity/data /tmp/modsecurity/tmp /tmp/modsecurity/upload \
     /var/cache/nginx /var/run /etc/nginx/ssl-local 2>/dev/null || true
@@ -79,7 +83,9 @@ fi
 # includes/ (tmpfs); sync-exports copies from exports when present.
 mkdir -p "$EXPORTS_DIR" /etc/nginx/includes 2>/dev/null || true
 if [[ ! -f /etc/nginx/includes/nginx-portal-realms.conf ]]; then
-  echo "# no secondary realms yet" > /etc/nginx/includes/nginx-portal-realms.conf
+  if ! echo "# no secondary realms yet" > /etc/nginx/includes/nginx-portal-realms.conf 2>/dev/null; then
+    echo "WARN: cannot write nginx-portal-realms.conf (uid=$(id -u)) — tmpfs includes must be mode 0777 under cap_drop ALL" >&2
+  fi
 fi
 
 /sync-exports-to-confd.sh
@@ -99,17 +105,27 @@ else
 fi
 chown -R nginx:nginx /tmp/modsecurity 2>/dev/null || true
 
-envsubst '${PORTAL_INTERNAL_TOKEN}' \
+# conf.d/snippets tmpfs must be writable (compose mode=0777 when cap_drop ALL).
+if ! envsubst '${PORTAL_INTERNAL_TOKEN}' \
   < /etc/nginx/templates-portal/proxy_portal_trusted_internal.conf.template \
-  > /etc/nginx/snippets/proxy_portal_trusted_internal.conf
+  > /etc/nginx/snippets/proxy_portal_trusted_internal.conf; then
+  echo "ERROR: cannot write snippets/ (uid=$(id -u)) — tmpfs mode must be 0777 under cap_drop ALL" >&2
+  exit 1
+fi
 
-envsubst '${SSO_PORTAL_DEFAULT_REALM_SLUG}' \
+if ! envsubst '${SSO_PORTAL_DEFAULT_REALM_SLUG}' \
   < /etc/nginx/templates-portal/nginx-portal-core-realm-oauth2.conf.template \
-  > /etc/nginx/snippets/nginx-portal-core-realm-oauth2.conf
+  > /etc/nginx/snippets/nginx-portal-core-realm-oauth2.conf; then
+  echo "ERROR: cannot write oauth2 snippet (uid=$(id -u))" >&2
+  exit 1
+fi
 
-envsubst '${PORTAL_DOMAIN} ${SSO_PORTAL_DEFAULT_REALM_SLUG}' \
+if ! envsubst '${PORTAL_DOMAIN} ${SSO_PORTAL_DEFAULT_REALM_SLUG}' \
   < /etc/nginx/templates-portal/vhost_sso_portal.conf.template \
-  > /etc/nginx/conf.d/vhost_sso_portal.conf
+  > /etc/nginx/conf.d/vhost_sso_portal.conf; then
+  echo "ERROR: cannot write vhost_sso_portal.conf (uid=$(id -u)) — conf.d tmpfs not writable" >&2
+  exit 1
+fi
 
 # Fail fast if vhost render did not produce a listener (avoids "running" with no :8080)
 if ! grep -qE 'listen[[:space:]]+0\.0\.0\.0:8080([[:space:]]+default_server)?' \
