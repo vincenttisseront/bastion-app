@@ -94,14 +94,41 @@ if [[ ! -d /var/log/nginx/apps ]]; then
   echo "ERROR: /var/log/nginx/apps missing — Accès apps requires shared nginx-logs volume" >&2
 fi
 
-# ModSecurity audit log (shared nginx-logs volume). Host dir may be owned by
-# app uid 65532 while we run as nginx (101) — never abort on touch failure.
+# Shared nginx-logs volume → /var/log/nginx/apps (Accès apps + modsec + TLS access_log).
+# Host files may be root:root or 65532:600 from prior runs; nginx -t as uid 101 then
+# fails: open(.../portal.access.log) Permission denied → no :8080 bind.
 mkdir -p /tmp/modsecurity/data /tmp/modsecurity/tmp /tmp/modsecurity/upload 2>/dev/null || true
 mkdir -p /var/log/nginx/apps 2>/dev/null || true
-if ! touch /var/log/nginx/apps/modsec_audit.log 2>/dev/null; then
-  echo "WARN: /var/log/nginx/apps not writable (uid=$(id -u)) — fix host nginx-logs ownership (101:65532, mode 2770)" >&2
-else
-  chmod 0640 /var/log/nginx/apps/modsec_audit.log 2>/dev/null || true
+_fix_nginx_logs_writable() {
+  local probe="/var/log/nginx/apps/.bastion-write-probe"
+  if [[ ! -d /var/log/nginx/apps ]]; then
+    return 1
+  fi
+  # Prefer 101:65532 (nginx write, app read via group). Needs CAP_CHOWN.
+  if [[ "$(id -u)" -eq 0 ]]; then
+    chown -R 101:65532 /var/log/nginx/apps 2>/dev/null || true
+    find /var/log/nginx/apps -type d -exec chmod 2770 {} \; 2>/dev/null || true
+    find /var/log/nginx/apps -type f -exec chmod 660 {} \; 2>/dev/null || true
+  fi
+  rm -f "$probe" 2>/dev/null || true
+  if command -v su-exec >/dev/null 2>&1 && su-exec nginx:nginx touch "$probe" 2>/dev/null; then
+    rm -f "$probe" 2>/dev/null || true
+    return 0
+  fi
+  # chown failed (no CAP_CHOWN) — loosen mode so uid 101 can open access_log.
+  echo "WARN: chown nginx-logs failed — falling back to o+rw on /var/log/nginx/apps" >&2
+  chmod 777 /var/log/nginx/apps 2>/dev/null || true
+  find /var/log/nginx/apps -type f -exec chmod 666 {} \; 2>/dev/null || true
+  rm -f "$probe" 2>/dev/null || true
+  if command -v su-exec >/dev/null 2>&1 && su-exec nginx:nginx touch "$probe" 2>/dev/null; then
+    rm -f "$probe" 2>/dev/null || true
+    return 0
+  fi
+  return 1
+}
+if ! _fix_nginx_logs_writable; then
+  echo "WARN: /var/log/nginx/apps not writable for uid 101 — nginx -t may fail on access_log (no :8080)" >&2
+  echo "WARN: compose must cap_add CHOWN; or on host: chown -R 101:65532 …/nginx-logs && chmod -R ug+rwX …/nginx-logs" >&2
 fi
 chown -R nginx:nginx /tmp/modsecurity 2>/dev/null || true
 

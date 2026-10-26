@@ -53,6 +53,7 @@ def test_compose_hardening_flags():
     assert "SETGID" in compose
     assert "DAC_OVERRIDE" in compose
     assert "FOWNER" in compose
+    assert "CHOWN" in compose
     assert "/etc/nginx/conf.d:size=" in compose
     assert "mode=0777" in compose
     assert "/tmp:size=256M" in compose or "/tmp:size=64M" in compose
@@ -78,8 +79,9 @@ def test_nginx_dockerfile_seeds_tmpfs_overlay():
     assert "entrypoint uid=" in entry
     assert "tmpfs must be mode 0777" in entry or "mode 0777 under cap_drop" in entry
     assert "CAP_CHOWN" in entry or "chown(" in entry
-    # Non-root + exports:ro must not abort on modsec_audit touch.
-    assert "modsec_audit.log" in entry
+    # Shared nginx-logs must be fixed before nginx -t (access_log open as uid 101).
+    assert "_fix_nginx_logs_writable" in entry
+    assert "101:65532" in entry
     assert "not writable" in entry
     sync = (root / "docker/nginx/sync-exports-to-confd.sh").read_text(encoding="utf-8")
     assert "nginx-portal-realms.conf" in sync
