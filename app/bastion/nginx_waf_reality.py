@@ -792,8 +792,13 @@ def build_waf_ui_context(
         reload_confirmed=reload_ok,
     )
 
+    from app.security.runtime_check import check_runtime_hardening
+
+    runtime_hardening = check_runtime_hardening()
+
     return {
         "desired": desired,
+        "runtime_hardening": runtime_hardening,
         "generated": generated,
         "active": active,
         "repo_intent": repo_intent,

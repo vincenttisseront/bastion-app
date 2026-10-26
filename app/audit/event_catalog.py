@@ -627,6 +627,8 @@ _RAW_EVENTS: tuple[EventDef, ...] = (
        legacy_action='security.waf.disarm'),
     _e('BST-WAF-1013', 'WAF_GEOLOC_TOGGLED', 'Géolocalisation IP WAF activée/désactivée', ('intrusion_detection', 'configuration',),
        legacy_action='security.waf.geoloc_toggled'),
+    _e('BST-WAF-1021', 'SECURITY_REPORT_GENERATED', 'Rapport PDF de conformité sécurité généré', ('intrusion_detection', 'configuration',),
+       legacy_action='security.report.generated'),
     _e('BST-WAF-2001', 'CRS_RULE_TRIGGERED', 'Règle ModSecurity/CRS déclenchée (mode détection)', ('intrusion_detection',)),
     _e('BST-WAF-2002', 'BRUTE_FORCE_ATTEMPT', "Rafale d'échecs d'authentification détectée", ('intrusion_detection', 'authentication',)),
     _e('BST-WAF-2003', 'SURFACE_PROBING', 'Sondage de surfaces protégées', ('intrusion_detection',)),

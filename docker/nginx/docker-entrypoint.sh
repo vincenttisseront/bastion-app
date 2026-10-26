@@ -6,6 +6,39 @@ export PORTAL_INTERNAL_TOKEN="${PORTAL_INTERNAL_TOKEN:-}"
 export PORTAL_DOMAIN="${PORTAL_DOMAIN:-portal.example.com}"
 export SSO_PORTAL_DEFAULT_REALM_SLUG="${SSO_PORTAL_DEFAULT_REALM_SLUG:-default}"
 export EXPORTS_DIR="${EXPORTS_DIR:-/var/lib/sso-portal/exports}"
+export BASTION_NGINX_SEED="${BASTION_NGINX_SEED:-/usr/share/bastion-nginx/seed}"
+
+# When compose mounts empty tmpfs over conf.d/snippets/includes/generated, restore defaults.
+# Non-root: never ``cp -a`` (BusyBox fails preserving root ownership → set -e abort).
+_seed_nginx_writable_dirs() {
+  local name dest seed
+  for name in conf.d snippets includes; do
+    dest="/etc/nginx/${name}"
+    seed="${BASTION_NGINX_SEED}/${name}"
+    mkdir -p "$dest" 2>/dev/null || true
+    if [[ -d "$seed" ]] && [[ ! -f "${dest}/.bastion-seeded" ]]; then
+      # -r not -a: drop ownership/mode preserve (uid 101 cannot chown root-owned seed).
+      if ! cp -rf "${seed}/." "${dest}/" 2>/dev/null; then
+        echo "WARN: could not seed ${dest} from ${seed}" >&2
+      fi
+      touch "${dest}/.bastion-seeded" 2>/dev/null || true
+    fi
+  done
+  # WAF overlays written by sync-exports (read_only rootfs needs tmpfs here).
+  dest="/etc/nginx/modsecurity/generated"
+  seed="${BASTION_NGINX_SEED}/generated"
+  mkdir -p "$dest" 2>/dev/null || true
+  if [[ -d "$seed" ]] && [[ ! -f "${dest}/.bastion-seeded" ]]; then
+    if ! cp -rf "${seed}/." "${dest}/" 2>/dev/null; then
+      echo "WARN: could not seed ${dest} from ${seed}" >&2
+    fi
+    touch "${dest}/.bastion-seeded" 2>/dev/null || true
+  fi
+  mkdir -p /tmp/modsecurity/data /tmp/modsecurity/tmp /tmp/modsecurity/upload \
+    /var/cache/nginx /var/run /etc/nginx/ssl-local 2>/dev/null || true
+}
+
+_seed_nginx_writable_dirs
 
 # DB / setup-wizard override (written by bastion-app as exports/bastion-site.env)
 if [[ -f "${EXPORTS_DIR}/bastion-site.env" ]]; then
@@ -91,8 +124,10 @@ nginx -t
 /export-waf-snapshot.sh || echo "WARN: export-waf-snapshot failed" >&2
 
 # Daily logrotate + snapshot WAF toutes les 5 min (crond Alpine).
-# Le crontab Alpine n'exécute pas /etc/periodic/5min sans ligne */5.
-if [[ "${BASTION_MODSEC_LOGROTATE:-1}" != "0" ]] && command -v crond >/dev/null 2>&1; then
+# Requires root; skipped under hardened non-root runtime (watch + app aggregator cover snapshots).
+if [[ "$(id -u)" -eq 0 ]] \
+  && [[ "${BASTION_MODSEC_LOGROTATE:-1}" != "0" ]] \
+  && command -v crond >/dev/null 2>&1; then
   mkdir -p /etc/periodic/daily
   cat > /etc/periodic/daily/modsecurity-logrotate <<'EOF'
 #!/bin/sh
@@ -109,6 +144,8 @@ EOF
     echo '*/5 * * * * run-parts /etc/periodic/5min' >> /etc/crontabs/root
   fi
   crond -b -l 8 || echo "WARN: crond failed to start — modsec logrotate / waf-snapshot inactive" >&2
+elif [[ "$(id -u)" -ne 0 ]]; then
+  echo "INFO: non-root runtime — crond skipped (snapshots via watch / bastion-app aggregator)"
 fi
 
 # Watch App catalogue exports → conf.d + reload (approve/edit without apply-infra-docker).

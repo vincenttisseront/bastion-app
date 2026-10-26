@@ -75,6 +75,16 @@ services:
 
   bastion-app:
     image: ${BASTION_APP_IMAGE:-vincenttisseront/bastion-pro-app:latest}
+    user: "65532:65532"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: ${BASTION_APP_MEM_LIMIT:-512m}
+    cpus: ${BASTION_APP_CPUS:-0.50}
+    tmpfs:
+      - /tmp:size=64M,mode=1777
     env_file:
       - .env
     environment:
@@ -136,16 +146,36 @@ services:
   nginx:
     image: ${BASTION_NGINX_IMAGE:-vincenttisseront/bastion-pro-nginx:latest}
     container_name: bastion-nginx
-    user: "0:0"
+    user: "nginx"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    mem_limit: ${BASTION_NGINX_MEM_LIMIT:-1g}
+    cpus: ${BASTION_NGINX_CPUS:-1.0}
     ulimits:
       nofile:
         soft: 65535
         hard: 65535
+    tmpfs:
+      - /tmp:size=256M,mode=1777
+      - /var/run:size=16M,uid=101,gid=101,mode=0755
+      - /var/cache/nginx:size=128M,uid=101,gid=101,mode=0755
+      - /var/log/nginx:size=32M,uid=101,gid=101,mode=0755
+      - /etc/nginx/conf.d:size=16M,uid=101,gid=101,mode=0755
+      - /etc/nginx/snippets:size=8M,uid=101,gid=101,mode=0755
+      - /etc/nginx/includes:size=16M,uid=101,gid=101,mode=0755
+      - /etc/nginx/modsecurity/generated:size=8M,uid=101,gid=101,mode=0755
+      - /etc/nginx/ssl-local:size=8M,uid=101,gid=101,mode=0755
     environment:
       PORTAL_INTERNAL_TOKEN: ${VAULT_PORTAL_INTERNAL_TOKEN:-${PORTAL_INTERNAL_TOKEN:-}}
       PORTAL_DOMAIN: ${PORTAL_DOMAIN:-portal.example.com}
       SSO_PORTAL_DEFAULT_REALM_SLUG: ${SSO_PORTAL_DEFAULT_REALM_SLUG:-default}
       ACME_CHALLENGE_WEBROOT: /var/www/acme-challenge
+      BASTION_NGINX_SEED: /usr/share/bastion-nginx/seed
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/exports:/var/lib/sso-portal/exports:ro
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/certs:/etc/nginx/ssl:ro
