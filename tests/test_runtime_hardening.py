@@ -94,8 +94,10 @@ def test_nginx_dockerfile_seeds_tmpfs_overlay():
     acme = (root / "docker/nginx/sync-acme-tls.sh").read_text(encoding="utf-8")
     assert "acme-challenge webroot not writable" in acme
     assert "_mirror_cert" in acme
+    assert "_chmod_ssl_local_readable" in acme
     assert "ACME TLS mirrored=" in acme
     assert "LOCAL_SSL/$fqdn" in acme or 'LOCAL_SSL/$fqdn' in acme
+    assert 'umask 022' in acme or "chmod 644 \"$DEFAULT_KEY\"" in acme or 'chmod 644 "$DEFAULT_KEY"' in acme
     reconcile = (root / "docker/acme/reconcile-certs.sh").read_text(encoding="utf-8")
     assert "_chmod_nginx_readable" in reconcile
     assert "chmod 644" in reconcile
