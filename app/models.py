@@ -1366,6 +1366,35 @@ class AcmeSettings(Base):
     updated_by = Column(String, nullable=True)
 
 
+class CertificateDomain(Base):
+    """Per-FQDN ACME lifecycle (DNS-01 sidecar or native HTTP-01).
+
+    Private keys and PEMs stay on the shared certs volume — never in this row.
+    """
+
+    __tablename__ = "acme_certificate_domains"
+    __table_args__ = (
+        UniqueConstraint("domain", name="uq_acme_certificate_domains_domain"),
+        CheckConstraint(
+            "provider_type IN ('dns_cloudflare', 'http_native')",
+            name="ck_acme_cert_domain_provider",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'valid', 'expired', 'failed')",
+            name="ck_acme_cert_domain_status",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    domain = Column(String, nullable=False, index=True)
+    # dns_cloudflare → acme.sh sidecar; http_native → app/acme/native_client
+    provider_type = Column(String, nullable=False, default="dns_cloudflare")
+    status = Column(String, nullable=False, default="pending")
+    valid_until = Column(UTCDateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class AdminNotificationDismissal(Base):
     """Per-admin dismissed notification keys (reappear if fingerprint changes)."""
 

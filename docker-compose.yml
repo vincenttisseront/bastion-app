@@ -1,8 +1,8 @@
 # Bastion applicatif — Phase 7
 #
 # Topologie (front) — Traefik coupé, nginx edge :
-#   clients → bastion-nginx:80 → 301 HTTPS
-#          → bastion-nginx:443 (certs ACME DNS-01)
+#   clients → bastion-nginx:80 → ACME HTTP-01 then 301 HTTPS
+#          → bastion-nginx:443 (certs ACME DNS-01 / HTTP-01)
 #              → :8080 (portal / subdomain SSO / public_proxy)
 #
 # Réseau vpcbr (10.5.0.0/16) conservé pour bastion-app / oauth2 / Keycloak.
@@ -111,11 +111,14 @@ services:
       VAULT_KEYS_DIR: /var/lib/sso-portal/keys
       OAUTH2_PROXY_NETWORK_MODE: docker
       OAUTH2_PROXY_DEFAULT_URL: http://oauth2-proxy-core:4180
+      ACME_CHALLENGE_WEBROOT: /var/www/acme-challenge
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
       - ${SSO_PORTAL_FILES_DATA_DIR:-./data/sso-portal-files}:/var/lib/sso-portal-files
       # Per-app nginx access logs + WAF snapshot / audit aggregator JSON (rw: aggregator writes summaries)
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/nginx-logs:/var/lib/sso-portal/nginx-logs
+      # HTTP-01 challenge webroot shared with nginx :80
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/acme-challenge:/var/www/acme-challenge
     networks:
       vpcbr:
         aliases:
@@ -170,12 +173,15 @@ services:
       PORTAL_INTERNAL_TOKEN: ${VAULT_PORTAL_INTERNAL_TOKEN:-${PORTAL_INTERNAL_TOKEN:-}}
       PORTAL_DOMAIN: ${PORTAL_DOMAIN:-portal.example.com}
       SSO_PORTAL_DEFAULT_REALM_SLUG: ${SSO_PORTAL_DEFAULT_REALM_SLUG:-default}
+      ACME_CHALLENGE_WEBROOT: /var/www/acme-challenge
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/exports:/var/lib/sso-portal/exports:ro
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/certs:/etc/nginx/ssl:ro
       # Shared with bastion-app (Admin → Logs → Accès apps).
       # Also hosts ModSecurity audit: /var/log/nginx/apps/modsec_audit.log
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/nginx-logs:/var/log/nginx/apps
+      # HTTP-01 challenge tokens written by bastion-app native ACME client
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/acme-challenge:/var/www/acme-challenge:ro
     networks:
       vpcbr:
         aliases:

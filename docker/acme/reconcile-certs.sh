@@ -80,6 +80,7 @@ has_cf_creds() {
 }
 
 list_fqdns() {
+  # Only DNS-01 / dns_cloudflare domains — HTTP-01 is handled by bastion-app native client.
   if [ ! -f "$DOMAINS_JSON" ]; then
     log "WARN no $DOMAINS_JSON — nothing to do"
     return 0
@@ -92,8 +93,17 @@ with open(path, encoding="utf-8") as f:
     data = json.load(f)
 for d in data.get("domains") or []:
     fqdn = (d.get("fqdn") or "").strip().lower()
-    if fqdn:
-        print(fqdn)
+    if not fqdn:
+        continue
+    provider = (d.get("provider") or "").strip().lower()
+    challenge = (d.get("challenge") or "").strip().lower()
+    # Legacy manifests without per-domain provider: treat as DNS-01 (sidecar default).
+    if provider in ("http_native",) or challenge in ("http-01", "http_01"):
+        continue
+    if provider and provider not in ("dns_cloudflare", "dns_cf", ""):
+        if provider.startswith("http"):
+            continue
+    print(fqdn)
 PY
     return 0
   fi

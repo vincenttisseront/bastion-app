@@ -94,7 +94,8 @@ def build_acme_domains_manifest(db: Session, settings: Settings) -> dict[str, An
 
     domains.sort(key=lambda d: (_FAMILY_ORDER.get(d["family"], 9), d["fqdn"]))
     return {
-        "challenge": "dns-01",
+        # Top-level default for older sidecars; per-domain ``challenge`` is authoritative.
+        "challenge": "hybrid",
         "dns_api": "dns_cf",
         "scope": "all_bastion_hosts",
         "portal_domain": portal,
@@ -140,11 +141,38 @@ def _collect_infra_acme_domains(settings: Settings, add) -> None:
         )
 
 
+def _enrich_manifest_providers(
+    db: Session, settings: Settings, manifest: dict[str, Any]
+) -> dict[str, Any]:
+    """Attach per-domain provider/challenge from CertificateDomain (hybrid ACME)."""
+    from app.acme.certificate_domain_service import (
+        get_certificate_domain,
+        provider_challenge,
+        resolve_provider_for_domain,
+    )
+
+    for entry in manifest.get("domains") or []:
+        if not isinstance(entry, dict):
+            continue
+        fqdn = str(entry.get("fqdn") or "").strip()
+        if not fqdn:
+            continue
+        existing = get_certificate_domain(db, fqdn)
+        provider = resolve_provider_for_domain(
+            db, settings, fqdn, existing=existing
+        )
+        entry["provider"] = provider
+        entry["challenge"] = provider_challenge(provider)
+    return manifest
+
+
 def write_acme_domains_export(db: Session, settings: Settings) -> Path:
     exports = Path(settings.exports_dir)
     exports.mkdir(parents=True, exist_ok=True)
     path = exports / "acme-domains.json"
-    manifest = build_acme_domains_manifest(db, settings)
+    manifest = _enrich_manifest_providers(
+        db, settings, build_acme_domains_manifest(db, settings)
+    )
     path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
