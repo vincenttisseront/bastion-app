@@ -41,10 +41,13 @@ fi
 
 mkdir -p /var/log/nginx/apps 2>/dev/null || true
 # Shared bind-mount with bastion-app (Admin → Logs → Accès apps).
-# Expected host perms after migrate: 101:65532 mode 2770 (nginx write, app read).
-chmod 0770 /var/log/nginx/apps 2>/dev/null || true
+# Prefer 101:65532; a+rwX so nginx -t still works if CHOWN/FOWNER missing.
+if [[ "$(id -u)" -eq 0 ]]; then
+  chown -R 101:65532 /var/log/nginx/apps 2>/dev/null || true
+fi
+chmod -R a+rwX /var/log/nginx/apps 2>/dev/null || true
 if ! touch /var/log/nginx/apps/.bastion-write-ok 2>/dev/null; then
-  echo "WARN: /var/log/nginx/apps not writable — Accès apps will stay empty" >&2
+  echo "WARN: /var/log/nginx/apps not writable — Accès apps will stay empty (fix-nginx-logs may tmpfs-fallback)" >&2
 else
   rm -f /var/log/nginx/apps/.bastion-write-ok 2>/dev/null || true
 fi
@@ -121,6 +124,13 @@ fi
 # Always rewrite generated/* stubs so Include paths never dangle and a missing
 # export cannot leave a stale On/DetectionOnly or broken exclusions file.
 mkdir -p /etc/nginx/modsecurity/generated
+# Stub so Include audit-log-path.conf never dangles before fix-nginx-logs.sh runs.
+if [[ ! -f /etc/nginx/modsecurity/generated/audit-log-path.conf ]]; then
+  cat > /etc/nginx/modsecurity/generated/audit-log-path.conf <<'EOF'
+# Default — fix-nginx-logs.sh rewrites if nginx-logs volume is not writable.
+SecAuditLog /var/log/nginx/apps/modsec_audit.log
+EOF
+fi
 # crs-setup-generated.conf (id 1000900110) overlays static crs-setup.conf after Admin → Appliquer.
 if [[ -f "$EXPORTS/modsecurity/crs-setup-generated.conf" ]]; then
   if grep -qE 'id:901[0-9]{3},' "$EXPORTS/modsecurity/crs-setup-generated.conf" 2>/dev/null; then

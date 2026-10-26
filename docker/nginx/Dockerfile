@@ -36,6 +36,7 @@ COPY sync-acme-tls.sh /sync-acme-tls.sh
 COPY sync-public-proxy-tls.sh /sync-public-proxy-tls.sh
 COPY watch-exports-reload.sh /watch-exports-reload.sh
 COPY export-waf-snapshot.sh /export-waf-snapshot.sh
+COPY fix-nginx-logs.sh /fix-nginx-logs.sh
 COPY errors/ /var/www/nginx-errors/
 
 # Seed tree for read_only + tmpfs overlays (conf.d / snippets / includes / generated).
@@ -48,10 +49,10 @@ RUN mkdir -p /usr/share/bastion-nginx/seed \
 
 RUN chmod +x /docker-entrypoint-portal.sh /sync-exports-to-confd.sh \
          /sync-acme-tls.sh /sync-public-proxy-tls.sh /watch-exports-reload.sh \
-         /export-waf-snapshot.sh \
+         /export-waf-snapshot.sh /fix-nginx-logs.sh \
     && sed -i 's/\r$//' /docker-entrypoint-portal.sh /sync-exports-to-confd.sh \
          /sync-acme-tls.sh /sync-public-proxy-tls.sh /watch-exports-reload.sh \
-         /export-waf-snapshot.sh \
+         /export-waf-snapshot.sh /fix-nginx-logs.sh \
     && find /etc/nginx/templates-portal /etc/nginx/snippets /etc/nginx/includes \
          /etc/nginx/modsecurity -type f -exec sed -i 's/\r$//' {} + \
     && sed -i 's/\r$//' /etc/logrotate.d/modsecurity

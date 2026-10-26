@@ -59,7 +59,7 @@ while true; do
       nginx -t && nginx -s reload
     fi
   }
-  if "$SYNC" && _test_reload; then
+  if "$SYNC" && /fix-nginx-logs.sh && _test_reload; then
     LAST="$CUR"
     /export-waf-snapshot.sh || echo "bastion-nginx: WARN export-waf-snapshot failed" >&2
     echo "bastion-nginx: reload ok — public_proxy TLS servers:"
