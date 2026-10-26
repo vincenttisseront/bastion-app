@@ -119,6 +119,93 @@ def test_waf_page_ok_as_admin(client: TestClient, db_session: Session, tmp_path:
     assert "Couches de protection" in resp.text
 
 
+def test_waf_page_has_modsecurity_tab(
+    client: TestClient, db_session: Session, tmp_path: Path
+):
+    _seed_profile(db_session)
+    with _patch_snapshot(tmp_path, mode=MODE_OFF):
+        resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert 'data-tab="modsecurity"' in resp.text
+    assert 'id="modsecurity"' in resp.text
+    assert "PHP2Shell" in resp.text
+    assert "name=\"patch_php2shell_enabled\"" not in resp.text
+    assert "/admin/security/waf/modsecurity/packs/php2shell" in resp.text
+    assert 'data-ms-poll-url="/admin/security/waf/modsecurity.json"' in resp.text
+    assert 'id="waf-ms-engine-body"' in resp.text
+    assert 'id="waf-ms-top-rules-body"' in resp.text
+    assert 'id="waf-ms-health-dot"' in resp.text
+    assert "waf-pack-mode-seg" in resp.text
+    assert 'name="mode" value="detection"' in resp.text
+
+
+def test_waf_modsecurity_json(
+    client: TestClient, db_session: Session, tmp_path: Path
+):
+    _seed_profile(db_session)
+    with _patch_snapshot(tmp_path, mode=MODE_OFF):
+        resp = client.get(
+            "/admin/security/waf/modsecurity.json", headers=ADMIN_HEADERS
+        )
+    assert resp.status_code == 200
+    assert resp.headers.get("cache-control") == "no-store"
+    data = resp.json()
+    assert "generated_at" in data
+    ms = data["modsecurity"]
+    assert ms["packs_total"] >= 1
+    assert any(p["id"] == "php2shell" for p in ms["packs"])
+    assert {r["label"] for r in ms["engine_rows"]} == {
+        "Portal",
+        "Subdomain",
+        "Public",
+    }
+    assert ms["crs"]["paranoia"] == 1
+
+
+def test_waf_modsecurity_pack_toggle(
+    client: TestClient, db_session: Session, tmp_path: Path
+):
+    _seed_profile(db_session)
+    profile = db_session.query(WafProfile).filter_by(is_active=True).one()
+    profile.patch_php2shell_enabled = True
+    profile.patch_php2shell_mode = "on"
+    db_session.commit()
+
+    resp = client.post(
+        "/admin/security/waf/modsecurity/packs/php2shell",
+        headers=ADMIN_HEADERS,
+        data={"mode": "detection"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "#modsecurity" in (resp.headers.get("location") or "")
+    db_session.refresh(profile)
+    assert profile.patch_php2shell_mode == "detection"
+    assert profile.patch_php2shell_enabled is True
+
+    resp = client.post(
+        "/admin/security/waf/modsecurity/packs/php2shell",
+        headers=ADMIN_HEADERS,
+        data={"mode": "off"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    db_session.refresh(profile)
+    assert profile.patch_php2shell_mode == "off"
+    assert profile.patch_php2shell_enabled is False
+
+    # Legacy enabled=on still works
+    resp = client.post(
+        "/admin/security/waf/modsecurity/packs/php2shell",
+        headers=ADMIN_HEADERS,
+        data={"enabled": "on"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    db_session.refresh(profile)
+    assert profile.patch_php2shell_mode == "on"
+
+
 def test_waf_page_lists_active_security_bans(
     client: TestClient, db_session: Session, tmp_path: Path
 ):

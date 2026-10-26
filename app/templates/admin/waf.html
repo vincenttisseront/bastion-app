@@ -71,10 +71,11 @@
 
       <form method="post" action="/admin/security/waf/apply" id="waf-apply-form" style="display:inline">
 
-        <button type="submit" class="btn {% if apply_enabled %}btn-primary{% else %}btn-secondary{% endif %} waf-apply-btn"
+        <button type="submit" class="btn {% if apply_enabled %}btn-primary{% else %}btn-secondary{% endif %} waf-apply-btn{% if modsecurity and modsecurity.any_deploy_pending %} waf-apply-btn--pulse{% endif %}"
 
                 id="waf-apply-btn" data-export-pending="{{ 'true' if export_pending else 'false' }}"
                 data-apply-enabled="{{ 'true' if apply_enabled else 'false' }}"
+                data-pack-deploy-pending="{{ 'true' if modsecurity and modsecurity.any_deploy_pending else 'false' }}"
                 {% if not apply_enabled %}disabled aria-disabled="true"{% endif %}
                 title="{% if apply_enabled %}{{ _('Pousser les exports vers nginx') }}{% elif not mode_pilotable %}{{ _('Moteur désarmé : Appliquer pousse encore exclusions, deny IP et rate-limits') }}{% else %}{{ _('Aucun changement en attente') }}{% endif %}">
 
@@ -145,6 +146,7 @@
       <span class="waf-nav-group-label">Configuration</span>
       <div class="tabs" role="tablist" aria-label="{{ _('Configuration WAF') }}">
         <a href="#profile" class="tab" role="tab" data-tab="profile" id="tab-profile" aria-selected="false">{{ _('Profil') }}</a>
+        <a href="#modsecurity" class="tab" role="tab" data-tab="modsecurity" id="tab-modsecurity" aria-selected="false">ModSecurity <span class="badge badge-muted tab-badge" id="waf-ms-tab-badge"{% if not (modsecurity and modsecurity.packs_total) %} hidden{% endif %}>{% if modsecurity %}{{ modsecurity.packs_enabled_count }}/{{ modsecurity.packs_total }}{% endif %}</span></a>
         <a href="#exclusions" class="tab" role="tab" data-tab="exclusions" id="tab-exclusions" aria-selected="false">Exclusions {% if exclusions %}<span class="badge badge-muted tab-badge">{{ exclusions|length }}</span>{% endif %}</a>
         <a href="#headers" class="tab" role="tab" data-tab="headers" id="tab-headers" aria-selected="false">{{ _('En-têtes') }}</a>
         <a href="#technical" class="tab" role="tab" data-tab="technical" id="tab-technical" aria-selected="false">{{ _('Détails techniques') }}</a>
@@ -645,24 +647,7 @@
 
         </div>
 
-        <div class="form-section-sub">{{ _('Packs virtual patches (pre-CRS)') }}</div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-check">
-              <input type="checkbox" name="patch_php2shell_enabled" value="on"
-                     {% if profile.patch_php2shell_enabled %}checked{% endif %}>
-              {{ _('PHP2Shell (CVE-2026-109618 / 109619)') }}
-            </label>
-            <p class="form-help">{{ _('Inclut bastion-virtual-patches.conf avant le CRS. Désactiver seulement si faux positifs confirmés sur multipart légitime.') }}</p>
-            {% if virtual_patches and virtual_patches.any_suggest_enable %}
-            <p class="form-help" style="color:var(--warn)">{{ _('Signal trafic : activer ce pack est recommandé.') }}
-              {% for pack in virtual_patches.packs if pack.suggest_enable %}
-                {% for r in pack.suggest_reasons %}<br><span class="muted">— {{ r }}</span>{% endfor %}
-              {% endfor %}
-            </p>
-            {% endif %}
-          </div>
-        </div>
+        <p class="form-help">{{ _('Packs virtual-patch et état moteur : onglet') }} <a href="#modsecurity">ModSecurity</a>.</p>
 
         <div class="form-section-sub">{{ _('Limites de débit portail (nginx)') }}</div>
 
@@ -705,6 +690,214 @@
   </div>
 
 
+
+  {# ModSecurity #}
+
+  <div class="form-section waf-panel" id="modsecurity" role="tabpanel" aria-labelledby="tab-modsecurity" hidden
+       data-ms-poll-url="/admin/security/waf/modsecurity.json"
+       data-ms-poll-ms="20000"
+       data-label-yes="{{ _('oui') }}"
+       data-label-no="{{ _('non') }}"
+       data-label-mode-off="{{ _('Désactivé') }}"
+       data-label-mode-detection="{{ _('Détection') }}"
+       data-label-mode-on="{{ _('Actif') }}"
+       data-label-pending="{{ _('En attente de déploiement') }}"
+       data-label-apply-hint="{{ _('Enregistre le profil — cliquer Appliquer pour nginx.') }}"
+       data-label-suggest-title="{{ _('Recommandé d’activer') }}"
+       data-label-suggest-global="{{ _('Un ou plusieurs packs désactivés semblent pertinents d’après l’audit ModSecurity.') }}"
+       data-label-engine-empty="{{ _('Snapshot nginx indisponible') }}"
+       data-label-updated="{{ _('Mis à jour') }}"
+       data-label-top-empty="{{ _('Aucune règle dans l’audit récent.') }}">
+    <div class="form-section-header">
+      <div class="form-section-title">
+        ModSecurity
+        {% set ah = (modsecurity or {}).audit_health or {} %}
+        <span class="waf-ms-health-dot {{ ah.css or 'badge-err' }}" id="waf-ms-health-dot"
+              title="{{ ah.detail or ah.label or '' }}"
+              aria-label="{{ ah.label or 'Audit' }}">{{ ah.label or 'Audit' }}</span>
+      </div>
+      <div class="form-section-sub">{{ _('Moteur CRS, packs virtual-patch pre-CRS, chaîne d’Include. Puis') }} <strong>{{ _('Appliquer') }}</strong>.
+        <span class="muted" id="waf-ms-updated" hidden></span>
+      </div>
+    </div>
+    <div class="form-body">
+      {% set ms = modsecurity or {} %}
+
+      <h4 class="waf-subheading">{{ _('État du moteur (par famille)') }}</h4>
+      <div class="data-table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>{{ _('Famille') }}</th>
+              <th>{{ _('Mode') }}</th>
+              <th>{{ _('Armé') }}</th>
+              <th>{{ _('Note') }}</th>
+            </tr>
+          </thead>
+          <tbody id="waf-ms-engine-body">
+            {% for row in ms.engine_rows or [] %}
+            <tr data-family="{{ row.label }}">
+              <td><strong>{{ row.label }}</strong></td>
+              <td><span class="badge {{ row.css }}" data-ms-engine-state>{{ row.state }}</span></td>
+              <td data-ms-engine-armed>{% if row.armed is none %}—{% elif row.armed %}{{ _('oui') }}{% else %}{{ _('non') }}{% endif %}</td>
+              <td class="muted" data-ms-engine-note>{{ row.note }}</td>
+            </tr>
+            {% else %}
+            <tr data-ms-engine-empty><td colspan="4" class="muted">{{ _('Snapshot nginx indisponible') }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="form-help">
+        <a href="#reactivation">{{ _('Réactivation / promotion On') }}</a>
+        · <a href="#profile">{{ _('Profil CRS (mode / seuil)') }}</a>
+        · <span id="waf-ms-health-detail" class="muted" title="{{ (ms.audit_health or {}).detail or '' }}">{{ _('Santé audit') }} : {{ (ms.audit_health or {}).label or '—' }}</span>
+      </p>
+
+      <h4 class="waf-subheading" style="margin-top:1.5rem">{{ _('Règles les plus actives') }}</h4>
+      <div class="data-table-wrapper" id="waf-ms-top-rules-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>{{ _('Description') }}</th>
+              <th>{{ _('Criticité') }}</th>
+              <th>{{ _('Hits') }}</th>
+            </tr>
+          </thead>
+          <tbody id="waf-ms-top-rules-body">
+            {% for r in ms.top_rules or [] %}
+            <tr>
+              <td class="mono">{{ r.rule_id }}</td>
+              <td>{{ r.label }}</td>
+              <td><span class="badge {{ r.css }}">{{ r.severity }}</span></td>
+              <td class="mono">{{ r.count }}</td>
+            </tr>
+            {% else %}
+            <tr data-ms-top-empty><td colspan="4" class="muted">{{ _('Aucune règle dans l’audit récent.') }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <h4 class="waf-subheading" style="margin-top:1.5rem">{{ _('OWASP CRS') }}</h4>
+      {% if ms.crs %}
+      <ul class="muted" style="margin:0 0 1rem;padding-left:1.2rem" id="waf-ms-crs">
+        <li>{{ _('Version setup') }} : <code>OWASP_CRS/<span data-ms-crs-version>{{ ms.crs.setup_version }}</span></code></li>
+        <li>{{ _('Paranoia') }} : PL<span data-ms-crs-paranoia>{{ ms.crs.paranoia }}</span></li>
+        <li>{{ _("Seuil d'anomalie (profil)") }} : <code data-ms-crs-threshold>{{ ms.crs.anomaly_threshold }}</code>
+          · {{ _('mode profil') }} <code data-ms-crs-mode>{{ ms.crs.profile_mode }}</code></li>
+        <li>{{ _('Audit') }} : <code>{{ ms.crs.audit_engine }}</code>
+          · SecRequestBodyAccess {% if ms.crs.body_access %}On{% else %}Off{% endif %}</li>
+      </ul>
+      <details class="sentinel-health-breakdown">
+        <summary>{{ _("Chaîne d'Include ModSecurity") }}</summary>
+        <ol class="muted" style="padding-left:1.2rem">
+          {% for step in ms.crs.include_chain or [] %}
+          <li><code>{{ step }}</code></li>
+          {% endfor %}
+        </ol>
+      </details>
+      {% endif %}
+
+      <h4 class="waf-subheading" style="margin-top:1.5rem">{{ _('Packs virtual-patch') }}</h4>
+      <p class="form-help">{{ _('Trois états : désactivé, détection (sans blocage pack), actif. Puis Appliquer.') }}
+        <span id="waf-ms-packs-count"{% if not ms.packs_total %} hidden{% endif %}>
+        — <span data-ms-packs-enabled>{{ ms.packs_enabled_count }}</span>/<span data-ms-packs-total>{{ ms.packs_total }}</span> {{ _('chargés') }}
+        </span>
+      </p>
+
+      <div class="alert alert-warn" id="waf-ms-suggest-global"{% if not ms.any_suggest_enable %} hidden{% endif %}>
+        <strong>{{ _('Suggestion trafic') }}</strong>
+        <p data-ms-suggest-global-text>{{ _('Un ou plusieurs packs désactivés semblent pertinents d’après l’audit ModSecurity.') }}</p>
+      </div>
+
+      {% for pack in ms.packs or [] %}
+      <article class="sentinel-panel" style="margin-bottom:1rem" id="waf-pack-{{ pack.id }}"
+               data-pack-id="{{ pack.id }}"
+               data-pack-mode="{{ pack.mode }}"
+               data-pack-enabled="{{ '1' if pack.enabled else '0' }}"
+               data-pack-toggleable="{{ '1' if pack.toggleable else '0' }}"
+               data-pack-deploy-pending="{{ '1' if pack.deploy_pending else '0' }}">
+        <div class="sentinel-panel-head">
+          <h3 class="sentinel-panel-title">
+            {{ pack.name }}
+            <span class="badge {% if pack.mode == 'on' %}badge-ok{% elif pack.mode == 'detection' %}badge-warn{% else %}badge-muted{% endif %}" data-pack-status>
+              {% if pack.mode == 'on' %}{{ _('Actif') }}{% elif pack.mode == 'detection' %}{{ _('Détection') }}{% else %}{{ _('Désactivé') }}{% endif %}
+            </span>
+            <span class="badge badge-warn" data-pack-pending{% if not pack.deploy_pending %} hidden{% endif %}>{{ _('En attente de déploiement') }}</span>
+            {% if pack.severity == 'critical' %}<span class="badge badge-err">critical</span>{% endif %}
+          </h3>
+          <span class="sentinel-panel-meta">{{ pack.rule_count }} {{ _('règles') }}
+            {% if pack.conf_basename %}· <code>{{ pack.conf_basename }}</code>{% endif %}
+          </span>
+        </div>
+        <div class="sentinel-panel-body">
+          <p>{{ pack.summary }}</p>
+          <p class="muted">{{ pack.detail }}</p>
+          {% if pack.cves %}
+          <p class="muted">{% for c in pack.cves %}<code>{{ c }}</code>{% if not loop.last %} · {% endif %}{% endfor %}</p>
+          {% endif %}
+          {% if not pack.source_present %}
+          <div class="alert alert-err"><strong>{{ _('Fichier source manquant dans l’image') }}</strong></div>
+          {% endif %}
+          <div class="alert alert-warn" data-pack-suggest{% if not pack.suggest_enable %} hidden{% endif %}>
+            <strong>{{ _('Recommandé d’activer') }}</strong>
+            <ul data-pack-suggest-reasons>{% for r in pack.suggest_reasons %}<li>{{ r }}</li>{% endfor %}</ul>
+          </div>
+
+          <div class="data-table-wrapper" style="margin:1rem 0">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>{{ _('Titre') }}</th>
+                  <th>Phase</th>
+                  <th>{{ _('Action') }}</th>
+                  <th>{{ _('Cibles') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for rule in pack.rules %}
+                <tr>
+                  <td class="mono">{{ rule.id }}</td>
+                  <td>{{ rule.title }}</td>
+                  <td>{{ rule.phase }}</td>
+                  <td><code>{{ rule.action }}</code></td>
+                  <td class="mono">{{ rule.targets }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          {% if pack.toggleable %}
+          <form method="post" action="/admin/security/waf/modsecurity/packs/{{ pack.id }}" class="inline-form waf-pack-toggle" data-pack-toggle-form>
+            <div class="waf-pack-mode-seg" role="group" aria-label="{{ _('Mode du pack') }}">
+              <button type="submit" name="mode" value="off" class="waf-pack-mode-btn{% if pack.mode == 'off' %} is-active{% endif %}" data-mode="off">{{ _('Désactivé') }}</button>
+              <button type="submit" name="mode" value="detection" class="waf-pack-mode-btn{% if pack.mode == 'detection' %} is-active{% endif %}" data-mode="detection">{{ _('Détection') }}</button>
+              <button type="submit" name="mode" value="on" class="waf-pack-mode-btn{% if pack.mode == 'on' %} is-active{% endif %}" data-mode="on">{{ _('Actif') }}</button>
+            </div>
+            <span class="form-help muted">{{ _('Enregistre le profil — cliquer Appliquer pour nginx.') }}</span>
+          </form>
+          {% else %}
+          <p class="form-help muted">{{ _('Pack non pilotable depuis l’UI (catalogue figé).') }}</p>
+          {% endif %}
+        </div>
+      </article>
+      {% else %}
+      <div class="empty-state">
+        <div class="empty-title">{{ _('Aucun pack déclaré') }}</div>
+        <div class="empty-desc">{{ _('Le catalogue virtual-patch est vide.') }}</div>
+      </div>
+      {% endfor %}
+
+      <div class="form-footer form-footer-flush" style="justify-content:flex-start;gap:.5rem;margin-top:1rem">
+        <a class="btn btn-secondary" href="#exclusions">{{ _('Gérer les exclusions CRS') }}</a>
+        <a class="btn btn-secondary" href="#reactivation">{{ _('Réactivation moteur') }}</a>
+      </div>
+    </div>
+  </div>
 
   {# Exclusions #}
 
@@ -1255,11 +1448,11 @@
 
 (function () {
 
-  var VALID = ['bilan', 'profile', 'exclusions', 'headers', 'technical', 'reactivation'];
+  var VALID = ['bilan', 'profile', 'modsecurity', 'exclusions', 'headers', 'technical', 'reactivation'];
 
   var DEFAULT = 'bilan';
 
-  var CONFIG_TABS = ['profile', 'exclusions', 'headers', 'technical', 'reactivation'];
+  var CONFIG_TABS = ['profile', 'modsecurity', 'exclusions', 'headers', 'technical', 'reactivation'];
 
 
 
@@ -1357,6 +1550,8 @@
       group.classList.toggle('is-active-group', active);
     });
 
+    if (typeof window.__wafMsPollSync === 'function') window.__wafMsPollSync(id);
+
   }
 
 
@@ -1364,6 +1559,271 @@
   activate(currentTab());
 
   window.addEventListener('hashchange', function () { activate(currentTab()); });
+
+  /* ModSecurity tab: soft refresh engine/packs without full page reload */
+  (function () {
+    var root = document.getElementById('modsecurity');
+    if (!root) return;
+    var url = root.getAttribute('data-ms-poll-url') || '/admin/security/waf/modsecurity.json';
+    var intervalMs = parseInt(root.getAttribute('data-ms-poll-ms') || '20000', 10) || 20000;
+    var timer = null;
+    var inflight = false;
+    var lastFingerprint = '';
+
+    function label(key, fallback) {
+      return root.getAttribute('data-label-' + key) || fallback || '';
+    }
+
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function setText(el, text) {
+      if (el) el.textContent = text == null ? '' : String(text);
+    }
+
+    function armedLabel(armed) {
+      if (armed === null || armed === undefined) return '—';
+      return armed ? label('yes', 'oui') : label('no', 'non');
+    }
+
+    function renderEngine(rows) {
+      var tbody = document.getElementById('waf-ms-engine-body');
+      if (!tbody) return;
+      if (!rows || !rows.length) {
+        tbody.innerHTML = '<tr data-ms-engine-empty><td colspan="4" class="muted">' +
+          esc(label('engine-empty', 'Snapshot nginx indisponible')) + '</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map(function (row) {
+        return '<tr data-family="' + esc(row.label) + '">' +
+          '<td><strong>' + esc(row.label) + '</strong></td>' +
+          '<td><span class="badge ' + esc(row.css || 'badge-muted') + '" data-ms-engine-state">' +
+          esc(row.state) + '</span></td>' +
+          '<td data-ms-engine-armed>' + esc(armedLabel(row.armed)) + '</td>' +
+          '<td class="muted" data-ms-engine-note>' + esc(row.note || '') + '</td></tr>';
+      }).join('');
+    }
+
+    function modeLabel(mode) {
+      if (mode === 'on') return label('mode-on', 'Actif');
+      if (mode === 'detection') return label('mode-detection', 'Détection');
+      return label('mode-off', 'Désactivé');
+    }
+
+    function modeBadgeClass(mode) {
+      if (mode === 'on') return 'badge badge-ok';
+      if (mode === 'detection') return 'badge badge-warn';
+      return 'badge badge-muted';
+    }
+
+    function setApplyPulse(pending) {
+      var btn = document.getElementById('waf-apply-btn');
+      var badge = document.getElementById('waf-apply-badge');
+      if (btn) {
+        btn.classList.toggle('waf-apply-btn--pulse', !!pending);
+        btn.setAttribute('data-pack-deploy-pending', pending ? 'true' : 'false');
+        if (pending) {
+          btn.disabled = false;
+          btn.setAttribute('aria-disabled', 'false');
+          btn.setAttribute('data-apply-enabled', 'true');
+          btn.classList.add('btn-primary');
+          btn.classList.remove('btn-secondary');
+        }
+      }
+      if (badge && pending) {
+        badge.className = 'badge badge-warn';
+        badge.textContent = label('pending', 'En attente');
+      }
+    }
+
+    function renderTopRules(rows) {
+      var tbody = document.getElementById('waf-ms-top-rules-body');
+      if (!tbody) return;
+      if (!rows || !rows.length) {
+        tbody.innerHTML = '<tr data-ms-top-empty><td colspan="4" class="muted">' +
+          esc(label('top-empty', 'Aucune règle dans l’audit récent.')) + '</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map(function (r) {
+        return '<tr><td class="mono">' + esc(r.rule_id) + '</td><td>' + esc(r.label) +
+          '</td><td><span class="badge ' + esc(r.css || 'badge-muted') + '">' + esc(r.severity) +
+          '</span></td><td class="mono">' + esc(r.count) + '</td></tr>';
+      }).join('');
+    }
+
+    function updatePack(pack) {
+      var article = document.getElementById('waf-pack-' + pack.id);
+      if (!article) return;
+      var mode = pack.mode || (pack.enabled ? 'on' : 'off');
+      article.setAttribute('data-pack-mode', mode);
+      article.setAttribute('data-pack-enabled', mode === 'off' ? '0' : '1');
+      article.setAttribute('data-pack-deploy-pending', pack.deploy_pending ? '1' : '0');
+
+      var status = article.querySelector('[data-pack-status]');
+      if (status) {
+        status.className = modeBadgeClass(mode);
+        status.textContent = modeLabel(mode);
+      }
+      var pending = article.querySelector('[data-pack-pending]');
+      if (pending) pending.hidden = !pack.deploy_pending;
+
+      var suggest = article.querySelector('[data-pack-suggest]');
+      if (suggest) {
+        suggest.hidden = !pack.suggest_enable;
+        var ul = suggest.querySelector('[data-pack-suggest-reasons]');
+        if (ul && pack.suggest_enable) {
+          ul.innerHTML = (pack.suggest_reasons || []).map(function (r) {
+            return '<li>' + esc(r) + '</li>';
+          }).join('');
+        }
+      }
+
+      article.querySelectorAll('.waf-pack-mode-btn').forEach(function (btn) {
+        btn.classList.toggle('is-active', btn.getAttribute('data-mode') === mode);
+      });
+    }
+
+    function applyPayload(data) {
+      var ms = (data && data.modsecurity) || {};
+      renderEngine(ms.engine_rows || []);
+      renderTopRules(ms.top_rules || []);
+
+      var health = ms.audit_health || {};
+      var dot = document.getElementById('waf-ms-health-dot');
+      if (dot) {
+        dot.className = 'waf-ms-health-dot ' + (health.css || 'badge-err');
+        dot.textContent = health.label || 'Audit';
+        dot.title = health.detail || health.label || '';
+        dot.setAttribute('aria-label', health.label || 'Audit');
+      }
+      var healthDetail = document.getElementById('waf-ms-health-detail');
+      if (healthDetail) {
+        healthDetail.textContent = 'Santé audit : ' + (health.label || '—');
+        healthDetail.title = health.detail || '';
+      }
+
+      var crs = ms.crs || {};
+      setText(root.querySelector('[data-ms-crs-threshold]'), crs.anomaly_threshold);
+      setText(root.querySelector('[data-ms-crs-mode]'), crs.profile_mode);
+      if (crs.setup_version != null) setText(root.querySelector('[data-ms-crs-version]'), crs.setup_version);
+      if (crs.paranoia != null) setText(root.querySelector('[data-ms-crs-paranoia]'), crs.paranoia);
+
+      var countWrap = document.getElementById('waf-ms-packs-count');
+      var enabledEl = root.querySelector('[data-ms-packs-enabled]');
+      var totalEl = root.querySelector('[data-ms-packs-total]');
+      var total = ms.packs_total || 0;
+      var enabledCount = ms.packs_enabled_count || 0;
+      if (countWrap) countWrap.hidden = !total;
+      setText(enabledEl, enabledCount);
+      setText(totalEl, total);
+
+      var tabBadge = document.getElementById('waf-ms-tab-badge');
+      if (tabBadge) {
+        tabBadge.hidden = !total;
+        tabBadge.textContent = total ? (enabledCount + '/' + total) : '';
+      }
+
+      var globalSuggest = document.getElementById('waf-ms-suggest-global');
+      if (globalSuggest) {
+        globalSuggest.hidden = !ms.any_suggest_enable;
+        var gtxt = globalSuggest.querySelector('[data-ms-suggest-global-text]');
+        if (gtxt && ms.any_suggest_enable) {
+          gtxt.textContent = label('suggest-global', gtxt.textContent);
+        }
+      }
+
+      (ms.packs || []).forEach(updatePack);
+      setApplyPulse(!!ms.any_deploy_pending);
+
+      var stamp = document.getElementById('waf-ms-updated');
+      if (stamp) {
+        var d = data.generated_at ? new Date(data.generated_at) : new Date();
+        var hh = String(d.getHours()).padStart(2, '0');
+        var mm = String(d.getMinutes()).padStart(2, '0');
+        var ss = String(d.getSeconds()).padStart(2, '0');
+        stamp.hidden = false;
+        stamp.textContent = ' · ' + label('updated', 'Mis à jour') + ' ' + hh + ':' + mm + ':' + ss;
+      }
+    }
+
+    function fingerprint(ms) {
+      try {
+        return JSON.stringify({
+          e: (ms.engine_rows || []).map(function (r) { return [r.label, r.state, r.armed]; }),
+          c: ms.crs && [ms.crs.anomaly_threshold, ms.crs.profile_mode],
+          p: (ms.packs || []).map(function (p) {
+            return [p.id, p.mode, p.deploy_pending, p.suggest_enable, p.suggest_reasons];
+          }),
+          t: (ms.top_rules || []).map(function (r) { return [r.rule_id, r.count]; }),
+          h: ms.audit_health && [ms.audit_health.level, ms.audit_health.mtime_age_seconds],
+          s: !!ms.any_suggest_enable,
+          d: !!ms.any_deploy_pending,
+          n: [ms.packs_enabled_count, ms.packs_total],
+        });
+      } catch (err) {
+        return String(Date.now());
+      }
+    }
+
+    function tick() {
+      if (inflight || document.hidden || currentTab() !== 'modsecurity') return;
+      inflight = true;
+      fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+        .then(function (r) {
+          if (!r.ok) throw new Error('ms poll ' + r.status);
+          return r.json();
+        })
+        .then(function (data) {
+          var fp = fingerprint((data && data.modsecurity) || {});
+          if (fp !== lastFingerprint) {
+            lastFingerprint = fp;
+            applyPayload(data);
+          } else {
+            var stamp = document.getElementById('waf-ms-updated');
+            if (stamp && data.generated_at) {
+              var d = new Date(data.generated_at);
+              var hh = String(d.getHours()).padStart(2, '0');
+              var mm = String(d.getMinutes()).padStart(2, '0');
+              var ss = String(d.getSeconds()).padStart(2, '0');
+              stamp.hidden = false;
+              stamp.textContent = ' · ' + label('updated', 'Mis à jour') + ' ' + hh + ':' + mm + ':' + ss;
+            }
+          }
+        })
+        .catch(function () { /* keep last UI */ })
+        .finally(function () { inflight = false; });
+    }
+
+    function stop() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    }
+
+    function start() {
+      if (timer || document.hidden) return;
+      tick();
+      timer = setInterval(tick, intervalMs);
+    }
+
+    window.__wafMsPollSync = function (tabId) {
+      if (tabId === 'modsecurity') start();
+      else stop();
+    };
+
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) stop();
+      else if (currentTab() === 'modsecurity') start();
+    });
+
+    if (currentTab() === 'modsecurity') start();
+  })();
 
 
 

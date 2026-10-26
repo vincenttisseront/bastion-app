@@ -184,6 +184,66 @@ def update_active_profile(
     return profile
 
 
+def set_virtual_pack_enabled(
+    db: Session,
+    *,
+    pack_id: str,
+    enabled: bool,
+    actor: str,
+    ip_address: str | None = None,
+) -> WafProfile:
+    """Backward-compatible boolean toggle (on|off). Prefer set_virtual_pack_mode."""
+    from app.bastion.waf_virtual_patches import PACK_MODE_OFF, PACK_MODE_ON
+
+    return set_virtual_pack_mode(
+        db,
+        pack_id=pack_id,
+        mode=PACK_MODE_ON if enabled else PACK_MODE_OFF,
+        actor=actor,
+        ip_address=ip_address,
+    )
+
+
+def set_virtual_pack_mode(
+    db: Session,
+    *,
+    pack_id: str,
+    mode: str,
+    actor: str,
+    ip_address: str | None = None,
+) -> WafProfile:
+    """Set a ModSecurity virtual-patch pack mode (off|detection|on)."""
+    from app.bastion.waf_virtual_patches import (
+        get_pack_def,
+        profile_pack_mode,
+        set_profile_pack_mode,
+    )
+
+    meta = get_pack_def(pack_id)
+    if not meta:
+        raise ValueError(f"pack ModSecurity inconnu: {pack_id}")
+    profile = ensure_active_profile(db)
+    before = profile_pack_mode(profile, pack_id)
+    after = set_profile_pack_mode(profile, pack_id, mode=mode)
+    db.commit()
+    db.refresh(profile)
+    if before != after:
+        log_action(
+            db,
+            actor=actor,
+            action="security.waf.virtual_pack_toggled",
+            target=pack_id,
+            details={
+                "pack": pack_id,
+                "mode": after,
+                "enabled": after != "off",
+                "name": meta.get("name"),
+            },
+            ip_address=ip_address,
+        )
+    return profile
+
+
 def _require_exclusion_reason(reason: str) -> str:
     reason_s = (reason or "").strip()
     if not reason_s:
