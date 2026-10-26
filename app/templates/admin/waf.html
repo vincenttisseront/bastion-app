@@ -1116,7 +1116,7 @@
           {% if not pack.source_present %}
           <div class="alert alert-err waf-pack-source-missing">
             <strong>{{ _('Fichier source manquant dans l’image') }}</strong>
-            <p class="muted" style="margin:.35rem 0 0">{{ _('Le .conf du pack n’est pas dans l’image app — rebuild bastion-pro-app avec docker/nginx/modsecurity/*.conf.') }}</p>
+            <p class="muted" style="margin:.35rem 0 0">{{ _('Le .conf du pack est absent de app/bastion/packs/conf/ dans cette image — rebuild bastion-pro-app.') }}</p>
           </div>
           {% endif %}
           <div class="alert alert-warn waf-pack-suggest" data-pack-suggest{% if not pack.suggest_enable or not pack.suggest_reasons %} hidden{% endif %}>

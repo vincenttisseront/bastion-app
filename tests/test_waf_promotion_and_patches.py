@@ -32,6 +32,23 @@ def test_pack_source_present_rejects_path_traversal_and_finds_repo_confs():
     assert pack_source_present("") is False
 
 
+def test_pack_conf_mirror_matches_nginx_tree():
+    """App image mirror must stay byte-identical to nginx pack sources."""
+    from app.bastion.waf_virtual_patches import PACKS_CONF_DIR, REPO_MODSEC
+
+    for name in (
+        "bastion-virtual-patches.conf",
+        "bastion-pack-wordpress-cms.conf",
+        "bastion-pack-api-json-strict.conf",
+        "bastion-pack-rce-extended.conf",
+    ):
+        app_f = PACKS_CONF_DIR / name
+        ngx_f = REPO_MODSEC / name
+        assert app_f.is_file(), app_f
+        if ngx_f.is_file():
+            assert app_f.read_bytes() == ngx_f.read_bytes(), name
+
+
 def test_virtual_patches_conf_include_when_enabled():
     text = render_virtual_patches_enabled_conf(php2shell_enabled=True)
     assert "Include /etc/nginx/modsecurity/bastion-virtual-patches.conf" in text
