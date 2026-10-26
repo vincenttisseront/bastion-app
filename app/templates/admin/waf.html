@@ -3,7 +3,7 @@
 {% block title %}WAF{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20261026-waf-global">
+<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20261026-waf-pack-source">
 {% endblock %}
 
 {% block breadcrumb %}Admin / {{ _('Sécurité') }} / WAF{% endblock %}
@@ -1114,10 +1114,13 @@
           <p class="waf-pack-cves muted">{% for c in pack.cves %}<code>{{ c }}</code>{% if not loop.last %} · {% endif %}{% endfor %}</p>
           {% endif %}
           {% if not pack.source_present %}
-          <div class="alert alert-err waf-pack-source-missing"><strong>{{ _('Fichier source manquant dans l’image') }}</strong></div>
+          <div class="alert alert-err waf-pack-source-missing">
+            <strong>{{ _('Fichier source manquant dans l’image') }}</strong>
+            <p class="muted" style="margin:.35rem 0 0">{{ _('Le .conf du pack n’est pas dans l’image app — rebuild bastion-pro-app avec docker/nginx/modsecurity/*.conf.') }}</p>
+          </div>
           {% endif %}
-          <div class="alert alert-warn" data-pack-suggest{% if not pack.suggest_enable %} hidden{% endif %}>
-            <strong>{{ _('Recommandé pour votre stack') }}</strong>
+          <div class="alert alert-warn waf-pack-suggest" data-pack-suggest{% if not pack.suggest_enable or not pack.suggest_reasons %} hidden{% endif %}>
+            <strong>{{ _('Pourquoi ce pack') }}</strong>
             <ul data-pack-suggest-reasons>{% for r in pack.suggest_reasons %}<li>{{ r }}</li>{% endfor %}</ul>
           </div>
 
@@ -2173,10 +2176,11 @@
 
       var suggest = article.querySelector('[data-pack-suggest]');
       if (suggest) {
-        suggest.hidden = !pack.suggest_enable;
+        var reasons = pack.suggest_reasons || [];
+        suggest.hidden = !(pack.suggest_enable && reasons.length);
         var ul = suggest.querySelector('[data-pack-suggest-reasons]');
         if (ul && pack.suggest_enable) {
-          ul.innerHTML = (pack.suggest_reasons || []).map(function (r) {
+          ul.innerHTML = reasons.map(function (r) {
             return '<li>' + esc(r) + '</li>';
           }).join('');
         }

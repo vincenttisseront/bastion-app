@@ -15,12 +15,21 @@ from app.bastion.waf_virtual_patches import (
     build_modsecurity_page,
     build_top_rules_live,
     build_virtual_patches_panel,
+    pack_source_present,
     render_virtual_patches_enabled_conf,
     render_virtual_patches_enabled_conf_from_modes,
     set_profile_pack_mode,
 )
 from app.models import WafProfile
 from app.sso_settings import Settings
+
+
+def test_pack_source_present_rejects_path_traversal_and_finds_repo_confs():
+    assert pack_source_present("bastion-virtual-patches.conf") is True
+    assert pack_source_present("bastion-pack-wordpress-cms.conf") is True
+    assert pack_source_present("../bastion-virtual-patches.conf") is False
+    assert pack_source_present("missing-pack.conf") is False
+    assert pack_source_present("") is False
 
 
 def test_virtual_patches_conf_include_when_enabled():
