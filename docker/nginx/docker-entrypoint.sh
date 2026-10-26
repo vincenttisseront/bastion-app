@@ -157,6 +157,15 @@ _nginx_as_worker() {
   fi
 }
 
+# Probe once: cap_drop ALL without SETUID/SETGID → setgroups EPERM.
+if [[ "${_drop_to_nginx}" -eq 1 ]]; then
+  if ! su-exec nginx:nginx true 2>/tmp/bastion-suexec.err; then
+    echo "ERROR: su-exec nginx failed — compose must cap_add SETUID+SETGID under cap_drop ALL" >&2
+    cat /tmp/bastion-suexec.err >&2 || true
+    exit 1
+  fi
+fi
+
 _nginx_as_worker mkdir -p \
   /var/cache/nginx/client_temp \
   /var/cache/nginx/proxy_temp \

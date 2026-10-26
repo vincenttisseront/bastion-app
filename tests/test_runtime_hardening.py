@@ -49,6 +49,8 @@ def test_compose_hardening_flags():
     assert "read_only: true" in compose
     assert "cap_drop:" in compose
     assert "NET_BIND_SERVICE" in compose
+    assert "SETUID" in compose
+    assert "SETGID" in compose
     assert "/etc/nginx/conf.d:size=" in compose
     assert "mode=0777" in compose
     assert "/tmp:size=256M" in compose or "/tmp:size=64M" in compose
@@ -69,6 +71,7 @@ def test_nginx_dockerfile_seeds_tmpfs_overlay():
     assert "su-exec nginx:nginx" in entry
     assert "_nginx_as_worker" in entry
     assert "client_temp" in entry
+    assert "SETUID+SETGID" in entry
     assert "entrypoint uid=" in entry
     assert "tmpfs must be mode 0777" in entry or "mode 0777 under cap_drop" in entry
     assert "CAP_CHOWN" in entry or "chown(" in entry
