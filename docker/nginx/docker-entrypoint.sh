@@ -140,7 +140,32 @@ if ! grep -qE 'listen[[:space:]]+0\.0\.0\.0:8080[[:space:]]+default_server' \
   exit 1
 fi
 
-nginx -t
+# Under cap_drop ALL, root has no CAP_CHOWN. Running ``nginx -t`` as uid 0 makes
+# the master try chown(.../client_temp, 101) → emerg Operation not permitted.
+# Create cache dirs + test + final exec as nginx whenever we will drop privileges.
+_drop_to_nginx=0
+if [[ "$(id -u)" -eq 0 ]] && command -v su-exec >/dev/null 2>&1 \
+  && [[ "${BASTION_NGINX_KEEP_ROOT:-0}" != "1" ]]; then
+  _drop_to_nginx=1
+fi
+
+_nginx_as_worker() {
+  if [[ "${_drop_to_nginx}" -eq 1 ]]; then
+    su-exec nginx:nginx "$@"
+  else
+    "$@"
+  fi
+}
+
+_nginx_as_worker mkdir -p \
+  /var/cache/nginx/client_temp \
+  /var/cache/nginx/proxy_temp \
+  /var/cache/nginx/fastcgi_temp \
+  /var/cache/nginx/uwsgi_temp \
+  /var/cache/nginx/scgi_temp \
+  /var/run
+
+_nginx_as_worker nginx -t
 /export-waf-snapshot.sh || echo "WARN: export-waf-snapshot failed" >&2
 
 # Daily logrotate + snapshot WAF toutes les 5 min (crond Alpine).
@@ -175,8 +200,7 @@ if [[ "${BASTION_EXPORTS_WATCH:-1}" != "0" ]]; then
   /watch-exports-reload.sh &
 fi
 
-if [[ "$(id -u)" -eq 0 ]] && command -v su-exec >/dev/null 2>&1 \
-  && [[ "${BASTION_NGINX_KEEP_ROOT:-0}" != "1" ]]; then
+if [[ "${_drop_to_nginx}" -eq 1 ]]; then
   echo "INFO: dropping privileges to nginx after cert mirror / conf render"
   exec su-exec nginx:nginx "$@"
 fi
