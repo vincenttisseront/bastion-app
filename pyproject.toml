@@ -20,6 +20,8 @@ dependencies = [
     # Admin MFA TOTP (Phase A) — secrets Fernet-wrapped via app.secret_crypto.
     "pyotp>=2.9.0",
     "qrcode>=8.0",
+    # Admin MFA WebAuthn / Passkeys (Phase B).
+    "webauthn>=2.0",
     "sqlalchemy>=2.0.51",
     "jinja2>=3.1.6",
     "python-multipart>=0.0.32",

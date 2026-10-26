@@ -1,5 +1,6 @@
 """Portal configuration via environment variables."""
 
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Annotated, Any
 
@@ -296,6 +297,52 @@ class Settings(BaseSettings):
             "vault_key_rotation_days",
         ),
     )
+
+    # Admin MFA enforcement (Phase B) — grace then hard redirect to enrollment.
+    mfa_enforcement_required: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "MFA_ENFORCEMENT_REQUIRED",
+            "mfa_enforcement_required",
+        ),
+    )
+    # ISO-8601 date/datetime (UTC). Empty → unset (no deadline until configured).
+    mfa_enforcement_pivot_date: datetime | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MFA_ENFORCEMENT_PIVOT_DATE",
+            "mfa_enforcement_pivot_date",
+        ),
+    )
+    mfa_enforcement_grace_days: int = Field(
+        default=7,
+        validation_alias=AliasChoices(
+            "MFA_ENFORCEMENT_GRACE_DAYS",
+            "mfa_enforcement_grace_days",
+        ),
+    )
+
+    @field_validator("mfa_enforcement_pivot_date", mode="before")
+    @classmethod
+    def _parse_mfa_pivot_date(cls, value: Any) -> datetime | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, datetime):
+            return (
+                value
+                if value.tzinfo
+                else value.replace(tzinfo=timezone.utc)
+            )
+        text = str(value).strip()
+        if not text:
+            return None
+        # Accept YYYY-MM-DD or full ISO.
+        if len(text) == 10 and text[4] == "-" and text[7] == "-":
+            text = text + "T00:00:00+00:00"
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
 
     subdomain_sso_enabled: bool = Field(
         default=False,

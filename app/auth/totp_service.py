@@ -169,13 +169,20 @@ def mfa_status_dict(db: Session, user_email: str) -> dict[str, Any]:
             "totp_enabled": False,
             "totp_pending": False,
             "webauthn_enabled": False,
+            "webauthn_credential_id": None,
+            "any_enabled": False,
         }
+    any_enabled = bool(row.totp_enabled or row.webauthn_enabled)
     return {
         "totp_enabled": bool(row.totp_enabled),
         "totp_pending": bool(
             (row.totp_secret or "").strip() and not row.totp_enabled
         ),
         "webauthn_enabled": bool(row.webauthn_enabled),
+        "webauthn_credential_id": row.webauthn_credential_id
+        if row.webauthn_enabled
+        else None,
+        "any_enabled": any_enabled,
     }
 
 
