@@ -72,6 +72,7 @@ def test_nginx_dockerfile_seeds_tmpfs_overlay():
     assert "_nginx_as_worker" in entry
     assert "client_temp" in entry
     assert "SETUID+SETGID" in entry
+    assert "read_only rootfs" in entry
     assert "entrypoint uid=" in entry
     assert "tmpfs must be mode 0777" in entry or "mode 0777 under cap_drop" in entry
     assert "CAP_CHOWN" in entry or "chown(" in entry

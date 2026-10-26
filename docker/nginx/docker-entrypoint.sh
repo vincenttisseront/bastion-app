@@ -178,17 +178,22 @@ _nginx_as_worker nginx -t
 /export-waf-snapshot.sh || echo "WARN: export-waf-snapshot failed" >&2
 
 # Daily logrotate + snapshot WAF toutes les 5 min (crond Alpine).
-# Requires root; skipped under hardened non-root runtime (watch + app aggregator cover snapshots).
+# Needs a writable /etc (not compose read_only) + root. Otherwise watch / app aggregator cover it.
+_rootfs_writable=0
+if touch /etc/.bastion-rw-probe 2>/dev/null; then
+  rm -f /etc/.bastion-rw-probe 2>/dev/null || true
+  _rootfs_writable=1
+fi
 if [[ "$(id -u)" -eq 0 ]] \
+  && [[ "${_rootfs_writable}" -eq 1 ]] \
   && [[ "${BASTION_MODSEC_LOGROTATE:-1}" != "0" ]] \
   && command -v crond >/dev/null 2>&1; then
-  mkdir -p /etc/periodic/daily
+  mkdir -p /etc/periodic/daily /etc/periodic/5min
   cat > /etc/periodic/daily/modsecurity-logrotate <<'EOF'
 #!/bin/sh
 /usr/sbin/logrotate -f /etc/logrotate.d/modsecurity >/dev/null 2>&1 || true
 EOF
   chmod +x /etc/periodic/daily/modsecurity-logrotate
-  mkdir -p /etc/periodic/5min
   cat > /etc/periodic/5min/waf-snapshot <<'EOF'
 #!/bin/sh
 /export-waf-snapshot.sh >/dev/null 2>&1 || true
@@ -198,6 +203,8 @@ EOF
     echo '*/5 * * * * run-parts /etc/periodic/5min' >> /etc/crontabs/root
   fi
   crond -b -l 8 || echo "WARN: crond failed to start — modsec logrotate / waf-snapshot inactive" >&2
+elif [[ "${_rootfs_writable}" -eq 0 ]]; then
+  echo "INFO: read_only rootfs — crond/logrotate skipped (snapshots via watch / bastion-app)"
 elif [[ "$(id -u)" -ne 0 ]]; then
   echo "INFO: non-root runtime — crond skipped (snapshots via watch / bastion-app aggregator)"
 fi
