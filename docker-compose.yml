@@ -207,6 +207,8 @@ services:
       # Without DAC_OVERRIDE every FQDN is skipped → :443 serves only bastion-default.
       - DAC_OVERRIDE
       - FOWNER
+      # chown nginx-logs volume to 101:65532 so access_log open() works for uid 101.
+      - CHOWN
     mem_limit: ${BASTION_NGINX_MEM_LIMIT:-1g}
     cpus: ${BASTION_NGINX_CPUS:-1.0}
     # Match worker_rlimit_nofile in docker/nginx/nginx.conf (default Docker soft=1024 → EMFILE).
