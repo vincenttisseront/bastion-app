@@ -623,10 +623,16 @@ def build_modsecurity_page(
     from app.bastion.nginx_waf_export import clamp_paranoia_level
 
     paranoia = clamp_paranoia_level(getattr(profile, "paranoia_level", 1))
+    from app.bastion.waf_sandbox import build_sandbox_readiness
+
+    sandbox = build_sandbox_readiness(
+        settings, active=active, audit_health=audit_health
+    )
     return {
         "engine_rows": engine_rows,
         "audit_health": audit_health,
         "top_rules": top_rules,
+        "sandbox": sandbox,
         "crs": {
             "setup_version": "4.28.0",
             "paranoia": paranoia,
