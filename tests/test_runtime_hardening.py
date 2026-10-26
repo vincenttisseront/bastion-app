@@ -67,8 +67,11 @@ def test_nginx_dockerfile_seeds_tmpfs_overlay():
     assert "_seed_nginx_writable_dirs" in entry
     assert "BASTION_NGINX_SEED" in entry
     assert "su-exec nginx:nginx" in entry
+    assert "_nginx_as_worker" in entry
+    assert "client_temp" in entry
     assert "entrypoint uid=" in entry
     assert "tmpfs must be mode 0777" in entry or "mode 0777 under cap_drop" in entry
+    assert "CAP_CHOWN" in entry or "chown(" in entry
     # Non-root + exports:ro must not abort on modsec_audit touch.
     assert "modsec_audit.log" in entry
     assert "not writable" in entry
