@@ -141,20 +141,26 @@ emit_rows() {
 # Host certs are often root:600 (acme.sh). Non-root nginx (uid 101) cannot read
 # them → every FQDN skipped → only bastion-default on :443. Mirror into ssl-local
 # tmpfs when readable; warn loudly when present but unreadable.
+_mirrored=0
+_skipped=0
 _mirror_cert() {
   local fqdn="$1" src_cert="$2" src_key="$3"
   local dest="$LOCAL_SSL/$fqdn"
   mkdir -p "$dest" 2>/dev/null || true
+  # Root entrypoint can read root:600; non-root needs host chmod 644.
   if [[ -r "$src_cert" && -r "$src_key" ]]; then
     cp -f "$src_cert" "$dest/fullchain.pem" && cp -f "$src_key" "$dest/privkey.pem" || return 1
     chmod 644 "$dest/fullchain.pem" "$dest/privkey.pem" 2>/dev/null || true
+    _mirrored=$((_mirrored + 1))
     return 0
   fi
   if [[ -f "$src_cert" || -f "$src_key" ]]; then
-    echo "WARN: skip $fqdn — certs present but not readable by uid=$(id -u) (fix host certs mode, expect 644)" >&2
+    echo "WARN: skip $fqdn — certs present but not readable by uid=$(id -u) (entrypoint must start as root to mirror)" >&2
+    _skipped=$((_skipped + 1))
     return 1
   fi
   echo "# skip $fqdn — certs not ready" >> "$OUT"
+  _skipped=$((_skipped + 1))
   return 1
 }
 
@@ -264,3 +270,8 @@ ${_proxy_headers}
 EOF
   fi
 done < <(emit_rows)
+
+echo "INFO: ACME TLS mirrored=${_mirrored} skipped=${_skipped} uid=$(id -u) certs=${CERTS}" >&2
+if [[ "${_mirrored}" -eq 0 ]]; then
+  echo "WARN: no Let's Encrypt certs loaded — :443 serves only bastion-default (check acme-domains.json + ${CERTS}/<fqdn>/*.pem)" >&2
+fi

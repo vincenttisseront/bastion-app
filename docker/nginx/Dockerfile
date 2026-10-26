@@ -13,7 +13,7 @@ FROM owasp/modsecurity-crs:4.28.0-nginx-alpine-202607160307
 # Image defaults to USER nginx; apk and COPY need root during the build.
 USER root
 
-RUN apk add --no-cache bash gettext wget jq findutils openssl logrotate \
+RUN apk add --no-cache bash gettext wget jq findutils openssl logrotate su-exec \
     && rm -f /etc/nginx/conf.d/default.conf \
     && mkdir -p /etc/nginx/snippets /etc/nginx/includes /etc/nginx/modsecurity \
     && mkdir -p /var/lib/sso-portal/exports \
@@ -66,6 +66,7 @@ EXPOSE 80 443 8080
 ENTRYPOINT ["/docker-entrypoint-portal.sh"]
 CMD ["nginx", "-g", "daemon off;"]
 
-# Non-root (docker:S6471). Compose mounts writable tmpfs for conf.d/snippets/includes;
-# entrypoint seeds from BASTION_NGINX_SEED then renders vhosts as user nginx.
-USER nginx
+# Stay root for entrypoint: ACME PEMs on the host volume are often root:600
+# (acme.sh). Entrypoint mirrors them into ssl-local then drops to nginx via
+# su-exec (see docker-entrypoint.sh). Compose also sets user: "0:0".
+USER root
