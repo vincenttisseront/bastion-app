@@ -37,6 +37,11 @@ services:
         fi
         chown -R 65532:65532 /var/lib/sso-portal/acme-challenge 2>/dev/null || true
         chmod 0755 /var/lib/sso-portal/acme-challenge 2>/dev/null || true
+        # ACME PEMs must be readable by nginx uid 101 (else sync-acme-tls skips → bastion-default).
+        if [ -d /var/lib/sso-portal/certs ]; then
+          find /var/lib/sso-portal/certs -type d -exec chmod 755 {} \; 2>/dev/null || true
+          find /var/lib/sso-portal/certs -type f -name '*.pem' -exec chmod 644 {} \; 2>/dev/null || true
+        fi
     env_file:
       - .env
     environment:

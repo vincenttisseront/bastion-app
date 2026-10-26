@@ -111,6 +111,13 @@ PY
     | sed -E 's/.*"([^"]+)"/\1/' | tr '[:upper:]' '[:lower:]'
 }
 
+# nginx runs as uid 101 (read_only hardening) — PEM must be world-readable (or o+r).
+_chmod_nginx_readable() {
+  dest="$1"
+  chmod 755 "$dest" 2>/dev/null || true
+  chmod 644 "$dest/fullchain.pem" "$dest/privkey.pem" 2>/dev/null || true
+}
+
 issue_or_placeholder() {
   fqdn="$1"
   dest="$CERTS/$fqdn"
@@ -118,6 +125,7 @@ issue_or_placeholder() {
 
   if [ -f "$dest/fullchain.pem" ] && [ -f "$dest/privkey.pem" ]; then
     if openssl x509 -in "$dest/fullchain.pem" -noout -checkend 2592000 >/dev/null 2>&1; then
+      _chmod_nginx_readable "$dest"
       log "OK $fqdn — cert valid >30d, skip"
       return 0
     fi
@@ -137,6 +145,7 @@ issue_or_placeholder() {
           --key-file "$dest/privkey.pem" \
           --fullchain-file "$dest/fullchain.pem" \
           --reloadcmd "touch $CERTS/.reload_nginx" >>"$LOG" 2>&1 || true
+        _chmod_nginx_readable "$dest"
         touch "$CERTS/.reload_nginx"
         log "OK $fqdn — renewed"
         return 0
@@ -153,6 +162,7 @@ issue_or_placeholder() {
         -keyout "$dest/privkey.pem" \
         -out "$dest/fullchain.pem" \
         -subj "/CN=$fqdn" 2>>"$LOG"
+      _chmod_nginx_readable "$dest"
       touch "$CERTS/.reload_nginx"
       return 0
     fi
@@ -196,6 +206,7 @@ issue_or_placeholder() {
     --key-file "$dest/privkey.pem" \
     --fullchain-file "$dest/fullchain.pem" \
     --reloadcmd "touch $CERTS/.reload_nginx" >>"$LOG" 2>&1
+  _chmod_nginx_readable "$dest"
   touch "$CERTS/.reload_nginx"
   log "OK $fqdn — issued + installed"
 }
