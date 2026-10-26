@@ -171,7 +171,14 @@ _nginx_as_worker mkdir -p \
 /fix-nginx-logs.sh
 
 _nginx_as_worker nginx -t
-/export-waf-snapshot.sh || echo "WARN: export-waf-snapshot failed" >&2
+# Defer WAF snapshot: a synchronous nginx -T here races the master start and
+# OOMs under mem_limit 1g (see export-waf-snapshot.sh). Watch / first reload fills it.
+if [[ "${BASTION_WAF_SNAPSHOT_AT_BOOT:-0}" == "1" ]]; then
+  BASTION_SNAPSHOT_SKIP_NGINX_T=1 /export-waf-snapshot.sh \
+    || echo "WARN: export-waf-snapshot failed" >&2
+else
+  echo "INFO: WAF snapshot deferred (set BASTION_WAF_SNAPSHOT_AT_BOOT=1 to force)" >&2
+fi
 
 # Daily logrotate + snapshot WAF toutes les 5 min (crond Alpine).
 # Needs a writable /etc (not compose read_only) + root. Otherwise watch / app aggregator cover it.
@@ -211,6 +218,13 @@ fi
 if [[ "${BASTION_EXPORTS_WATCH:-1}" != "0" ]]; then
   /watch-exports-reload.sh &
 fi
+
+# Snapshot after master is up (avoids OOM vs boot nginx -t). Reparented across exec.
+(
+  sleep 8
+  BASTION_SNAPSHOT_SKIP_NGINX_T=1 /export-waf-snapshot.sh \
+    || echo "WARN: deferred export-waf-snapshot failed" >&2
+) &
 
 if [[ "${_drop_to_nginx}" -eq 1 ]]; then
   echo "INFO: dropping privileges to nginx after cert mirror / conf render"

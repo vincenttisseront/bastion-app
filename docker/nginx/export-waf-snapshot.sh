@@ -10,11 +10,21 @@ NGINX_T="$(mktemp)"
 trap 'rm -f "$NGINX_T" "$TMP"' EXIT
 
 mkdir -p "$(dirname "$OUT")"
-chmod 0777 "$(dirname "$OUT")" 2>/dev/null || true
+chmod ug+rwX "$(dirname "$OUT")" 2>/dev/null || true
 
-nginx -T >"$NGINX_T" 2>/dev/null || true
+# One nginx -T only — never a second nginx -t (OOM under mem_limit≈1g with CRS).
+_nginx_dump() {
+  if [[ "$(id -u)" -eq 0 ]] && command -v su-exec >/dev/null 2>&1; then
+    su-exec nginx:nginx nginx -T
+  else
+    nginx -T
+  fi
+}
 nginx_t_ok=false
-if nginx -t >/dev/null 2>&1; then
+if [[ "${BASTION_SNAPSHOT_SKIP_NGINX_T:-0}" == "1" ]]; then
+  nginx_t_ok=true
+  _nginx_dump >"$NGINX_T" 2>/dev/null || true
+elif _nginx_dump >"$NGINX_T" 2>/dev/null; then
   nginx_t_ok=true
 fi
 

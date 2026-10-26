@@ -6,6 +6,15 @@ set -euo pipefail
 APPS="${NGINX_APPS_LOG_DIR:-/var/log/nginx/apps}"
 FALLBACK="${NGINX_APPS_LOG_FALLBACK:-/var/log/nginx/apps-fallback}"
 
+_nginx_can_append() {
+  local f="$1"
+  if command -v su-exec >/dev/null 2>&1; then
+    su-exec nginx:nginx sh -c ": >> \"$f\"" 2>/dev/null
+  else
+    sh -c ": >> \"$f\"" 2>/dev/null
+  fi
+}
+
 _writable_by_nginx() {
   local dir="$1"
   [[ -d "$dir" ]] || return 1
@@ -19,18 +28,45 @@ _writable_by_nginx() {
   return 0
 }
 
-_precreate_access_logs() {
-  grep -RhoE 'access_log[[:space:]]+/var/log/nginx/apps/[^;[:space:]]+' \
+_list_apps_log_paths() {
+  # access_log + error_log under the shared volume (ACME TLS + MTA-STS).
+  grep -RhoE '(access_log|error_log)[[:space:]]+/var/log/nginx/apps/[^;[:space:]]+' \
     /etc/nginx/conf.d /etc/nginx/includes 2>/dev/null \
-    | awk '{print $2}' | sort -u \
-    | while IFS= read -r logf; do
-        [[ -n "$logf" ]] || continue
-        touch "$logf" 2>/dev/null || true
-      done
+    | awk '{print $2}' | sort -u
+}
+
+_ensure_log_files_writable() {
+  # Dir probe can succeed while legacy root-owned portal.access.log stays 644 —
+  # nginx -t then fails Permission denied. Recreate any file uid 101 cannot append.
+  local logf ok=0 fail=0
+  while IFS= read -r logf; do
+    [[ -n "$logf" ]] || continue
+    if _nginx_can_append "$logf"; then
+      ok=$((ok + 1))
+      continue
+    fi
+    rm -f "$logf" 2>/dev/null || true
+    if command -v su-exec >/dev/null 2>&1; then
+      su-exec nginx:nginx touch "$logf" 2>/dev/null || true
+    else
+      touch "$logf" 2>/dev/null || true
+    fi
+    if [[ "$(id -u)" -eq 0 ]]; then
+      chown 101:65532 "$logf" 2>/dev/null || true
+      chmod 660 "$logf" 2>/dev/null || true
+    fi
+    if _nginx_can_append "$logf"; then
+      ok=$((ok + 1))
+    else
+      echo "WARN: cannot make ${logf} writable for uid 101" >&2
+      fail=$((fail + 1))
+    fi
+  done < <(_list_apps_log_paths)
+  [[ "$fail" -eq 0 ]]
 }
 
 _redirect_to_tmpfs() {
-  echo "WARN: ${APPS} not writable by uid 101 — redirecting apps logs to ${FALLBACK} (tmpfs)" >&2
+  echo "WARN: ${APPS} logs not writable by uid 101 — redirecting to ${FALLBACK} (tmpfs)" >&2
   echo "WARN: fix host: chown -R 101:65532 …/nginx-logs && chmod -R ug+rwX …/nginx-logs" >&2
   mkdir -p "$FALLBACK" 2>/dev/null || true
   chown -R nginx:nginx "$FALLBACK" 2>/dev/null || true
@@ -58,7 +94,11 @@ EOF
 mkdir -p "$APPS" 2>/dev/null || true
 
 if [[ "$(id -u)" -eq 0 ]]; then
-  _precreate_access_logs
+  # Pre-touch as root then chown (paths from rendered conf).
+  while IFS= read -r logf; do
+    [[ -n "$logf" ]] || continue
+    touch "$logf" 2>/dev/null || true
+  done < <(_list_apps_log_paths)
   chown -R 101:65532 "$APPS" 2>/dev/null || true
   # Owner+group only (nginx 101 / app 65532) — no world-writable (shell:S2612).
   chmod -R ug+rwX "$APPS" 2>/dev/null || true
@@ -66,7 +106,7 @@ if [[ "$(id -u)" -eq 0 ]]; then
   find "$APPS" -type f -exec chmod 660 {} \; 2>/dev/null || true
 fi
 
-if _writable_by_nginx "$APPS"; then
+if _writable_by_nginx "$APPS" && _ensure_log_files_writable; then
   _write_audit_log_default
   exit 0
 fi

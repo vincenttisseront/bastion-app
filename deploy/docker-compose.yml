@@ -180,7 +180,8 @@ services:
       - FOWNER
       # chown nginx-logs volume to 101:65532 so access_log open() works for uid 101.
       - CHOWN
-    mem_limit: ${BASTION_NGINX_MEM_LIMIT:-1g}
+    # CRS ~20k rules ≈ needs >1g headroom for master + occasional nginx -T snapshot.
+    mem_limit: ${BASTION_NGINX_MEM_LIMIT:-1536m}
     cpus: ${BASTION_NGINX_CPUS:-1.0}
     ulimits:
       nofile:
