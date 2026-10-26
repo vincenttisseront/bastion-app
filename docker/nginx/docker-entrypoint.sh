@@ -75,12 +75,11 @@ if [[ -z "${PORTAL_INTERNAL_TOKEN}" ]]; then
   echo "WARN: PORTAL_INTERNAL_TOKEN empty — FastAPI internal auth may fail" >&2
 fi
 
-# Ensure exports include exists (empty stub if missing).
-# exports/ is often :ro in the nginx container — only write when the FS allows it.
-mkdir -p "$EXPORTS_DIR" 2>/dev/null || true
-if [[ ! -f "$EXPORTS_DIR/nginx-portal-realms.conf" ]]; then
-  echo "# no secondary realms yet" > "$EXPORTS_DIR/nginx-portal-realms.conf" 2>/dev/null \
-    || echo "WARN: exports/nginx-portal-realms.conf missing and exports is read-only" >&2
+# exports/ is often :ro — never require a write there. Realms mirror lives under
+# includes/ (tmpfs); sync-exports copies from exports when present.
+mkdir -p "$EXPORTS_DIR" /etc/nginx/includes 2>/dev/null || true
+if [[ ! -f /etc/nginx/includes/nginx-portal-realms.conf ]]; then
+  echo "# no secondary realms yet" > /etc/nginx/includes/nginx-portal-realms.conf
 fi
 
 /sync-exports-to-confd.sh
@@ -89,11 +88,16 @@ if [[ ! -d /var/log/nginx/apps ]]; then
   echo "ERROR: /var/log/nginx/apps missing — Accès apps requires shared nginx-logs volume" >&2
 fi
 
-# ModSecurity audit log (same volume as per-app access/error logs).
-mkdir -p /var/log/nginx/apps /tmp/modsecurity/data /tmp/modsecurity/tmp /tmp/modsecurity/upload
-touch /var/log/nginx/apps/modsec_audit.log
-chown -R nginx:nginx /tmp/modsecurity /var/log/nginx/apps/modsec_audit.log 2>/dev/null || true
-chmod 0640 /var/log/nginx/apps/modsec_audit.log 2>/dev/null || true
+# ModSecurity audit log (shared nginx-logs volume). Host dir may be owned by
+# app uid 65532 while we run as nginx (101) — never abort on touch failure.
+mkdir -p /tmp/modsecurity/data /tmp/modsecurity/tmp /tmp/modsecurity/upload 2>/dev/null || true
+mkdir -p /var/log/nginx/apps 2>/dev/null || true
+if ! touch /var/log/nginx/apps/modsec_audit.log 2>/dev/null; then
+  echo "WARN: /var/log/nginx/apps not writable (uid=$(id -u)) — fix host nginx-logs ownership (101:65532, mode 2770)" >&2
+else
+  chmod 0640 /var/log/nginx/apps/modsec_audit.log 2>/dev/null || true
+fi
+chown -R nginx:nginx /tmp/modsecurity 2>/dev/null || true
 
 envsubst '${PORTAL_INTERNAL_TOKEN}' \
   < /etc/nginx/templates-portal/proxy_portal_trusted_internal.conf.template \
