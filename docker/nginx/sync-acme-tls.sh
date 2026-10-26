@@ -15,21 +15,33 @@ DEFAULT_KEY="${LOCAL_SSL}/_default/privkey.pem"
 
 mkdir -p /var/log/nginx/apps "$LOCAL_SSL/_default"
 
+_chmod_ssl_local_readable() {
+  # openssl writes privkey 0600; nginx -t / workers run as uid 101 after su-exec.
+  find "$LOCAL_SSL" -type f \( -name '*.pem' -o -name '*.key' -o -name '*.crt' \) \
+    -exec chmod 644 {} + 2>/dev/null || true
+}
+
 ensure_default_cert() {
   if [[ -f "$DEFAULT_CERT" && -f "$DEFAULT_KEY" ]]; then
+    chmod 644 "$DEFAULT_CERT" "$DEFAULT_KEY" 2>/dev/null || true
     return 0
   fi
   if ! command -v openssl >/dev/null 2>&1; then
     echo "WARN: openssl missing — cannot bootstrap default TLS cert" >&2
     return 1
   fi
-  openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
-    -keyout "$DEFAULT_KEY" \
-    -out "$DEFAULT_CERT" \
-    -subj "/CN=bastion-default" 2>/dev/null
+  # umask so new key is not root-only (su-exec nginx must read for nginx -t).
+  ( umask 022
+    openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
+      -keyout "$DEFAULT_KEY" \
+      -out "$DEFAULT_CERT" \
+      -subj "/CN=bastion-default" 2>/dev/null
+  )
+  chmod 644 "$DEFAULT_CERT" "$DEFAULT_KEY" 2>/dev/null || true
 }
 
 ensure_default_cert || true
+_chmod_ssl_local_readable
 
 retire_legacy_duplicate() {
   # Stub comment-only so old includes / docs still resolve, without a second server{}.
@@ -123,6 +135,7 @@ fi
 
 if [[ ! -f "$MANIFEST" ]]; then
   echo "# (no acme-domains.json yet)" >> "$OUT"
+  _chmod_ssl_local_readable
   exit 0
 fi
 
@@ -271,6 +284,7 @@ EOF
   fi
 done < <(emit_rows)
 
+_chmod_ssl_local_readable
 echo "INFO: ACME TLS mirrored=${_mirrored} skipped=${_skipped} uid=$(id -u) certs=${CERTS}" >&2
 if [[ "${_mirrored}" -eq 0 ]]; then
   echo "WARN: no Let's Encrypt certs loaded — :443 serves only bastion-default (check acme-domains.json + ${CERTS}/<fqdn>/*.pem)" >&2
