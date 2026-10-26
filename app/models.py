@@ -1395,6 +1395,33 @@ class CertificateDomain(Base):
     updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
+class AdminMfaCredential(Base):
+    """Admin second-factor credentials (TOTP Phase A; WebAuthn columns for Phase B).
+
+    Secrets stay Fernet-encrypted; never log ``totp_secret`` plaintext.
+    Identity key is ``user_email`` (oauth2-proxy / break-glass), not a local user id.
+    """
+
+    __tablename__ = "admin_mfa_credential"
+    __table_args__ = (
+        UniqueConstraint("user_email", name="uq_admin_mfa_credential_user_email"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_email = Column(String, nullable=False, index=True)
+    # Factor A — TOTP (Fernet ciphertext)
+    totp_secret = Column(Text, nullable=True)
+    totp_enabled = Column(Boolean, nullable=False, default=False)
+    # Factor B — WebAuthn / Passkeys (nullable until Phase B)
+    webauthn_credential_id = Column(String, nullable=True, unique=True)
+    webauthn_public_key = Column(Text, nullable=True)
+    webauthn_sign_count = Column(Integer, nullable=True, default=0)
+    webauthn_transports = Column(JSON, nullable=True)
+    webauthn_enabled = Column(Boolean, nullable=False, default=False)
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class MtlsClientApp(Base):
     """Inter-app mTLS client identity issued by the self-managed internal CA.
 

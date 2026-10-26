@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Profil admin') }}{% endblock %}
+{% block breadcrumb %}Admin / {{ _('Profil') }}{% endblock %}
+
+{% block content %}
+{% set mfa = mfa | default({'totp_enabled': false, 'totp_pending': false}) %}
+<div class="page" id="admin-profile-page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{{ _('Profil administrateur') }}</h1>
+      <p class="page-sub mono">{{ user.email }}</p>
+    </div>
+  </div>
+
+  <div class="card mb-4" id="mfa">
+    <div class="card-header">
+      <span class="card-title">{{ _('Authentification à deux facteurs (TOTP)') }}</span>
+      {% if mfa.totp_enabled %}
+      <span class="badge badge-ok">{{ _('Activé') }}</span>
+      {% else %}
+      <span class="badge badge-muted">{{ _('Désactivé') }}</span>
+      {% endif %}
+    </div>
+    <div class="card-body stack" style="gap:var(--sp-3)">
+      <p class="form-prose mb-0">
+        {{ _('Protection volontaire de la console Admin. Une fois activé, chaque nouvelle session exigera un code TOTP.') }}
+      </p>
+
+      {% if not mfa.totp_enabled %}
+      <form method="post" action="/admin/profile/mfa/totp/start">
+        <button type="submit" class="btn btn-primary btn-sm">{{ _('Activer le TOTP') }}</button>
+      </form>
+      {% endif %}
+
+      {% if setup %}
+      <div class="alert alert-info">
+        <div class="alert-body">
+          <strong>{{ _('Scannez ce QR code') }}</strong>
+          {{ _('puis saisissez un code pour confirmer.') }}
+        </div>
+      </div>
+      <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-start">
+        <img src="{{ setup.qr_data_url }}" alt="QR TOTP" width="180" height="180"
+             style="border:1px solid var(--border, #ccc);border-radius:8px;background:#fff">
+        <div>
+          <div class="form-hint">{{ _('Clé de secours (affichée une seule fois)') }}</div>
+          <code class="mono" style="word-break:break-all">{{ setup.secret_display }}</code>
+        </div>
+      </div>
+      <form method="post" action="/admin/profile/mfa/totp/confirm" class="form-row" style="gap:0.75rem;align-items:flex-end;flex-wrap:wrap">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" for="totp-confirm">{{ _('Code de confirmation') }}</label>
+          <input type="text" id="totp-confirm" name="code" class="form-input is-mono"
+                 inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}"
+                 maxlength="6" required placeholder="000000">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">{{ _('Confirmer et activer') }}</button>
+      </form>
+      {% elif mfa.totp_pending %}
+      <p class="form-hint mb-0">
+        {{ _('Un enrôlement est en cours — cliquez à nouveau sur « Activer le TOTP » pour régénérer le QR.') }}
+      </p>
+      {% endif %}
+
+      {% if mfa.totp_enabled %}
+      <form method="post" action="/admin/profile/mfa/totp/disable" class="form-row" style="gap:0.75rem;align-items:flex-end;flex-wrap:wrap"
+            onsubmit="return confirm('Désactiver le TOTP sur ce compte ?');">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" for="totp-disable">{{ _('Code actuel') }}</label>
+          <input type="text" id="totp-disable" name="code" class="form-input is-mono"
+                 inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}"
+                 maxlength="6" required placeholder="000000">
+        </div>
+        <button type="submit" class="btn btn-danger btn-sm">{{ _('Désactiver le TOTP') }}</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

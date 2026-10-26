@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Vérification MFA') }}{% endblock %}
+{% block breadcrumb %}Admin / MFA{% endblock %}
+
+{% block content %}
+<div class="page" style="max-width:28rem;margin:3rem auto">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{{ _('Second facteur requis') }}</h1>
+      <p class="page-sub">{{ _('Saisissez le code à 6 chiffres de votre application d’authentification.') }}</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <form method="post" action="/admin/auth/mfa/challenge" class="stack" style="gap:var(--sp-3)">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" for="mfa-code">{{ _('Code TOTP') }}</label>
+          <input type="text" id="mfa-code" name="code" class="form-input is-mono"
+                 inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}"
+                 maxlength="6" minlength="6" required autofocus
+                 placeholder="000000">
+        </div>
+        <button type="submit" class="btn btn-primary">{{ _('Valider') }}</button>
+      </form>
+      <p class="form-hint mt-3 mb-0">
+        <a href="/admin/profile#mfa">{{ _('Gérer mon MFA') }}</a>
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -561,7 +561,28 @@ def require_admin(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> UserContext:
-    """Require portal admin. Non-admins get 403 (HTML handler redirects to /apps)."""
+    """Require portal admin. Non-admins get 403 (HTML handler redirects to /apps).
+
+    When the admin has enabled TOTP, also requires a valid ``bastion_mfa_ok``
+    cookie (raises ``MfaChallengeRequired`` → redirect to challenge UI).
+    """
+    user = require_user(request, db=db, settings=settings)
+    if is_portal_admin(user, db, settings):
+        user.is_admin = True
+        enrich_user_identity(user, db)
+        from app.auth.mfa_gate import enforce_admin_mfa
+
+        enforce_admin_mfa(request, user, db, settings)
+        return user
+    raise HTTPException(status_code=403, detail="Admin access required")
+
+
+def require_admin_mfa_exempt(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> UserContext:
+    """Like ``require_admin`` but skips the MFA cookie gate (challenge / profile)."""
     user = require_user(request, db=db, settings=settings)
     if is_portal_admin(user, db, settings):
         user.is_admin = True
