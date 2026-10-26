@@ -12,7 +12,13 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.audit import admin_actor
-from app.bastion.nginx_waf_export import ANOMALY_MAX, ANOMALY_MIN, VALID_MODES
+from app.bastion.nginx_waf_export import (
+    ANOMALY_MAX,
+    ANOMALY_MIN,
+    PARANOIA_MAX,
+    PARANOIA_MIN,
+    VALID_MODES,
+)
 from app.bastion.nginx_waf_reality import build_waf_ui_context
 from app.bastion.waf_readability import format_waf_diagnostic_export_json
 from app.database import get_db
@@ -93,6 +99,8 @@ def _waf_page_context(
         "crs_rule_suggestions": rule_suggestions,
         "anomaly_min": ANOMALY_MIN,
         "anomaly_max": ANOMALY_MAX,
+        "paranoia_min": PARANOIA_MIN,
+        "paranoia_max": PARANOIA_MAX,
         "valid_modes": sorted(VALID_MODES),
         **build_waf_ui_context(db, settings, profile, exclusions, page=page),
     }
@@ -181,6 +189,7 @@ def admin_waf_profile_post(
     mode: str = Form(...),
     anomaly_threshold: int = Form(...),
     profile_preset: str = Form("Custom"),
+    paranoia_level: int = Form(1),
     ip_deny_min_occurrences: int = Form(3),
     portal_login_rate: int = Form(3),
     portal_api_rate: int = Form(30),
@@ -196,6 +205,7 @@ def admin_waf_profile_post(
             db,
             mode=mode.strip(),
             anomaly_threshold=int(anomaly_threshold),
+            paranoia_level=int(paranoia_level),
             profile_name=profile_preset.strip() or None,
             ip_deny_min_occurrences=int(ip_deny_min_occurrences),
             portal_login_rate=int(portal_login_rate),

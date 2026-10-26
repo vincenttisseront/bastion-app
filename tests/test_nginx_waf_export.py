@@ -253,6 +253,23 @@ def test_render_helpers_detection_only():
     profile = WafProfile(name="x", mode="detection_only", anomaly_threshold=7)
     assert "DetectionOnly" in render_engine_mode_generated(profile)
     assert "threshold=7" in render_crs_setup_generated(profile)
+
+
+def test_render_crs_setup_paranoia_overlay():
+    from app.bastion.nginx_waf_export import clamp_paranoia_level
+
+    assert clamp_paranoia_level(0) == 1
+    assert clamp_paranoia_level(9) == 4
+    assert clamp_paranoia_level(None) == 1
+    profile = WafProfile(
+        name="x", mode="on", anomaly_threshold=5, paranoia_level=3
+    )
+    text = render_crs_setup_generated(profile)
+    assert "id:1000900120" in text
+    assert "setvar:tx.blocking_paranoia_level=3" in text
+    assert "setvar:tx.detection_paranoia_level=3" in text
+    assert "inbound_anomaly_score_threshold=5" in text
+
     excl = WafExclusion(
         id=42,
         crs_rule_id=1,
