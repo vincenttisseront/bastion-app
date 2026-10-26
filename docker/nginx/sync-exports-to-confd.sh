@@ -244,3 +244,17 @@ limit_req_zone $binary_remote_addr zone=portal_api:10m rate=30r/s;
 limit_req_zone $binary_remote_addr zone=portal_unknown_host:10m rate=5r/s;
 EOF
 fi
+
+# Inter-app mTLS verify snippet (ssl_verify_client + CA/CRL paths).
+# Include inside internal SSL server/location blocks that require client certs.
+if [[ -f "$EXPORTS/mtls-apps-generated.conf" ]]; then
+  cp -a "$EXPORTS/mtls-apps-generated.conf" \
+    /etc/nginx/includes/mtls-apps-generated.conf
+else
+  cat > /etc/nginx/includes/mtls-apps-generated.conf <<'EOF'
+# No mTLS export yet — stub (do not Include until CA is ready).
+# ssl_client_certificate /etc/nginx/ssl/mtls/ca.crt;
+# ssl_crl /etc/nginx/ssl/mtls/ca.crl;
+# ssl_verify_client on;
+EOF
+fi

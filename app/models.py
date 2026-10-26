@@ -1395,6 +1395,33 @@ class CertificateDomain(Base):
     updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
+class MtlsClientApp(Base):
+    """Inter-app mTLS client identity issued by the self-managed internal CA.
+
+    Private keys stay under ``certs/mtls/clients/<app_name>/`` — never in DB.
+    """
+
+    __tablename__ = "mtls_client_apps"
+    __table_args__ = (
+        UniqueConstraint("app_name", name="uq_mtls_client_apps_app_name"),
+        UniqueConstraint("cn", name="uq_mtls_client_apps_cn"),
+        CheckConstraint(
+            "status IN ('active', 'revoked')",
+            name="ck_mtls_client_apps_status",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    app_name = Column(String, nullable=False, index=True)
+    cn = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="active")
+    serial_number = Column(String, nullable=False)  # hex, for CRL
+    valid_until = Column(UTCDateTime, nullable=False)
+    issued_at = Column(UTCDateTime, nullable=False, default=utcnow)
+    revoked_at = Column(UTCDateTime, nullable=True)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class AdminNotificationDismissal(Base):
     """Per-admin dismissed notification keys (reappear if fingerprint changes)."""
 

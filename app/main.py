@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.admin.acme import router as admin_acme_router
+from app.admin.mtls import router as admin_mtls_router
 from app.admin.activesync_devices import router as admin_activesync_devices_router
 from app.admin.files import router as admin_files_router
 from app.admin.infrastructure import router as infrastructure_router
@@ -135,6 +136,18 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception(
                     "subdomain nginx export at startup failed (non-fatal)"
+                )
+            try:
+                from app.acme.mtls_ca import (
+                    ensure_self_managed_ca,
+                    write_mtls_nginx_export,
+                )
+
+                ensure_self_managed_ca(settings)
+                write_mtls_nginx_export(settings)
+            except Exception:
+                logger.exception(
+                    "mTLS self-managed CA init at startup failed (non-fatal)"
                 )
         try:
             sync_hot_engine_from_config(db, settings)
@@ -516,6 +529,7 @@ app.include_router(global_search_router)
 app.include_router(health_router)
 app.include_router(admin_realms_router)
 app.include_router(admin_acme_router)
+app.include_router(admin_mtls_router)
 app.include_router(admin_waf_router)
 app.include_router(infrastructure_router)
 app.include_router(admin_rbac_groups_router)

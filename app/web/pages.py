@@ -3508,6 +3508,13 @@ def admin_security(
         ip_probe.get("resolved") or "",
         rfc1918_cidrs=settings.rfc1918_cidrs,
     )
+    mtls_dashboard: dict = {"ca": None, "clients": [], "counts": {}}
+    try:
+        from app.acme.mtls_client_service import mtls_dashboard_payload
+
+        mtls_dashboard = mtls_dashboard_payload(db, settings)
+    except Exception:
+        logger.exception("mTLS dashboard payload failed")
     return render(
         "admin/security.html",
         **_ctx(
@@ -3518,6 +3525,7 @@ def admin_security(
             vault_key=vault_status,
             db_encryption=db_encryption,
             breakglass_secret=breakglass_secret.to_public_dict(),
+            mtls=mtls_dashboard,
             security_policy=policy,
             security_ban_rules=rules,
             security_bans=list_active_bans(db),
