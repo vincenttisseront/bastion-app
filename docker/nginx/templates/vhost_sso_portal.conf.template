@@ -379,7 +379,8 @@ server {
 
     include /etc/nginx/snippets/nginx-portal-core-realm-oauth2.conf;
     include /etc/nginx/snippets/nginx-portal-oauth2-static.conf;
-    include /var/lib/sso-portal/exports/nginx-portal-realms.conf;
+    # Mirrored from exports/ (often :ro) into includes/ by sync-exports-to-confd.sh.
+    include /etc/nginx/includes/nginx-portal-realms.conf;
 
     location @portal_oauth2_signin {
         # Default post-login home is /apps (end-user portal). /dashboard is admin-only

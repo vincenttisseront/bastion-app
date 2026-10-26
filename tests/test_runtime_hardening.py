@@ -62,6 +62,21 @@ def test_nginx_dockerfile_seeds_tmpfs_overlay():
     entry = (root / "docker/nginx/docker-entrypoint.sh").read_text(encoding="utf-8")
     assert "_seed_nginx_writable_dirs" in entry
     assert "BASTION_NGINX_SEED" in entry
+    # Non-root + exports:ro must not abort on modsec_audit touch.
+    assert "modsec_audit.log" in entry
+    assert "not writable" in entry
+    sync = (root / "docker/nginx/sync-exports-to-confd.sh").read_text(encoding="utf-8")
+    assert "nginx-portal-realms.conf" in sync
+    assert "/etc/nginx/includes/nginx-portal-realms.conf" in sync
+    vhost = (root / "docker/nginx/templates/vhost_sso_portal.conf.template").read_text(
+        encoding="utf-8"
+    )
+    assert "include /etc/nginx/includes/nginx-portal-realms.conf;" in vhost
+    assert "include /var/lib/sso-portal/exports/nginx-portal-realms.conf;" not in vhost
+    migrate = (root / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "chown -R 101:65532 /var/lib/sso-portal/nginx-logs" in migrate
+    acme = (root / "docker/nginx/sync-acme-tls.sh").read_text(encoding="utf-8")
+    assert "acme-challenge webroot not writable" in acme
 
 
 def test_technical_template_has_runtime_panel():

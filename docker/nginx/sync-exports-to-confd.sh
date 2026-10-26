@@ -39,14 +39,22 @@ if [[ -f /etc/nginx/templates-portal/vhost_sso_portal.conf.template ]]; then
     > /etc/nginx/conf.d/vhost_sso_portal.conf
 fi
 
-mkdir -p /var/log/nginx/apps
-# Shared bind-mount with bastion-app (Admin → Logs → Accès apps). Group-writable
-# for uid/gid 1000 (bastion-app + nginx); avoid world-writable (Sonar shell:S2612).
+mkdir -p /var/log/nginx/apps 2>/dev/null || true
+# Shared bind-mount with bastion-app (Admin → Logs → Accès apps).
+# Expected host perms after migrate: 101:65532 mode 2770 (nginx write, app read).
 chmod 0770 /var/log/nginx/apps 2>/dev/null || true
 if ! touch /var/log/nginx/apps/.bastion-write-ok 2>/dev/null; then
   echo "WARN: /var/log/nginx/apps not writable — Accès apps will stay empty" >&2
 else
   rm -f /var/log/nginx/apps/.bastion-write-ok 2>/dev/null || true
+fi
+
+# Mirror realms include into writable includes/ (exports/ is :ro for nginx).
+mkdir -p /etc/nginx/includes 2>/dev/null || true
+if [[ -f "$EXPORTS/nginx-portal-realms.conf" ]]; then
+  _cp "$EXPORTS/nginx-portal-realms.conf" /etc/nginx/includes/nginx-portal-realms.conf
+elif [[ ! -f /etc/nginx/includes/nginx-portal-realms.conf ]]; then
+  echo "# no secondary realms yet" > /etc/nginx/includes/nginx-portal-realms.conf
 fi
 
 if [[ -f "$EXPORTS/nginx-subdomain-apps.conf" ]]; then
