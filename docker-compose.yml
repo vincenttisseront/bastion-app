@@ -207,15 +207,17 @@ services:
         soft: 65535
         hard: 65535
     tmpfs:
+      # mode 0777 required: cap_drop ALL removes DAC_OVERRIDE, so even uid 0
+      # cannot write uid=101 mode=0755 mounts (seed/realms Permission denied).
       - /tmp:size=256M,mode=1777
-      - /var/run:size=16M,uid=101,gid=101,mode=0755
-      - /var/cache/nginx:size=128M,uid=101,gid=101,mode=0755
-      - /var/log/nginx:size=32M,uid=101,gid=101,mode=0755
-      - /etc/nginx/conf.d:size=16M,uid=101,gid=101,mode=0755
-      - /etc/nginx/snippets:size=8M,uid=101,gid=101,mode=0755
-      - /etc/nginx/includes:size=16M,uid=101,gid=101,mode=0755
-      - /etc/nginx/modsecurity/generated:size=8M,uid=101,gid=101,mode=0755
-      - /etc/nginx/ssl-local:size=8M,uid=101,gid=101,mode=0755
+      - /var/run:size=16M,uid=101,gid=101,mode=0777
+      - /var/cache/nginx:size=128M,uid=101,gid=101,mode=0777
+      - /var/log/nginx:size=32M,uid=101,gid=101,mode=0777
+      - /etc/nginx/conf.d:size=16M,uid=101,gid=101,mode=0777
+      - /etc/nginx/snippets:size=8M,uid=101,gid=101,mode=0777
+      - /etc/nginx/includes:size=16M,uid=101,gid=101,mode=0777
+      - /etc/nginx/modsecurity/generated:size=8M,uid=101,gid=101,mode=0777
+      - /etc/nginx/ssl-local:size=16M,uid=101,gid=101,mode=0777
     environment:
       PORTAL_INTERNAL_TOKEN: ${VAULT_PORTAL_INTERNAL_TOKEN:-${PORTAL_INTERNAL_TOKEN:-}}
       PORTAL_DOMAIN: ${PORTAL_DOMAIN:-portal.example.com}
