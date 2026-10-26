@@ -73,6 +73,9 @@ def test_nginx_dockerfile_seeds_tmpfs_overlay():
     )
     assert "include /etc/nginx/includes/nginx-portal-realms.conf;" in vhost
     assert "include /var/lib/sso-portal/exports/nginx-portal-realms.conf;" not in vhost
+    # nginx 1.30+ log_format app vars without subdomain_proxy vhosts
+    assert 'set $auth_app "";' in vhost
+    assert 'set $auth_source "";' in vhost
     migrate = (root / "docker-compose.yml").read_text(encoding="utf-8")
     assert "chown -R 101:65532 /var/lib/sso-portal/nginx-logs" in migrate
     acme = (root / "docker/nginx/sync-acme-tls.sh").read_text(encoding="utf-8")

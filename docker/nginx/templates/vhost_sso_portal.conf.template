@@ -17,12 +17,21 @@ server {
     set $oauth2_core_upstream oauth2-proxy-core:4180;
     # Subdomain auth maps/snippet are included on the portal default_server too.
     # Declare empties so nginx 1.30+ accepts map/log_format vars when no app
-    # subdomain vhost has run set/auth_request_set yet.
+    # subdomain vhost has run set/auth_request_set yet (tmpfs conf.d boot).
     set $bastion_vhost_fqdn "";
     set $bastion_pass_cookie "";
     set $bastion_pass_session "";
     set $bastion_auth_cookie "";
     set $bastion_auth_err "";
+    # log_format app — also set on subdomain_proxy exports; required here when
+    # exports/ has no app vhost yet (otherwise: emerg unknown "auth_app").
+    set $auth_email "";
+    set $auth_user "";
+    set $auth_app "";
+    set $auth_source "";
+    set $auth_preferred "";
+    set $auth_display "";
+    set $auth_groups "";
 
     access_log /var/log/nginx/portal.access.log portal;
     error_log  /var/log/nginx/portal.error.log warn;
