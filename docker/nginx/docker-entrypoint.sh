@@ -219,11 +219,10 @@ if [[ "${BASTION_EXPORTS_WATCH:-1}" != "0" ]]; then
   /watch-exports-reload.sh &
 fi
 
-# Snapshot after master is up (avoids OOM vs boot nginx -t). Reparented across exec.
+# Lightweight snapshot (no nginx -T) after master is up. Reparented across exec.
 (
-  sleep 8
-  BASTION_SNAPSHOT_SKIP_NGINX_T=1 /export-waf-snapshot.sh \
-    || echo "WARN: deferred export-waf-snapshot failed" >&2
+  sleep 5
+  /export-waf-snapshot.sh || echo "WARN: deferred export-waf-snapshot failed" >&2
 ) &
 
 if [[ "${_drop_to_nginx}" -eq 1 ]]; then

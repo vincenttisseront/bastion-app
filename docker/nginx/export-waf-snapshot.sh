@@ -12,20 +12,17 @@ trap 'rm -f "$NGINX_T" "$TMP"' EXIT
 mkdir -p "$(dirname "$OUT")"
 chmod ug+rwX "$(dirname "$OUT")" 2>/dev/null || true
 
-# One nginx -T only — never a second nginx -t (OOM under mem_limit≈1g with CRS).
-_nginx_dump() {
+# Never invoke nginx -T/-t here by default: a second CRS load beside the master
+# OOMs under mem_limit ≤1.5g (smoke: process Killed, :8080 gone).
+# Family modes come from conf files on disk; set BASTION_SNAPSHOT_NGINX_T=1 to dump.
+nginx_t_ok=true
+: >"$NGINX_T"
+if [[ "${BASTION_SNAPSHOT_NGINX_T:-0}" == "1" ]]; then
   if [[ "$(id -u)" -eq 0 ]] && command -v su-exec >/dev/null 2>&1; then
-    su-exec nginx:nginx nginx -T
+    su-exec nginx:nginx nginx -T >"$NGINX_T" 2>/dev/null && nginx_t_ok=true || nginx_t_ok=false
   else
-    nginx -T
+    nginx -T >"$NGINX_T" 2>/dev/null && nginx_t_ok=true || nginx_t_ok=false
   fi
-}
-nginx_t_ok=false
-if [[ "${BASTION_SNAPSHOT_SKIP_NGINX_T:-0}" == "1" ]]; then
-  nginx_t_ok=true
-  _nginx_dump >"$NGINX_T" 2>/dev/null || true
-elif _nginx_dump >"$NGINX_T" 2>/dev/null; then
-  nginx_t_ok=true
 fi
 
 nginx_t_excerpt="$(grep -Ei 'modsecurity|SecRuleEngine|modsecurity_rules' "$NGINX_T" | head -200 || true)"

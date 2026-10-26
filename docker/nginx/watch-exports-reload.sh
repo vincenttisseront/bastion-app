@@ -61,8 +61,8 @@ while true; do
   }
   if "$SYNC" && /fix-nginx-logs.sh && _test_reload; then
     LAST="$CUR"
-    # Skip second nginx -t — _test_reload already validated (OOM under mem_limit).
-    BASTION_SNAPSHOT_SKIP_NGINX_T=1 /export-waf-snapshot.sh \
+    # Snapshot reads conf files only (no nginx -T — OOM under mem_limit).
+    /export-waf-snapshot.sh \
       || echo "bastion-nginx: WARN export-waf-snapshot failed" >&2
     echo "bastion-nginx: reload ok — public_proxy TLS servers:"
     grep -E '^\s*server_name\s+' /etc/nginx/conf.d/nginx-acme-tls.conf 2>/dev/null \
