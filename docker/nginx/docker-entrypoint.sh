@@ -115,10 +115,11 @@ _fix_nginx_logs_writable() {
     rm -f "$probe" 2>/dev/null || true
     return 0
   fi
-  # chown failed (no CAP_CHOWN) — loosen mode so uid 101 can open access_log.
-  echo "WARN: chown nginx-logs failed — falling back to o+rw on /var/log/nginx/apps" >&2
-  chmod 777 /var/log/nginx/apps 2>/dev/null || true
-  find /var/log/nginx/apps -type f -exec chmod 666 {} \; 2>/dev/null || true
+  # chown failed (no CAP_CHOWN) — group-writable only (no world-writable / shell:S2612).
+  echo "WARN: chown nginx-logs failed — falling back to ug+rwX on /var/log/nginx/apps" >&2
+  chmod -R ug+rwX /var/log/nginx/apps 2>/dev/null || true
+  find /var/log/nginx/apps -type d -exec chmod 2770 {} \; 2>/dev/null || true
+  find /var/log/nginx/apps -type f -exec chmod 660 {} \; 2>/dev/null || true
   rm -f "$probe" 2>/dev/null || true
   if command -v su-exec >/dev/null 2>&1 && su-exec nginx:nginx touch "$probe" 2>/dev/null; then
     rm -f "$probe" 2>/dev/null || true

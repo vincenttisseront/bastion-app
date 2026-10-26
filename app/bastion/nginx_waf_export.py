@@ -759,12 +759,31 @@ def _restore_file(path: Path) -> bool:
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
-    """Write via temp + os.replace so concurrent readers never see a truncated file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}.{threading.get_ident()}")
+    """Write via temp + os.replace so concurrent readers never see a truncated file.
+
+    Path is resolved and constrained to its parent directory so a crafted
+    filename cannot escape via ``..`` / separators (pythonsecurity:S2083).
+    """
+    name = path.name
+    if (
+        not name
+        or name in (".", "..")
+        or "/" in name
+        or "\\" in name
+        or name != Path(name).name
+    ):
+        raise ValueError(f"invalid export filename: {name!r}")
+    parent = path.parent.resolve()
+    parent.mkdir(parents=True, exist_ok=True)
+    target = (parent / name).resolve()
+    try:
+        target.relative_to(parent)
+    except ValueError as exc:
+        raise ValueError(f"export path escapes parent: {path}") from exc
+    tmp = parent / f".{name}.tmp.{os.getpid()}.{threading.get_ident()}"
     try:
         tmp.write_text(content, encoding="utf-8")
-        os.replace(tmp, path)
+        os.replace(tmp, target)
     finally:
         if tmp.is_file():
             try:

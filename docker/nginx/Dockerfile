@@ -69,4 +69,4 @@ CMD ["nginx", "-g", "daemon off;"]
 # Stay root for entrypoint: ACME PEMs on the host volume are often root:600
 # (acme.sh). Entrypoint mirrors them into ssl-local then drops to nginx via
 # su-exec (see docker-entrypoint.sh). Compose also sets user: "0:0".
-USER root
+USER root  # NOSONAR docker:S6471 — intentional; runtime drops to uid 101 via su-exec
