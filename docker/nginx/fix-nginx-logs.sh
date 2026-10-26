@@ -31,10 +31,10 @@ _precreate_access_logs() {
 
 _redirect_to_tmpfs() {
   echo "WARN: ${APPS} not writable by uid 101 — redirecting apps logs to ${FALLBACK} (tmpfs)" >&2
-  echo "WARN: fix host: chown -R 101:65532 …/nginx-logs && chmod -R a+rwX …/nginx-logs" >&2
+  echo "WARN: fix host: chown -R 101:65532 …/nginx-logs && chmod -R ug+rwX …/nginx-logs" >&2
   mkdir -p "$FALLBACK" 2>/dev/null || true
   chown -R nginx:nginx "$FALLBACK" 2>/dev/null || true
-  chmod 777 "$FALLBACK" 2>/dev/null || true
+  chmod 770 "$FALLBACK" 2>/dev/null || true
   find /etc/nginx/conf.d /etc/nginx/includes /etc/nginx/snippets \
     -type f \( -name '*.conf' -o -name '*.map' \) 2>/dev/null \
     | while IFS= read -r f; do
@@ -60,9 +60,10 @@ mkdir -p "$APPS" 2>/dev/null || true
 if [[ "$(id -u)" -eq 0 ]]; then
   _precreate_access_logs
   chown -R 101:65532 "$APPS" 2>/dev/null || true
-  chmod -R a+rwX "$APPS" 2>/dev/null || true
-  find "$APPS" -type d -exec chmod 2777 {} \; 2>/dev/null || true
-  find "$APPS" -type f -exec chmod 666 {} \; 2>/dev/null || true
+  # Owner+group only (nginx 101 / app 65532) — no world-writable (shell:S2612).
+  chmod -R ug+rwX "$APPS" 2>/dev/null || true
+  find "$APPS" -type d -exec chmod 2770 {} \; 2>/dev/null || true
+  find "$APPS" -type f -exec chmod 660 {} \; 2>/dev/null || true
 fi
 
 if _writable_by_nginx "$APPS"; then

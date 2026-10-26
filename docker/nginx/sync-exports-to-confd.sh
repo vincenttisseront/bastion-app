@@ -41,11 +41,12 @@ fi
 
 mkdir -p /var/log/nginx/apps 2>/dev/null || true
 # Shared bind-mount with bastion-app (Admin → Logs → Accès apps).
-# Prefer 101:65532; a+rwX so nginx -t still works if CHOWN/FOWNER missing.
+# Prefer 101:65532 mode ug+rwX (no world-writable — Sonar shell:S2612).
+# If still not writable for uid 101, fix-nginx-logs.sh falls back to tmpfs.
 if [[ "$(id -u)" -eq 0 ]]; then
   chown -R 101:65532 /var/log/nginx/apps 2>/dev/null || true
 fi
-chmod -R a+rwX /var/log/nginx/apps 2>/dev/null || true
+chmod -R ug+rwX /var/log/nginx/apps 2>/dev/null || true
 if ! touch /var/log/nginx/apps/.bastion-write-ok 2>/dev/null; then
   echo "WARN: /var/log/nginx/apps not writable — Accès apps will stay empty (fix-nginx-logs may tmpfs-fallback)" >&2
 else
