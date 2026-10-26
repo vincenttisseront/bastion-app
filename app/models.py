@@ -1193,11 +1193,14 @@ class WafProfile(Base):
     # Promote SecurityBan(ip) into nginx deny only if permanent OR
     # historical ban count for that IP >= this value (default 3).
     ip_deny_min_occurrences = Column(Integer, nullable=False, default=3)
-    # Existing portal limit_req zones — rates as requests/second.
-    portal_login_rate = Column(Integer, nullable=False, default=3)
+    # Portal limit_req zones — rates as requests/second (nginx export).
+    # auth → portal_login, api → portal_api, nav → portal_standard.
+    portal_login_rate = Column(Integer, nullable=False, default=2)
     portal_login_burst = Column(Integer, nullable=False, default=5)
-    portal_api_rate = Column(Integer, nullable=False, default=30)
-    portal_api_burst = Column(Integer, nullable=False, default=60)
+    portal_api_rate = Column(Integer, nullable=False, default=50)
+    portal_api_burst = Column(Integer, nullable=False, default=20)
+    portal_standard_rate = Column(Integer, nullable=False, default=20)
+    portal_standard_burst = Column(Integer, nullable=False, default=10)
     # Dashboard Sentinel: ip-api.com geolocation (toggle from Admin WAF).
     ip_geoloc_enabled = Column(Boolean, nullable=False, default=True)
     # Pre-CRS virtual patch pack (docker/nginx/modsecurity/bastion-virtual-patches.conf).

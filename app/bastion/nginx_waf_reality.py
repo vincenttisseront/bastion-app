@@ -517,10 +517,16 @@ def _profile_db_snapshot(profile: WafProfile, exclusions: list[WafExclusion]) ->
             getattr(profile, "paranoia_level", 1)
         ),
         "ip_deny_min_occurrences": int(profile.ip_deny_min_occurrences or 3),
-        "portal_login_rate": int(profile.portal_login_rate or 3),
-        "portal_api_rate": int(profile.portal_api_rate or 30),
-        "portal_login_burst": int(profile.portal_login_burst or 5),
-        "portal_api_burst": int(profile.portal_api_burst or 60),
+        "portal_login_rate": int(getattr(profile, "portal_login_rate", None) or 2),
+        "portal_api_rate": int(getattr(profile, "portal_api_rate", None) or 50),
+        "portal_login_burst": int(getattr(profile, "portal_login_burst", None) or 5),
+        "portal_api_burst": int(getattr(profile, "portal_api_burst", None) or 20),
+        "portal_standard_rate": int(
+            getattr(profile, "portal_standard_rate", None) or 20
+        ),
+        "portal_standard_burst": int(
+            getattr(profile, "portal_standard_burst", None) or 10
+        ),
         "exclusion_count": len(active_ex),
         "exclusion_rule_ids": sorted(
             int(e.crs_rule_id) for e in active_ex if e.crs_rule_id is not None
@@ -553,10 +559,12 @@ def diff_db_vs_export(
         ("anomaly_threshold", "Seuil anomalie"),
         ("paranoia_level", "Paranoia CRS (PL)"),
         ("ip_deny_min_occurrences", "Promotion IP deny (min. occ.)"),
-        ("portal_login_rate", "Rate login (r/s)"),
+        ("portal_login_rate", "Rate auth/login (r/s)"),
         ("portal_api_rate", "Rate API (r/s)"),
-        ("portal_login_burst", "Burst login"),
+        ("portal_login_burst", "Burst auth"),
         ("portal_api_burst", "Burst API"),
+        ("portal_standard_rate", "Rate navigation (r/s)"),
+        ("portal_standard_burst", "Burst navigation"),
         ("exclusion_count", "Exclusions actives (nombre)"),
     )
     for key, label in scalar_fields:

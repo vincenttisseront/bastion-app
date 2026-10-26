@@ -239,11 +239,35 @@ if [[ -f "$EXPORTS/nginx-portal-rate-limits.conf" ]]; then
 else
   cat > /etc/nginx/includes/nginx-portal-rate-limits.conf <<'EOF'
 # No export yet — default portal rate zones (Include-safe).
-limit_req_zone $binary_remote_addr zone=portal_login:10m rate=3r/s;
-limit_req_zone $binary_remote_addr zone=portal_api:10m rate=30r/s;
+limit_req_status 429;
+map $status $bastion_is_limit_req {
+    429     1;
+    default 0;
+}
+log_format bastion_rate_limit '$remote_addr $time_iso8601 $request_method $uri $status $request_length';
+access_log /var/log/nginx/bastion-rate-limit.log bastion_rate_limit if=$bastion_is_limit_req;
+limit_req_zone $binary_remote_addr zone=portal_login:10m rate=2r/s;
+limit_req_zone $binary_remote_addr zone=portal_api:10m rate=50r/s;
+limit_req_zone $binary_remote_addr zone=portal_standard:10m rate=20r/s;
 limit_req_zone $binary_remote_addr zone=portal_unknown_host:10m rate=5r/s;
 EOF
 fi
+
+# Dynamic burst snippets (included from vhost locations).
+_sync_limit_req_burst() {
+  local name="$1" zone="$2" burst="$3"
+  if [[ -f "$EXPORTS/${name}.conf" ]]; then
+    cp -a "$EXPORTS/${name}.conf" "/etc/nginx/includes/${name}.conf"
+  else
+    cat > "/etc/nginx/includes/${name}.conf" <<EOF
+# No export yet — default burst for ${zone}.
+limit_req zone=${zone} burst=${burst} nodelay;
+EOF
+  fi
+}
+_sync_limit_req_burst limit_req_portal_login portal_login 5
+_sync_limit_req_burst limit_req_portal_api portal_api 20
+_sync_limit_req_burst limit_req_portal_standard portal_standard 10
 
 # Inter-app mTLS verify snippet (ssl_verify_client + CA/CRL paths).
 # Include inside internal SSL server/location blocks that require client certs.

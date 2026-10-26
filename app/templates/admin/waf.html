@@ -298,6 +298,16 @@
           <span class="sentinel-kpi-value">—</span>
           <span class="sentinel-kpi-sub" title="{{ wa_net.acl_rejections_note or '' }}">{{ _('Compteur access.log · v1.3') }}</span>
         </article>
+        <article class="sentinel-kpi {% if wa_net.rate_limit_429_24h %}sentinel-kpi--warn{% else %}sentinel-kpi--ok{% endif %}">
+          <span class="sentinel-kpi-label">{{ _('Rejets rate-limit (429)') }}</span>
+          <span class="sentinel-kpi-value">{{ wa_net.rate_limit_429_display or '0' }}</span>
+          <span class="sentinel-kpi-sub">{{ _('24 h · capteur Nginx limit_req') }}</span>
+        </article>
+        <article class="sentinel-kpi {% if wa_net.auto_bans_active %}sentinel-kpi--warn{% else %}sentinel-kpi--ok{% endif %}">
+          <span class="sentinel-kpi-label">{{ _('Bans automatiques comportementaux') }}</span>
+          <span class="sentinel-kpi-value">{{ wa_net.auto_bans_active_display or '0' }}</span>
+          <span class="sentinel-kpi-sub">{{ _('Actifs nginx_limit_req') }}{% if wa_net.auto_bans_24h is not none %} · +{{ wa_net.auto_bans_24h }} /24h{% endif %}</span>
+        </article>
       </section>
 
       <section class="sentinel-ops-grid" aria-label="{{ _('Triage & surfaces') }}" style="margin-top:1rem">
@@ -870,19 +880,24 @@
 
         <p class="form-help">{{ _('Packs virtual-patch et état moteur : onglet') }} <a href="#modsecurity">ModSecurity</a>.</p>
 
-        <div class="form-section-sub">{{ _('Limites de débit portail (nginx)') }}</div>
+        <div class="form-section-sub">{{ _('Limites de débit portail (nginx · HTTP 429)') }}</div>
 
         <div class="form-row waf-rate-grid">
 
-          <div class="form-group"><label class="form-label" for="waf_portal_login_rate">{{ _('Login (r/s)') }}</label><input class="form-input" type="number" id="waf_portal_login_rate" name="portal_login_rate" min="1" value="{{ profile.portal_login_rate }}"></div>
+          <div class="form-group"><label class="form-label" for="waf_portal_login_rate">{{ _('Auth / login (r/s)') }}</label><input class="form-input" type="number" id="waf_portal_login_rate" name="portal_login_rate" min="1" value="{{ profile.portal_login_rate }}"></div>
 
-          <div class="form-group"><label class="form-label" for="waf_portal_login_burst">{{ _('Burst login') }}</label><input class="form-input" type="number" id="waf_portal_login_burst" name="portal_login_burst" min="0" value="{{ profile.portal_login_burst }}"></div>
+          <div class="form-group"><label class="form-label" for="waf_portal_login_burst">{{ _('Burst auth') }}</label><input class="form-input" type="number" id="waf_portal_login_burst" name="portal_login_burst" min="0" value="{{ profile.portal_login_burst }}"></div>
 
           <div class="form-group"><label class="form-label" for="waf_portal_api_rate">API (r/s)</label><input class="form-input" type="number" id="waf_portal_api_rate" name="portal_api_rate" min="1" value="{{ profile.portal_api_rate }}"></div>
 
           <div class="form-group"><label class="form-label" for="waf_portal_api_burst">Burst API</label><input class="form-input" type="number" id="waf_portal_api_burst" name="portal_api_burst" min="0" value="{{ profile.portal_api_burst }}"></div>
 
+          <div class="form-group"><label class="form-label" for="waf_portal_standard_rate">{{ _('Navigation (r/s)') }}</label><input class="form-input" type="number" id="waf_portal_standard_rate" name="portal_standard_rate" min="1" value="{{ profile.portal_standard_rate | default(20) }}"></div>
+
+          <div class="form-group"><label class="form-label" for="waf_portal_standard_burst">{{ _('Burst navigation') }}</label><input class="form-input" type="number" id="waf_portal_standard_burst" name="portal_standard_burst" min="0" value="{{ profile.portal_standard_burst | default(10) }}"></div>
+
         </div>
+        <p class="form-hint">{{ _('Dépassement → 429. Auto-ban progressif (15 min → 2 h → permanent) configurable sous Contrôle réseau.') }}</p>
 
         <div class="form-footer form-footer-flush"><button type="submit" class="btn btn-secondary">{{ _('Enregistrer le profil') }}</button></div>
 
@@ -1390,6 +1405,31 @@
           </tbody>
         </table>
       </div>
+
+      <h4 class="waf-subheading">{{ _('Auto-ban comportemental (Nginx 429)') }}</h4>
+      {% set nrl = nginx_limit_req_rule %}
+      <form method="post" action="/admin/security/waf/rate-limit/escalation" class="stack mb-4" style="max-width:40rem">
+        <p class="form-hint mb-0">
+          {{ _('Si une IP accumule N rejets HTTP 429 (limit_req) en T secondes → SecurityBan progressif : 15 min → 2 h → permanent.') }}
+        </p>
+        <label class="form-check">
+          <input type="checkbox" name="enabled" value="on" {% if nrl is none or nrl.enabled %}checked{% endif %}>
+          {{ _('Activer l’escalade auto-ban') }}
+        </label>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="nrl_threshold">{{ _('Seuil (N rejets 429)') }}</label>
+            <input class="form-input" type="number" id="nrl_threshold" name="threshold" min="1" max="10000"
+                   value="{{ nrl.threshold if nrl else 30 }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="nrl_window">{{ _('Fenêtre T (secondes)') }}</label>
+            <input class="form-input" type="number" id="nrl_window" name="window_seconds" min="10" max="3600"
+                   value="{{ nrl.window_seconds if nrl else 60 }}">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-secondary">{{ _('Enregistrer l’escalade') }}</button>
+      </form>
 
       <h4 class="waf-subheading">{{ _('Bannissements actifs (denylist)') }}</h4>
       <div class="data-table-wrapper" id="network-bans">
@@ -2762,6 +2802,8 @@
       portal_login_rate: document.getElementById('waf_portal_login_rate'),
       portal_login_burst: document.getElementById('waf_portal_login_burst'),
       portal_api_rate: document.getElementById('waf_portal_api_rate'),
+      portal_standard_rate: document.getElementById('waf_portal_standard_rate'),
+      portal_standard_burst: document.getElementById('waf_portal_standard_burst'),
       portal_api_burst: document.getElementById('waf_portal_api_burst'),
     };
     presetSelect.addEventListener('change', function () {
@@ -2776,10 +2818,12 @@
         fields.paranoia_level.dispatchEvent(new Event('change'));
       }
       if (fields.ip_deny_min_occurrences) fields.ip_deny_min_occurrences.value = String(p.ip_deny_min_occurrences ?? 3);
-      if (fields.portal_login_rate) fields.portal_login_rate.value = String(p.portal_login_rate ?? 3);
+      if (fields.portal_login_rate) fields.portal_login_rate.value = String(p.portal_login_rate ?? 2);
       if (fields.portal_login_burst) fields.portal_login_burst.value = String(p.portal_login_burst ?? 5);
-      if (fields.portal_api_rate) fields.portal_api_rate.value = String(p.portal_api_rate ?? 30);
-      if (fields.portal_api_burst) fields.portal_api_burst.value = String(p.portal_api_burst ?? 60);
+      if (fields.portal_api_rate) fields.portal_api_rate.value = String(p.portal_api_rate ?? 50);
+      if (fields.portal_api_burst) fields.portal_api_burst.value = String(p.portal_api_burst ?? 20);
+      if (fields.portal_standard_rate) fields.portal_standard_rate.value = String(p.portal_standard_rate ?? 20);
+      if (fields.portal_standard_burst) fields.portal_standard_burst.value = String(p.portal_standard_burst ?? 10);
     });
   }
 

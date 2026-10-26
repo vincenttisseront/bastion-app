@@ -99,6 +99,29 @@ def start_health_scheduler(settings: Settings) -> None:
     )
     logger.info("ModSec audit aggregator scheduled (every 5 min)")
 
+    def _nginx_ratelimit_sensor_job() -> None:
+        from app.database import SessionLocal
+        from app.security.banning.nginx_ratelimit_sensor import run_sensor_tick
+
+        db = SessionLocal()
+        try:
+            run_sensor_tick(db, settings)
+        except Exception:
+            logger.exception("nginx rate-limit sensor failed")
+        finally:
+            db.close()
+
+    scheduler.add_job(
+        _nginx_ratelimit_sensor_job,
+        "interval",
+        seconds=30,
+        id="nginx_ratelimit_sensor",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    logger.info("Nginx rate-limit sensor scheduled (every 30s)")
+
     from app.rbac.account_lifecycle_service import account_lifecycle_job
 
     scheduler.add_job(

@@ -41,6 +41,10 @@ RULE_CONCURRENT = "concurrent_connections"
 RULE_RATE_LIMIT = "rate_limit"
 RULE_RATE_LIMIT_LOGIN = "rate_limit_login"
 RULE_UNKNOWN_HOST = "unknown_host_hammering"
+RULE_NGINX_LIMIT_REQ = "nginx_limit_req"
+
+# Progressive TTL for nginx 429 auto-ban (minutes). 3rd+ → permanent.
+NGINX_LIMIT_TTL_LADDER_MINUTES = (15, 120)
 
 TARGET_IP = "ip"
 TARGET_USERNAME = "username"
@@ -122,6 +126,19 @@ DEFAULT_RULES: dict[str, dict] = {
         "ban_minutes": 1440,
         "ban_permanent": False,
         "config_json": None,
+    },
+    # Nginx limit_req (HTTP 429) → SecurityBan with progressive TTL.
+    # threshold = N rejections in window_seconds; ban_minutes unused (ladder).
+    RULE_NGINX_LIMIT_REQ: {
+        "enabled": True,
+        "threshold": 30,
+        "window_seconds": 60,
+        "ban_minutes": 15,
+        "ban_permanent": False,
+        "config_json": {
+            "ttl_ladder_minutes": list(NGINX_LIMIT_TTL_LADDER_MINUTES),
+            "permanent_after": 3,
+        },
     },
 }
 
@@ -1200,3 +1217,80 @@ def check_request_allowed(
         return False, "rate_limited", None
 
     return True, "", None
+
+
+def count_historical_nginx_limit_bans(db: Session, ip: str) -> int:
+    """Count past nginx_limit_req bans for IP (including lifted/expired)."""
+    ip_n = (ip or "").strip()
+    if not ip_n:
+        return 0
+    return (
+        db.query(SecurityBan)
+        .filter(
+            SecurityBan.target_type == TARGET_IP,
+            SecurityBan.target == ip_n,
+            SecurityBan.rule_type == RULE_NGINX_LIMIT_REQ,
+        )
+        .count()
+    )
+
+
+def progressive_nginx_limit_ttl(
+    prior_ban_count: int,
+    *,
+    ladder_minutes: tuple[int, ...] | list[int] | None = None,
+    permanent_after: int = 3,
+) -> tuple[bool, int]:
+    """Return (permanent, ban_minutes) from recidivism count before this ban.
+
+    prior_ban_count=0 → 1st ban (15m), 1 → 2nd (2h), >= permanent_after-1 → permanent.
+    """
+    ladder = tuple(ladder_minutes or NGINX_LIMIT_TTL_LADDER_MINUTES)
+    after = max(1, int(permanent_after or 3))
+    offense = max(0, int(prior_ban_count)) + 1
+    if offense >= after:
+        return True, 0
+    idx = min(offense - 1, len(ladder) - 1)
+    return False, max(1, int(ladder[idx]))
+
+
+def apply_nginx_limit_req_ban(
+    db: Session,
+    *,
+    ip: str,
+    rejection_count: int,
+    window_seconds: int,
+    zone: str | None = None,
+) -> SecurityBan | None:
+    """Auto-ban after N nginx 429s; progressive TTL 15m → 2h → permanent."""
+    rule = get_rule(db, RULE_NGINX_LIMIT_REQ)
+    if rule is None or not rule.enabled:
+        return None
+    ip_n = (ip or "").strip()
+    if not ip_n:
+        return None
+
+    cfg = rule.config_json if isinstance(rule.config_json, dict) else {}
+    ladder = cfg.get("ttl_ladder_minutes") or list(NGINX_LIMIT_TTL_LADDER_MINUTES)
+    permanent_after = int(cfg.get("permanent_after") or 3)
+    prior = count_historical_nginx_limit_bans(db, ip_n)
+    permanent, ban_minutes = progressive_nginx_limit_ttl(
+        prior, ladder_minutes=ladder, permanent_after=permanent_after
+    )
+    zone_label = (zone or "").strip() or "unknown"
+    reason = (
+        f"Auto-Ban: dépassement critique Zone {zone_label} "
+        f"({rejection_count}x429 / {window_seconds}s)"
+    )
+    return apply_ban(
+        db,
+        target_type=TARGET_IP,
+        target=ip_n,
+        reason=reason,
+        rule_type=RULE_NGINX_LIMIT_REQ,
+        permanent=permanent,
+        ban_minutes=ban_minutes,
+        actor="system",
+        ip_address=ip_n,
+        confirm_permanent=permanent,
+    )

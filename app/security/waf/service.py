@@ -41,18 +41,21 @@ PRESET_VALUES: dict[str, dict[str, Any]] = {
         "anomaly_threshold": 10,
         "portal_login_rate": 10,
         "portal_api_rate": 100,
+        "portal_standard_rate": 40,
     },
     "Préproduction": {
         "mode": MODE_ON,
         "anomaly_threshold": 7,
-        "portal_login_rate": 3,
-        "portal_api_rate": 30,
+        "portal_login_rate": 2,
+        "portal_api_rate": 50,
+        "portal_standard_rate": 20,
     },
     "Production": {
         "mode": MODE_ON,
         "anomaly_threshold": 5,
-        "portal_login_rate": 3,
-        "portal_api_rate": 30,
+        "portal_login_rate": 2,
+        "portal_api_rate": 50,
+        "portal_standard_rate": 20,
     },
 }
 
@@ -74,6 +77,12 @@ def profiles_for_ui(db: Session) -> dict[str, dict[str, Any]]:
             "portal_login_burst": int(row.portal_login_burst),
             "portal_api_rate": int(row.portal_api_rate),
             "portal_api_burst": int(row.portal_api_burst),
+            "portal_standard_rate": int(
+                getattr(row, "portal_standard_rate", None) or 20
+            ),
+            "portal_standard_burst": int(
+                getattr(row, "portal_standard_burst", None) or 10
+            ),
         }
     for name, preset in PRESET_VALUES.items():
         out.setdefault(name, dict(preset))
@@ -99,6 +108,8 @@ def update_active_profile(
     portal_api_rate: int | None = None,
     portal_login_burst: int | None = None,
     portal_api_burst: int | None = None,
+    portal_standard_rate: int | None = None,
+    portal_standard_burst: int | None = None,
     patch_php2shell_enabled: bool | None = None,
     actor: str,
     ip_address: str | None = None,
@@ -127,6 +138,8 @@ def update_active_profile(
         profile.anomaly_threshold = int(preset["anomaly_threshold"])
         profile.portal_login_rate = int(preset["portal_login_rate"])
         profile.portal_api_rate = int(preset["portal_api_rate"])
+        if "portal_standard_rate" in preset:
+            profile.portal_standard_rate = int(preset["portal_standard_rate"])
         # Allow form overrides on top of preset when provided.
         if mode in VALID_MODES:
             profile.mode = mode
@@ -171,6 +184,10 @@ def update_active_profile(
         profile.portal_login_burst = max(0, int(portal_login_burst))
     if portal_api_burst is not None:
         profile.portal_api_burst = max(0, int(portal_api_burst))
+    if portal_standard_rate is not None:
+        profile.portal_standard_rate = max(1, int(portal_standard_rate))
+    if portal_standard_burst is not None:
+        profile.portal_standard_burst = max(0, int(portal_standard_burst))
     if patch_php2shell_enabled is not None:
         profile.patch_php2shell_enabled = bool(patch_php2shell_enabled)
 

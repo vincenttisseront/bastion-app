@@ -91,8 +91,15 @@ def _waf_page_context(
         {"id": rid, "label": f"{rid} — {label}"}
         for rid, label in sorted(suggestions.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0)
     ]
+    from app.security.banning.engine import (
+        RULE_NGINX_LIMIT_REQ,
+        ensure_security_defaults,
+        get_rule,
+    )
     from app.security.banning.service import list_allowlist
 
+    ensure_security_defaults(db)
+    nginx_rl_rule = get_rule(db, RULE_NGINX_LIMIT_REQ)
     allowlist = list_allowlist(db)
     return {
         "profile": profile,
@@ -100,6 +107,7 @@ def _waf_page_context(
         "waf_profiles_map": waf_service.profiles_for_ui(db),
         "exclusions": exclusions,
         "allowlist": allowlist,
+        "nginx_limit_req_rule": nginx_rl_rule,
         "exclusion_hosts": hosts,
         "crs_rule_suggestions": rule_suggestions,
         "anomaly_min": ANOMALY_MIN,
@@ -258,10 +266,12 @@ def admin_waf_profile_post(
     profile_preset: str = Form("Custom"),
     paranoia_level: int = Form(1),
     ip_deny_min_occurrences: int = Form(3),
-    portal_login_rate: int = Form(3),
-    portal_api_rate: int = Form(30),
+    portal_login_rate: int = Form(2),
+    portal_api_rate: int = Form(50),
     portal_login_burst: int = Form(5),
-    portal_api_burst: int = Form(60),
+    portal_api_burst: int = Form(20),
+    portal_standard_rate: int = Form(20),
+    portal_standard_burst: int = Form(10),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -279,6 +289,8 @@ def admin_waf_profile_post(
             portal_api_rate=int(portal_api_rate),
             portal_login_burst=int(portal_login_burst),
             portal_api_burst=int(portal_api_burst),
+            portal_standard_rate=int(portal_standard_rate),
+            portal_standard_burst=int(portal_standard_burst),
             actor=admin_actor(user),
             ip_address=client_ip_from_request(request) or None,
         )
@@ -664,6 +676,44 @@ def admin_waf_quick_toggle(
     return response
 
 
+@router.post("/admin/security/waf/rate-limit/escalation")
+def admin_waf_rate_limit_escalation(
+    request: Request,
+    enabled: str | None = Form(None),
+    threshold: int = Form(30),
+    window_seconds: int = Form(60),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Configure nginx_limit_req auto-ban (N×429 → progressive SecurityBan)."""
+    from app.security.banning.engine import RULE_NGINX_LIMIT_REQ
+    from app.security.banning.service import update_ban_rules
+
+    response = RedirectResponse(url=_WAF_URL_NETWORK, status_code=302)
+    update_ban_rules(
+        db,
+        rules={
+            RULE_NGINX_LIMIT_REQ: {
+                "enabled": enabled == "on",
+                "threshold": max(1, int(threshold)),
+                "window_seconds": max(10, int(window_seconds)),
+                "ban_minutes": 15,
+                "ban_permanent": False,
+            }
+        },
+        actor=admin_actor(user),
+        ip_address=client_ip_from_request(request) or None,
+    )
+    flash_redirect(
+        response,
+        "Politique d’auto-ban rate-limit enregistrée.",
+        "success",
+        _flash_secret(settings),
+    )
+    return response
+
+
 @router.post("/admin/security/waf/actions/lift-ban/{ban_id}")
 def admin_waf_lift_ban(
     ban_id: int,
@@ -888,9 +938,8 @@ def admin_waf_promote_portal_on(
             db,
             actor=admin_actor(user),
             action="security.waf.promote_portal_on",
-            resource_type="waf",
-            resource_id="portal",
-            detail={"mode": "on", "smoke_ok": True},
+            target="waf:portal",
+            details={"mode": "on", "smoke_ok": True},
             ip_address=client_ip_from_request(request) or None,
         )
         flash_redirect(
