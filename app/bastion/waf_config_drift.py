@@ -12,10 +12,12 @@ from sqlalchemy.orm import Session
 from app.bastion.nginx_waf_export import (
     DEFAULT_IP_DENY_MIN,
     ensure_active_profile,
+    list_allowlist_ips,
     list_promoted_deny_ips,
     render_crs_setup_generated,
     render_engine_mode_generated,
     render_exclusions_generated,
+    render_ip_allow_conf,
     render_ip_deny_conf,
     render_rate_limits_conf,
     render_virtual_patches_enabled,
@@ -58,6 +60,12 @@ _DRIFT_SPECS: tuple[dict[str, str], ...] = (
         "id": "nginx-portal-rate-limits",
         "name": "nginx-portal-rate-limits.conf",
         "label": "Rate limits portail",
+        "location": "exports",
+    },
+    {
+        "id": "waf-ip-allow",
+        "name": "waf-ip-allow.conf",
+        "label": "IP allow nginx (trust)",
         "location": "exports",
     },
     {
@@ -137,6 +145,7 @@ def _desired_contents(
     )
     min_occ = max(1, int(profile.ip_deny_min_occurrences or DEFAULT_IP_DENY_MIN))
     ips = list_promoted_deny_ips(db, min_occurrences=min_occ)
+    allow_ips = list_allowlist_ips(db)
     mod_dir = waf_exports_dir(settings)
     exports = Path(settings.exports_dir)
 
@@ -160,6 +169,10 @@ def _desired_contents(
         "nginx-portal-rate-limits": (
             exports / "nginx-portal-rate-limits.conf",
             render_rate_limits_conf(profile),
+        ),
+        "waf-ip-allow": (
+            exports / "waf-ip-allow.conf",
+            render_ip_allow_conf(allow_ips),
         ),
         "waf-ip-deny": (
             exports / "waf-ip-deny.conf",

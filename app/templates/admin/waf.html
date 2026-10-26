@@ -34,8 +34,10 @@
 {% set wa_tele = wa.telemetry or {} %}
 {% set wa_triage = wa.triage or {} %}
 {% set wa_rules = wa.top_rules or {} %}
+{% set wa_net = wa.network or {} %}
 
 {% set bans = security_bans_all %}
+{% set allow_entries = allowlist or [] %}
 
 <div class="page" id="waf-page">
 
@@ -155,6 +157,7 @@
         <a href="#profile" class="tab" role="tab" data-tab="profile" id="tab-profile" aria-selected="false">{{ _('Profil') }}</a>
         <a href="#modsecurity" class="tab" role="tab" data-tab="modsecurity" id="tab-modsecurity" aria-selected="false">ModSecurity <span class="badge badge-muted tab-badge" id="waf-ms-tab-badge"{% if not (modsecurity and modsecurity.packs_total) %} hidden{% endif %}>{% if modsecurity %}{{ modsecurity.packs_enabled_count }}/{{ modsecurity.packs_total }}{% endif %}</span></a>
         <a href="#exclusions" class="tab" role="tab" data-tab="exclusions" id="tab-exclusions" aria-selected="false">Exclusions {% if exclusions %}<span class="badge badge-muted tab-badge">{{ exclusions|length }}</span>{% endif %}</a>
+        <a href="#network-control" class="tab" role="tab" data-tab="network-control" id="tab-network-control" aria-selected="false">{{ _('Contrôle réseau') }} {% if bans %}<span class="badge badge-muted tab-badge">{{ bans|length }}</span>{% endif %}</a>
         <a href="#headers" class="tab" role="tab" data-tab="headers" id="tab-headers" aria-selected="false">{{ _('En-têtes') }}</a>
         <a href="#technical" class="tab" role="tab" data-tab="technical" id="tab-technical" aria-selected="false">{{ _('Détails techniques') }}</a>
         {% if reactivation and reactivation.show %}
@@ -271,6 +274,29 @@
               {{ _('Résumé audit indisponible') }}
             {% endif %}
           </span>
+        </article>
+      </section>
+
+      <section class="sentinel-exec-row" aria-label="{{ _('KPIs réseau ACL') }}" style="margin-top:1rem">
+        <article class="sentinel-kpi {% if wa_net.banned_ips_active %}sentinel-kpi--warn{% else %}sentinel-kpi--ok{% endif %}">
+          <span class="sentinel-kpi-label">{{ _('IPs actuellement bannies') }}</span>
+          <span class="sentinel-kpi-value">{{ wa_net.banned_ips_display or '0' }}</span>
+          <span class="sentinel-kpi-sub">{{ _('SecurityBan actifs · non expirés') }}</span>
+        </article>
+        <article class="sentinel-kpi sentinel-kpi--ok">
+          <span class="sentinel-kpi-label">{{ _('Deny nginx (amont ModSec)') }}</span>
+          <span class="sentinel-kpi-value" title="{{ wa_net.acl_rejections_note or '' }}">{{ wa_net.promoted_deny_display or '0' }}</span>
+          <span class="sentinel-kpi-sub">{{ _('IPs dans waf-ip-deny.conf') }}</span>
+        </article>
+        <article class="sentinel-kpi sentinel-kpi--ok">
+          <span class="sentinel-kpi-label">{{ _('Allowlist trust') }}</span>
+          <span class="sentinel-kpi-value">{{ wa_net.allowlist_ips_display or '0' }}</span>
+          <span class="sentinel-kpi-sub">{{ _('CIDR / IP · waf-ip-allow.conf') }}</span>
+        </article>
+        <article class="sentinel-kpi sentinel-kpi--warn">
+          <span class="sentinel-kpi-label">{{ _('Rejets réseau (403 ACL)') }}</span>
+          <span class="sentinel-kpi-value">—</span>
+          <span class="sentinel-kpi-sub" title="{{ wa_net.acl_rejections_note or '' }}">{{ _('Compteur access.log · v1.3') }}</span>
         </article>
       </section>
 
@@ -604,13 +630,9 @@
                      data-waf-exclude-refine>Affiner…</a>
                   {% endif %}
                   {% if not a.banned and a.can_ban %}
-                  <form method="post" action="/admin/security/waf/actions/ban-ip" class="inline-form waf-action-form">
-                    <input type="hidden" name="ip" value="{{ a.client_ip }}">
-                    <input type="hidden" name="ban_mode" value="temporary">
-                    <input type="hidden" name="ban_minutes" value="1440">
-                    <input type="hidden" name="reason" value="WAF Sentinel — {{ a.rule_label or a.rule_id }}">
-                    <button type="submit" class="btn btn-ghost btn-sm">{{ _('Bannir') }}</button>
-                  </form>
+                  <button type="button" class="btn btn-ghost btn-sm"
+                          data-waf-ban-ip="{{ a.client_ip }}"
+                          data-waf-ban-reason="WAF Sentinel — {{ a.rule_label or a.rule_id }}">{{ _('Bannir l’IP') }}</button>
                   {% elif a.banned %}
                   <span class="badge badge-ok">banni</span>
                   {% endif %}
@@ -635,6 +657,44 @@
         <div class="sentinel-inspect-body">
           <pre class="sentinel-inspect-pre" id="waf-inspect-pre"></pre>
         </div>
+      </dialog>
+
+      <dialog id="waf-ban-dialog" class="sentinel-inspect-dialog">
+        <div class="sentinel-inspect-head">
+          <strong>{{ _('Bannir l’IP') }}</strong>
+          <button type="button" class="btn btn-ghost btn-sm" id="waf-ban-close">{{ _('Fermer') }}</button>
+        </div>
+        <form method="post" action="/admin/security/waf/actions/ban-ip" class="stack" style="padding:1rem;max-width:28rem" id="waf-ban-form">
+          <input type="hidden" name="ip" id="waf-ban-ip" value="">
+          <div class="form-group">
+            <label class="form-label" for="waf-ban-ip-display">IP</label>
+            <input class="form-input is-mono" type="text" id="waf-ban-ip-display" readonly>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="waf-ban-reason">{{ _('Motif') }}</label>
+            <input class="form-input" type="text" name="reason" id="waf-ban-reason" required maxlength="500">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="waf-ban-mode">{{ _('Durée') }}</label>
+            <select class="form-select" name="ban_mode" id="waf-ban-mode">
+              <option value="temporary" selected>{{ _('Temporaire (règle / minutes)') }}</option>
+              <option value="permanent">{{ _('Permanent') }}</option>
+            </select>
+          </div>
+          <div class="form-group" id="waf-ban-minutes-wrap">
+            <label class="form-label" for="waf-ban-minutes">{{ _('Minutes') }}</label>
+            <input class="form-input" type="number" name="ban_minutes" id="waf-ban-minutes" value="60" min="1" max="525600">
+            <p class="form-help muted">{{ _('Défaut 60 min (SecurityBanRule). Deny nginx si permanent ou seuil d’occurrences.') }}</p>
+          </div>
+          <label class="form-check" id="waf-ban-confirm-wrap" hidden>
+            <input type="checkbox" name="confirm_permanent" value="on" id="waf-ban-confirm">
+            <span>{{ _('Confirmer le ban permanent') }}</span>
+          </label>
+          <div class="form-footer form-footer-flush" style="justify-content:flex-start;gap:.5rem">
+            <button type="submit" class="btn btn-primary">{{ _('Confirmer le ban') }}</button>
+            <button type="button" class="btn btn-secondary" id="waf-ban-cancel">{{ _('Annuler') }}</button>
+          </div>
+        </form>
       </dialog>
 
       <dialog id="waf-rule-logs-dialog" class="sentinel-inspect-dialog sentinel-rule-logs-dialog">
@@ -1274,6 +1334,105 @@
     </div>
 
   </div>
+
+  {# Contrôle réseau — allowlist + denylist #}
+  <div class="form-section waf-panel" id="network-control" role="tabpanel" aria-labelledby="tab-network-control" hidden>
+    <div class="form-section-header">
+      <div class="form-section-title">{{ _('Contrôle réseau') }}</div>
+      <div class="form-section-sub">{{ _('Allowlist trust et bans IP — export nginx avant ModSecurity. Puis') }} <strong>{{ _('Appliquer') }}</strong>.</div>
+    </div>
+    <div class="form-body">
+      <h4 class="waf-subheading">{{ _('Allowlist (périmètre de confiance)') }}</h4>
+      <form method="post" action="/admin/security/waf/allowlist/add" class="stack mb-4" style="max-width:40rem">
+        <input type="hidden" name="entry_type" value="ip">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="waf_al_value">IP / CIDR</label>
+            <input class="form-input is-mono" type="text" id="waf_al_value" name="value" required maxlength="64"
+                   placeholder="10.0.0.0/8">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="waf_al_comment">{{ _('Commentaire') }}</label>
+            <input class="form-input" type="text" id="waf_al_comment" name="comment" required maxlength="200"
+                   placeholder="{{ _('VPN bureau') }}">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">{{ _('Ajouter à l’allowlist') }}</button>
+      </form>
+      <div class="data-table-wrapper mb-4">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>IP / CIDR</th>
+              <th>{{ _('Commentaire') }}</th>
+              <th>{{ _('Auteur') }}</th>
+              <th>{{ _('Ajouté') }}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in allow_entries if e.entry_type == 'ip' %}
+            <tr>
+              <td class="mono">{{ e.value }}</td>
+              <td>{{ e.comment or '—' }}</td>
+              <td class="muted">{{ e.created_by or '—' }}</td>
+              <td class="mono">{% if e.created_at %}{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+              <td>
+                <form method="post" action="/admin/security/waf/allowlist/{{ e.id }}/remove" class="inline-form"
+                      onsubmit="return confirm('Retirer cette entrée allowlist ?');">
+                  <button type="submit" class="btn btn-ghost btn-sm">{{ _('Retirer') }}</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="muted">{{ _('Aucune IP/CIDR allowlist.') }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <h4 class="waf-subheading">{{ _('Bannissements actifs (denylist)') }}</h4>
+      <div class="data-table-wrapper" id="network-bans">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>{{ _('Cible') }}</th>
+              <th>{{ _('Raison') }}</th>
+              <th>{{ _('Origine') }}</th>
+              <th>{{ _('Expiration') }}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ban in bans %}
+            <tr>
+              <td><span class="mono">{{ ban.target_type }}:{{ ban.target }}</span></td>
+              <td>{{ ban.reason }}</td>
+              <td class="muted">{{ ban.rule_type or '—' }}</td>
+              <td>
+                {% if ban.permanent %}
+                <span class="badge badge-err">{{ _('Permanent') }}</span>
+                {% elif ban.expires_at %}
+                <span class="mono">{% if ban.expires_at.strftime is defined %}{{ ban.expires_at.strftime('%Y-%m-%d %H:%M') }}{% else %}{{ ban.expires_at }}{% endif %}</span>
+                {% else %}
+                —
+                {% endif %}
+              </td>
+              <td>
+                <form method="post" action="/admin/security/waf/actions/lift-ban/{{ ban.id }}" class="inline-form">
+                  <button type="submit" class="btn btn-secondary btn-sm">{{ _('Lever') }}</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="muted">{{ _('Aucun ban actif.') }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 {# En-têtes #}
 
 
@@ -1689,11 +1848,11 @@
 
 (function () {
 
-  var VALID = ['bilan', 'profile', 'modsecurity', 'exclusions', 'headers', 'technical', 'reactivation'];
+  var VALID = ['bilan', 'profile', 'modsecurity', 'exclusions', 'network-control', 'headers', 'technical', 'reactivation'];
 
   var DEFAULT = 'bilan';
 
-  var CONFIG_TABS = ['profile', 'modsecurity', 'exclusions', 'headers', 'technical', 'reactivation'];
+  var CONFIG_TABS = ['profile', 'modsecurity', 'exclusions', 'network-control', 'headers', 'technical', 'reactivation'];
 
 
 

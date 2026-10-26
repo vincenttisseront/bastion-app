@@ -214,6 +214,15 @@ Include /etc/nginx/modsecurity/bastion-virtual-patches.conf
 EOF
 fi
 
+# IP allow (trust): reset to empty stub when export missing.
+if [[ -f "$EXPORTS/waf-ip-allow.conf" ]]; then
+  cp -a "$EXPORTS/waf-ip-allow.conf" /etc/nginx/includes/waf-ip-allow.conf
+else
+  cat > /etc/nginx/includes/waf-ip-allow.conf <<'EOF'
+# No export yet — no allowlist IP/CIDR.
+EOF
+fi
+
 # IP deny: reset to empty stub when export missing (avoid stale denies after wipe).
 if [[ -f "$EXPORTS/waf-ip-deny.conf" ]]; then
   cp -a "$EXPORTS/waf-ip-deny.conf" /etc/nginx/includes/waf-ip-deny.conf

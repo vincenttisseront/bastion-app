@@ -324,6 +324,7 @@ def build_waf_analytics_summary(
     surfaces = _attack_surfaces(window)
     nginx_families = _nginx_family_breakdown(db, settings, window) if present else []
     triage = _triage_usage(db)
+    network = _network_acl_kpis(db, profile)
 
     return {
         "present": present,
@@ -360,5 +361,48 @@ def build_waf_analytics_summary(
         "attack_surfaces": surfaces,
         "nginx_families": nginx_families,
         "triage": triage,
+        "network": network,
         "portal_mode": portal_mode,
+    }
+
+
+def _network_acl_kpis(
+    db: Session, profile: WafProfile
+) -> dict[str, Any]:
+    """Active bans + allowlist + promoted nginx deny (ACL load shed)."""
+    from app.bastion.nginx_waf_export import (
+        DEFAULT_IP_DENY_MIN,
+        list_allowlist_ips,
+        list_promoted_deny_ips,
+    )
+    from app.security.banning.service import list_active_bans, list_allowlist
+
+    active_bans = list_active_bans(db) if db is not None else []
+    banned_ips = [
+        b for b in active_bans if (getattr(b, "target_type", None) or "") == "ip"
+    ]
+    min_occ = max(
+        1, int(getattr(profile, "ip_deny_min_occurrences", None) or DEFAULT_IP_DENY_MIN)
+    )
+    promoted = list_promoted_deny_ips(db, min_occurrences=min_occ) if db else []
+    allow_ips = list_allowlist_ips(db) if db else []
+    allow_rows = (
+        [e for e in list_allowlist(db) if e.entry_type == "ip"] if db else []
+    )
+    # Request-level ACL 403 counters need access.log instrumentation (v1.3).
+    # Until then, surface promoted deny size as "IPs coupées en amont ModSec".
+    return {
+        "banned_ips_active": len(banned_ips),
+        "banned_ips_display": _fmt_count(len(banned_ips)),
+        "promoted_deny_count": len(promoted),
+        "promoted_deny_display": _fmt_count(len(promoted)),
+        "allowlist_ips": len(allow_ips),
+        "allowlist_ips_display": _fmt_count(len(allow_ips)),
+        "allowlist_entries": len(allow_rows),
+        "acl_rejections_instrumented": False,
+        "acl_rejections_24h": None,
+        "acl_rejections_note": (
+            "Compteur 403 ACL (access.log) non branché — "
+            f"{len(promoted)} IP(s) dans waf-ip-deny.conf (rejet amont ModSec)."
+        ),
     }
