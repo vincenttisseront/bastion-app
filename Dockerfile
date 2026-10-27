@@ -47,6 +47,7 @@ COPY --chown=65532:65532 migrations /app/migrations
 COPY --chown=65532:65532 scripts /app/scripts
 # Manifests for Admin → Dépendances inventory (not shipped via site-packages).
 COPY --chown=65532:65532 pyproject.toml package.json package-lock.json /app/
+# Pack .conf live under app/bastion/packs/conf/ (docker/nginx is dockerignored).
 
 USER 65532
 EXPOSE 8000

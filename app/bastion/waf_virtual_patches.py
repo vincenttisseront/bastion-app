@@ -43,11 +43,31 @@ PACK_MODE_DETECTION = "detection"
 PACK_MODE_ON = "on"
 VALID_PACK_MODES = frozenset({PACK_MODE_OFF, PACK_MODE_DETECTION, PACK_MODE_ON})
 
+# Pack sources shipped with the app image (docker/nginx is .dockerignored).
+# Keep in sync with docker/nginx/modsecurity/bastion*.conf (nginx image COPY).
+PACKS_CONF_DIR = Path(__file__).resolve().parent / "packs" / "conf"
 REPO_MODSEC = (
     Path(__file__).resolve().parents[2] / "docker" / "nginx" / "modsecurity"
 )
 VIRTUAL_PATCHES_ENABLED_FILENAME = "bastion-virtual-patches-enabled.conf"
 VIRTUAL_PATCHES_SOURCE = "/etc/nginx/modsecurity/bastion-virtual-patches.conf"
+
+
+def pack_source_present(conf_basename: str) -> bool:
+    """True when the pack .conf is on disk (app packs/conf, else repo nginx tree)."""
+    name = (conf_basename or "").strip()
+    if not name or name != Path(name).name or ".." in name:
+        return False
+    roots = (PACKS_CONF_DIR, REPO_MODSEC)
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        if (root / name).is_file():
+            return True
+    return False
 
 AUDIT_STALE_SECONDS = 3600
 AUDIT_SIZE_WARN_BYTES = 50 * 1024 * 1024
@@ -588,7 +608,7 @@ def build_modsecurity_page(
         if suggest:
             any_suggest = True
         conf_name = str(meta.get("conf_basename") or "")
-        source_present = (REPO_MODSEC / conf_name).is_file() if conf_name else False
+        source_present = pack_source_present(conf_name)
         exported = exported_modes.get(pack_id)
         deploy_pending = bool(
             effective.get("present") and exported is not None and exported != mode
