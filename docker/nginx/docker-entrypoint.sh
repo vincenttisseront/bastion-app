@@ -94,43 +94,9 @@ if [[ ! -d /var/log/nginx/apps ]]; then
   echo "ERROR: /var/log/nginx/apps missing — Accès apps requires shared nginx-logs volume" >&2
 fi
 
-# Shared nginx-logs volume → /var/log/nginx/apps (Accès apps + modsec + TLS access_log).
-# Host files may be root:root or 65532:600 from prior runs; nginx -t as uid 101 then
-# fails: open(.../portal.access.log) Permission denied → no :8080 bind.
 mkdir -p /tmp/modsecurity/data /tmp/modsecurity/tmp /tmp/modsecurity/upload 2>/dev/null || true
 mkdir -p /var/log/nginx/apps 2>/dev/null || true
-_fix_nginx_logs_writable() {
-  local probe="/var/log/nginx/apps/.bastion-write-probe"
-  if [[ ! -d /var/log/nginx/apps ]]; then
-    return 1
-  fi
-  # Prefer 101:65532 (nginx write, app read via group). Needs CAP_CHOWN.
-  if [[ "$(id -u)" -eq 0 ]]; then
-    chown -R 101:65532 /var/log/nginx/apps 2>/dev/null || true
-    find /var/log/nginx/apps -type d -exec chmod 2770 {} \; 2>/dev/null || true
-    find /var/log/nginx/apps -type f -exec chmod 660 {} \; 2>/dev/null || true
-  fi
-  rm -f "$probe" 2>/dev/null || true
-  if command -v su-exec >/dev/null 2>&1 && su-exec nginx:nginx touch "$probe" 2>/dev/null; then
-    rm -f "$probe" 2>/dev/null || true
-    return 0
-  fi
-  # chown failed (no CAP_CHOWN) — group-writable only (no world-writable / shell:S2612).
-  echo "WARN: chown nginx-logs failed — falling back to ug+rwX on /var/log/nginx/apps" >&2
-  chmod -R ug+rwX /var/log/nginx/apps 2>/dev/null || true
-  find /var/log/nginx/apps -type d -exec chmod 2770 {} \; 2>/dev/null || true
-  find /var/log/nginx/apps -type f -exec chmod 660 {} \; 2>/dev/null || true
-  rm -f "$probe" 2>/dev/null || true
-  if command -v su-exec >/dev/null 2>&1 && su-exec nginx:nginx touch "$probe" 2>/dev/null; then
-    rm -f "$probe" 2>/dev/null || true
-    return 0
-  fi
-  return 1
-}
-if ! _fix_nginx_logs_writable; then
-  echo "WARN: /var/log/nginx/apps not writable for uid 101 — nginx -t may fail on access_log (no :8080)" >&2
-  echo "WARN: compose must cap_add CHOWN; or on host: chown -R 101:65532 …/nginx-logs && chmod -R ug+rwX …/nginx-logs" >&2
-fi
+# Volume perms + tmpfs log redirect live in /fix-nginx-logs.sh (called before nginx -t).
 chown -R nginx:nginx /tmp/modsecurity 2>/dev/null || true
 
 # conf.d/snippets tmpfs must be writable (compose mode=0777 when cap_drop ALL).
@@ -202,8 +168,18 @@ _nginx_as_worker mkdir -p \
   /var/cache/nginx/scgi_temp \
   /var/run
 
+# access_log under apps/ must be openable by uid 101 (else nginx -t fails → no :8080).
+/fix-nginx-logs.sh
+
 _nginx_as_worker nginx -t
-/export-waf-snapshot.sh || echo "WARN: export-waf-snapshot failed" >&2
+# Defer WAF snapshot: a synchronous nginx -T here races the master start and
+# OOMs under mem_limit 1g (see export-waf-snapshot.sh). Watch / first reload fills it.
+if [[ "${BASTION_WAF_SNAPSHOT_AT_BOOT:-0}" == "1" ]]; then
+  BASTION_SNAPSHOT_SKIP_NGINX_T=1 /export-waf-snapshot.sh \
+    || echo "WARN: export-waf-snapshot failed" >&2
+else
+  echo "INFO: WAF snapshot deferred (set BASTION_WAF_SNAPSHOT_AT_BOOT=1 to force)" >&2
+fi
 
 # Daily logrotate + snapshot WAF toutes les 5 min (crond Alpine).
 # Needs a writable /etc (not compose read_only) + root. Otherwise watch / app aggregator cover it.
@@ -243,6 +219,12 @@ fi
 if [[ "${BASTION_EXPORTS_WATCH:-1}" != "0" ]]; then
   /watch-exports-reload.sh &
 fi
+
+# Lightweight snapshot (no nginx -T) after master is up. Reparented across exec.
+(
+  sleep 5
+  /export-waf-snapshot.sh || echo "WARN: deferred export-waf-snapshot failed" >&2
+) &
 
 if [[ "${_drop_to_nginx}" -eq 1 ]]; then
   echo "INFO: dropping privileges to nginx after cert mirror / conf render"
