@@ -764,6 +764,8 @@ def _atomic_write_text(path: Path, content: str) -> None:
     Filename is regex-validated and rejoined under ``path.parent.resolve()`` so
     taint analysis cannot treat the Path as user-controlled (pythonsecurity:S2083).
     """
+    if any(part == ".." for part in path.parts):
+        raise ValueError(f"export path must not contain '..': {path}")
     raw_name = path.name
     if not re_safe.fullmatch(
         r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", raw_name, max_input_len=128
@@ -775,22 +777,16 @@ def _atomic_write_text(path: Path, content: str) -> None:
     target = parent.joinpath(name)
     if target.resolve().parent != parent:
         raise ValueError(f"export path escapes parent: {path}")
-    tmp = parent.joinpath(f".bastion-write-{os.getpid()}-{threading.get_ident()}.tmp")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    fd = os.open(tmp, flags, 0o644)
+    tmp = parent.joinpath(f"bastion-write-{os.getpid()}-{threading.get_ident()}.tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", closefd=True) as handle:
-            handle.write(content)
+        tmp.write_text(content, encoding="utf-8")
         os.replace(tmp, target)
-    except Exception:
-        try:
-            if tmp.is_file():
+    finally:
+        if tmp.is_file():
+            try:
                 tmp.unlink()
-        except OSError:
-            pass
-        raise
+            except OSError:
+                pass
 
 
 def write_waf_exports(db: Session, settings: Settings) -> dict[str, str]:
