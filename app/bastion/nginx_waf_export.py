@@ -759,12 +759,28 @@ def _restore_file(path: Path) -> bool:
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
-    """Write via temp + os.replace so concurrent readers never see a truncated file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}.{threading.get_ident()}")
+    """Write via temp + os.replace so concurrent readers never see a truncated file.
+
+    Filename is regex-validated and rejoined under ``path.parent.resolve()`` so
+    taint analysis cannot treat the Path as user-controlled (pythonsecurity:S2083).
+    """
+    if any(part == ".." for part in path.parts):
+        raise ValueError(f"export path must not contain '..': {path}")
+    raw_name = path.name
+    if not re_safe.fullmatch(
+        r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", raw_name, max_input_len=128
+    ):
+        raise ValueError(f"invalid export filename: {raw_name!r}")
+    name = str(raw_name)
+    parent = path.parent.resolve()
+    parent.mkdir(parents=True, exist_ok=True)
+    target = parent.joinpath(name)
+    if target.resolve().parent != parent:
+        raise ValueError(f"export path escapes parent: {path}")
+    tmp = parent.joinpath(f"bastion-write-{os.getpid()}-{threading.get_ident()}.tmp")
     try:
         tmp.write_text(content, encoding="utf-8")
-        os.replace(tmp, path)
+        os.replace(tmp, target)
     finally:
         if tmp.is_file():
             try:
