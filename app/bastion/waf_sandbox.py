@@ -267,7 +267,8 @@ def run_waf_sandbox(
     host = _smoke_host(settings)
     # Encode path segments safely but keep slashes.
     encoded = quote(path, safe="/?=&#")
-    url = f"http://nginx:8080{SANDBOX_PATH_PREFIX}{encoded}"
+    # Docker-internal cleartext to nginx:8080 (no TLS on the compose network).
+    url = f"http://nginx:8080{SANDBOX_PATH_PREFIX}{encoded}"  # NOSONAR python:S5332
 
     headers = {
         "Host": host,

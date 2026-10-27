@@ -154,7 +154,8 @@
                 <span class="badge badge-muted">DNS-01</span>
                 {% endif %}
                 <form method="post" action="/admin/acme/domains/{{ d.fqdn }}/provider" style="display:inline;margin-left:0.35rem">
-                  <select name="provider_type" class="form-select" style="display:inline;width:auto;padding:0.15rem 0.4rem;font-size:0.75rem"
+                  <label class="visually-hidden" for="acme-provider-{{ loop.index }}">{{ _('Changer le provider') }} — {{ d.fqdn }}</label>
+                  <select id="acme-provider-{{ loop.index }}" name="provider_type" class="form-select" style="display:inline;width:auto;padding:0.15rem 0.4rem;font-size:0.75rem"
                           onchange="this.form.submit()" title="{{ _('Changer le provider') }}">
                     <option value="dns_cloudflare" {% if d.provider_type != 'http_native' %}selected{% endif %}>DNS-01 CF</option>
                     <option value="http_native" {% if d.provider_type == 'http_native' %}selected{% endif %}>HTTP-01</option>

@@ -96,6 +96,7 @@ fi
 
 mkdir -p /tmp/modsecurity/data /tmp/modsecurity/tmp /tmp/modsecurity/upload 2>/dev/null || true
 mkdir -p /var/log/nginx/apps 2>/dev/null || true
+# Volume perms + tmpfs log redirect live in /fix-nginx-logs.sh (called before nginx -t).
 chown -R nginx:nginx /tmp/modsecurity 2>/dev/null || true
 
 # conf.d/snippets tmpfs must be writable (compose mode=0777 when cap_drop ALL).

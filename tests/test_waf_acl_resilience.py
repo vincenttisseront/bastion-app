@@ -162,18 +162,22 @@ def test_resilience_concurrency_stress_apply(db_engine, tmp_path):
         write_waf_exports(db, settings)
 
     def worker(_wid: int) -> tuple[bool, str, list[str]]:
+        # Return failures as data (no assert in try/except — python:S5779).
         try:
             with SessionLocal() as db:
                 paths = write_waf_exports(db, settings)
             for name, path in paths.items():
                 p = Path(path)
-                assert p.is_file(), name
-                assert p.stat().st_size > 0, f"truncated {name}"
+                if not p.is_file():
+                    return False, f"missing {name}", []
+                if p.stat().st_size <= 0:
+                    return False, f"truncated {name}", []
             deny = Path(settings.exports_dir) / "waf-ip-deny.conf"
             body = deny.read_text(encoding="utf-8")
-            assert "deny 203.0.113.77;" in body
+            if "deny 203.0.113.77;" not in body:
+                return False, "deny rule missing from waf-ip-deny.conf", []
             return True, "ok", list(paths.values())
-        except Exception as exc:  # noqa: BLE001 — collect for assertion
+        except Exception as exc:  # noqa: BLE001 — collect for outer assertion
             return False, str(exc), []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENCY_WRITERS) as pool:

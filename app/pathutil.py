@@ -51,6 +51,33 @@ def write_text_under(
     return path
 
 
+def atomic_write_text_under(
+    root: Path, name: str, text: str, *, encoding: str = "utf-8"
+) -> Path:
+    """Atomically write ``root / basename`` (temp file + ``os.replace``).
+
+    Filename is forced through ``os.path.basename`` so taint analyzers treat the
+    sink as sanitized (Sonar pythonsecurity:S2083).
+    """
+    root_r = root.expanduser().resolve()
+    root_r.mkdir(parents=True, exist_ok=True)
+    path = root_r / _basename_only(name)
+    tmp = root_r / _basename_only(
+        f"bastion-write-{os.getpid()}-{os.urandom(4).hex()}.tmp"
+    )
+    try:
+        with open(tmp, "w", encoding=encoding) as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    finally:
+        if tmp.is_file():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+    return path
+
+
 def write_bytes_under(root: Path, data: bytes, *segments: str) -> Path:
     """Write bytes at ``root / a / b / …`` with each segment basename-validated."""
     root_r = root.expanduser().resolve()

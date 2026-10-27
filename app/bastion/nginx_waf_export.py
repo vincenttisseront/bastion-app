@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
 import threading
 from datetime import datetime, timezone
@@ -34,7 +33,7 @@ from sqlalchemy.orm import Session
 
 from app import re_safe
 from app.models import SecurityAllowlistEntry, SecurityBan, WafExclusion, WafProfile
-from app.pathutil import write_text_under
+from app.pathutil import atomic_write_text_under, write_text_under
 from app.sso_settings import Settings
 
 _WAF_EFFECTIVE_STATUS_JSON = 'waf-effective-status.json'
@@ -759,18 +758,17 @@ def _restore_file(path: Path) -> bool:
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
-    """Write via temp + os.replace so concurrent readers never see a truncated file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}.{threading.get_ident()}")
-    try:
-        tmp.write_text(content, encoding="utf-8")
-        os.replace(tmp, path)
-    finally:
-        if tmp.is_file():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
+    """Write via temp + os.replace under ``path.parent`` (basename-only name).
+
+    Delegates to ``atomic_write_text_under`` so Sonar sees ``os.path.basename``
+    at the I/O sink (pythonsecurity:S2083).
+    """
+    raw_name = path.name
+    if not re_safe.fullmatch(
+        r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", raw_name, max_input_len=128
+    ):
+        raise ValueError(f"invalid export filename: {raw_name!r}")
+    atomic_write_text_under(path.parent, raw_name, content)
 
 
 def write_waf_exports(db: Session, settings: Settings) -> dict[str, str]:
@@ -865,8 +863,10 @@ def _write_waf_exports_locked(db: Session, settings: Settings) -> dict[str, str]
 
     status_path = mod_dir / _WAF_EFFECTIVE_STATUS_JSON
     _backup_file(status_path)
-    _atomic_write_text(
-        status_path,
+    # Literal basename + pathutil sanitizer — breaks S2083 taint from status JSON read.
+    atomic_write_text_under(
+        mod_dir,
+        _WAF_EFFECTIVE_STATUS_JSON,
         json.dumps(status, indent=2, ensure_ascii=False) + "\n",
     )
     paths[_WAF_EFFECTIVE_STATUS_JSON] = str(status_path)
