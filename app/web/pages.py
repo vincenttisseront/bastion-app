@@ -1138,22 +1138,29 @@ def logout(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    """Portal UI logout — clear break-glass + native OIDC session.
+    """Portal UI logout — revoke jtits, clear portal cookies, then oauth2 sign_out.
 
-    The user-menu link is ``GET /logout``. Must revoke break-glass jti and clear
-    ``bg_session`` with the same Secure/HttpOnly flags used at set time, otherwise
-    the browser keeps the cookie and ``/auth/login`` redirects back to ``/apps``.
+    Clears ``bastion_session`` / ``bg_session`` / MFA with matching Secure flags,
+    then redirects to ``/oauth2/{realm}/sign_out`` so oauth2-proxy clears
+    ``_oauth2_proxy`` and can hit the IdP end-session endpoint. Post-logout
+    ``rd`` returns to ``/auth/login``.
     """
-    from app.auth.oidc_bff import (
-        clear_oidc_session_cookie,
-        revoke_oidc_session_from_request,
+    from app.auth.oidc_bff import revoke_oidc_session_from_request
+    from app.session_cookies import (
+        clear_browser_auth_cookies,
+        oauth2_sign_out_path,
+        resolve_logout_realm_slug,
     )
 
-    response = RedirectResponse(url="/auth/login", status_code=302)
+    realm_slug = resolve_logout_realm_slug(request, settings, db)
     oidc_actor = revoke_oidc_session_from_request(request, db, settings)
-    clear_oidc_session_cookie(response, settings)
     bg_actor = revoke_breakglass_session_from_request(request, db, settings)
-    clear_breakglass_cookie(response, settings)
+    # Keep _oauth2_proxy for the sign_out hop (IdP end_session needs the session).
+    response = RedirectResponse(
+        url=oauth2_sign_out_path(realm_slug),
+        status_code=302,
+    )
+    clear_browser_auth_cookies(response, settings, include_oauth2=False)
     actor = oidc_actor if oidc_actor and oidc_actor != "unknown" else bg_actor
     if actor and actor != "unknown":
         log_action(

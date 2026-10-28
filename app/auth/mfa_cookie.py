@@ -2,6 +2,9 @@
 
 Bound to ``user_email`` + expiry; HMAC via ``portal_signing_secret``.
 Independent of oauth2-proxy identity headers (which are not mutable).
+
+Flags match portal session cookies (HttpOnly + Secure + SameSite=Lax) so logout
+can expire the cookie reliably; host-only (no Domain) — admin is portal-host.
 """
 
 from __future__ import annotations
@@ -17,6 +20,13 @@ from app.web.csrf import portal_signing_secret
 
 MFA_COOKIE_NAME = "bastion_mfa_ok"
 MFA_TTL_SECONDS = 8 * 3600  # 8h work session
+
+_MFA_COOKIE_FLAGS = {
+    "httponly": True,
+    "secure": True,
+    "samesite": "lax",
+    "path": "/",
+}
 
 
 def _normalize_email(email: str) -> str:
@@ -47,16 +57,14 @@ def set_mfa_ok_cookie(
     response.set_cookie(
         key=MFA_COOKIE_NAME,
         value=value,
-        httponly=True,
-        secure=bool(getattr(settings, "is_production", False)),
-        samesite="lax",
         max_age=int(ttl_seconds),
-        path="/",
+        **_MFA_COOKIE_FLAGS,
     )
 
 
 def clear_mfa_ok_cookie(response: Response) -> None:
-    response.delete_cookie(MFA_COOKIE_NAME, path="/")
+    """Expire MFA cookie with the same flags used at set time."""
+    response.delete_cookie(key=MFA_COOKIE_NAME, **_MFA_COOKIE_FLAGS)
 
 
 def is_mfa_cookie_valid(request: Request, settings, expected_email: str) -> bool:

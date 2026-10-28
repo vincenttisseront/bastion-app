@@ -87,7 +87,7 @@ def stash_challenge(
         key=CHALLENGE_COOKIE,
         value=value,
         httponly=True,
-        secure=bool(getattr(settings, "is_production", False)),
+        secure=True,
         samesite="lax",
         max_age=CHALLENGE_TTL_SEC,
         path="/",
@@ -127,7 +127,13 @@ def pop_challenge(
 
 
 def clear_challenge_cookie(response: Response) -> None:
-    response.delete_cookie(CHALLENGE_COOKIE, path="/")
+    response.delete_cookie(
+        key=CHALLENGE_COOKIE,
+        path="/",
+        httponly=True,
+        secure=True,
+        samesite="lax",
+    )
 
 
 def build_registration_options(

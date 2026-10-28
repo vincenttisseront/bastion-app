@@ -55,7 +55,17 @@ def test_clear_flash_deletes_cookie():
     clear_flash(resp)
     set_cookie = " ".join(resp.headers.getlist("set-cookie")).lower()
     assert FLASH_COOKIE in set_cookie
+    assert "secure" in set_cookie
     assert "max-age=0" in set_cookie or "expires=" in set_cookie
+
+
+def test_set_flash_defaults_to_secure():
+    resp = Response()
+    set_flash(resp, [{"message": "ok", "category": "info"}], SECRET)
+    set_cookie = " ".join(resp.headers.getlist("set-cookie")).lower()
+    assert FLASH_COOKIE in set_cookie
+    assert "secure" in set_cookie
+    assert "httponly" in set_cookie
 
 
 def test_render_clears_consumed_flash_cookie():
@@ -69,6 +79,10 @@ def test_render_clears_consumed_flash_cookie():
     request = _request_with_flash_cookie(cookie_val)
     assert get_flash_messages(request, SECRET)
 
+    class _Branding:
+        default_theme = "dark"
+        css_vars = ""
+
     response = render(
         "errors/404.html",
         request=request,
@@ -80,6 +94,7 @@ def test_render_clears_consumed_flash_cookie():
         hide_chrome=True,
         app_version="test",
         realm_slug="example-corp",
+        branding=_Branding(),
         status_code=404,
     )
     set_cookies = " ".join(response.headers.getlist("set-cookie")).lower()

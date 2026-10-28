@@ -52,7 +52,7 @@ async def set_locale_api(
         )
     else:
         response = RedirectResponse(url=_safe_next_url(next, request), status_code=303)
-    set_locale_cookie(response, loc, secure=bool(getattr(settings, "is_production", False)))
+    set_locale_cookie(response, loc, secure=True)
     return response
 
 
