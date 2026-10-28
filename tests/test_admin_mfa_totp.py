@@ -122,6 +122,8 @@ def test_mfa_cookie_hmac_valid_and_tamper(settings_override=None):
     # Extract Set-Cookie
     set_cookie = response.headers.get("set-cookie", "")
     assert MFA_COOKIE_NAME in set_cookie
+    assert "secure" in set_cookie.lower()
+    assert "httponly" in set_cookie.lower()
     # Parse value
     value = None
     for part in set_cookie.split(";"):

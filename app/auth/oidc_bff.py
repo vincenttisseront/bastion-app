@@ -373,13 +373,13 @@ def revoke_oidc_session_from_request(
     return actor
 
 
-def _actor_jti_from_unverified_oidc_cookie(
+def _unverified_oidc_payload(
     raw: str, db: Session, settings: Settings
-) -> tuple[str, str | None]:
-    """Signature-checked but expiry-agnostic decode, so logout can revoke a stale cookie."""
+) -> dict[str, Any] | None:
+    """Signature-checked but expiry-agnostic JWT payload (logout / realm recovery)."""
     secret = resolve_oidc_session_jwt_secret(db, settings)
     if not secret:
-        return "unknown", None
+        return None
     try:
         payload: dict[str, Any] = jwt.decode(
             raw,
@@ -388,12 +388,35 @@ def _actor_jti_from_unverified_oidc_cookie(
             options={"verify_exp": False, "verify_aud": False},
         )
     except jwt.PyJWTError:
-        return "unknown", None
+        return None
     if payload.get("type") != "oidc":
+        return None
+    return payload
+
+
+def _actor_jti_from_unverified_oidc_cookie(
+    raw: str, db: Session, settings: Settings
+) -> tuple[str, str | None]:
+    """Signature-checked but expiry-agnostic decode, so logout can revoke a stale cookie."""
+    payload = _unverified_oidc_payload(raw, db, settings)
+    if payload is None:
         return "unknown", None
     actor = str(payload.get("username") or payload.get("sub") or "unknown")
     jti_val = payload.get("jti")
     return actor, jti_val if isinstance(jti_val, str) else None
+
+
+def realm_slug_from_oidc_cookie(
+    raw: str, db: Session, settings: Settings
+) -> str | None:
+    """Return realm from a (possibly expired) ``bastion_session`` cookie."""
+    payload = _unverified_oidc_payload(raw, db, settings)
+    if payload is None:
+        return None
+    realm = payload.get("realm")
+    if isinstance(realm, str) and realm.strip():
+        return realm.strip()
+    return None
 
 
 def _parse_oidc_groups(raw_groups) -> tuple[str, ...]:
@@ -945,12 +968,33 @@ def oidc_logout(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
+    """API logout — revoke jtits and clear all browser auth cookies.
+
+    Also returns ``logout_redirect`` so API clients can optionally follow the
+    oauth2-proxy sign_out hop (IdP end-session) like ``GET /logout``.
+    """
+    from app.auth.breakglass import revoke_breakglass_session_from_request
+    from app.session_cookies import (
+        clear_browser_auth_cookies,
+        oauth2_sign_out_path,
+        resolve_logout_realm_slug,
+    )
+
+    realm_slug = resolve_logout_realm_slug(request, settings, db)
     actor = revoke_oidc_session_from_request(request, db, settings)
-    clear_oidc_session_cookie(response, settings)
+    bg_actor = revoke_breakglass_session_from_request(request, db, settings)
+    # API responses cannot chain browser IdP logout; clear oauth2 cookies here
+    # and expose the sign_out URL for clients that can navigate.
+    clear_browser_auth_cookies(response, settings, include_oauth2=True)
+    if (not actor or actor == "unknown") and bg_actor and bg_actor != "unknown":
+        actor = bg_actor
     log_action(
         db,
         actor=actor,
         action="oidc_logout",
         ip_address=client_ip_from_request(request) or None,
     )
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "logout_redirect": oauth2_sign_out_path(realm_slug),
+    }

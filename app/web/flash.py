@@ -29,6 +29,12 @@ from app.web.csrf import make_csrf_token, portal_signing_secret
 FLASH_COOKIE = "portal_flash"
 FLASH_MAX_AGE = 30
 _FLASH_B64_PREFIX = "b64."
+_FLASH_COOKIE_FLAGS = {
+    "httponly": True,
+    "secure": True,
+    "samesite": "lax",
+    "path": "/",
+}
 
 
 def _encode_flash_cookie_value(signed: str) -> str:
@@ -97,27 +103,21 @@ def set_flash(
     payload = json.dumps(messages)
     signed = _sign(payload, secret)
     encoded = _encode_flash_cookie_value(signed)
-    if secure is None:
-        try:
-            from app.sso_settings import get_settings
-
-            secure = bool(get_settings().is_production)
-        except Exception:
-            secure = False
+    # ``secure`` kept for call-site overrides/tests; default matches portal sessions.
+    flags = dict(_FLASH_COOKIE_FLAGS)
+    if secure is not None:
+        flags["secure"] = bool(secure)
     response.set_cookie(
         key=FLASH_COOKIE,
         value=encoded,
         max_age=FLASH_MAX_AGE,
-        httponly=True,
-        samesite="lax",
-        path="/",
-        secure=secure,
+        **flags,
     )
 
 
 def clear_flash(response: Response) -> None:
     """Delete the flash cookie so the message is not shown on the next page."""
-    response.delete_cookie(key=FLASH_COOKIE, path="/", samesite="lax")
+    response.delete_cookie(key=FLASH_COOKIE, **_FLASH_COOKIE_FLAGS)
 
 
 def consume_flash_on_response(request: Request, response: Response) -> None:
