@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from app.audit import log_action
 from app.database import get_db
 from app.files.upload_limits import read_upload_bounded
+from app.web.content_disposition import attachment_disposition
 from app.files.service import (
     archive_file_resource,
     archive_file_version,
@@ -483,7 +484,7 @@ async def files_download_version(
         stream,
         media_type=version.content_type or "application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": attachment_disposition(filename),
             "X-Content-SHA256": version.checksum_sha256,
         },
     )

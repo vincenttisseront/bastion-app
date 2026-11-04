@@ -38,6 +38,27 @@ def api_error_response(
     return JSONResponse(body, status_code=status_code, headers=headers)
 
 
+def public_validation_errors(errors: Any) -> list[dict[str, Any]]:
+    """E1: client-safe view of pydantic ``exc.errors()``.
+
+    Keeps only ``loc`` / ``type`` / ``msg``: ``ctx`` may hold the raised
+    exception object (not JSON-serializable → the 422 became a 500) and
+    ``input`` echoes submitted values back, passwords included.
+    """
+    out: list[dict[str, Any]] = []
+    for err in errors or []:
+        if not isinstance(err, dict):
+            continue
+        out.append(
+            {
+                "loc": [str(part) for part in (err.get("loc") or ())],
+                "type": str(err.get("type") or ""),
+                "msg": str(err.get("msg") or ""),
+            }
+        )
+    return out
+
+
 def api_error_from_detail(
     *,
     status_code: int,

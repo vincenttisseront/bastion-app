@@ -26,7 +26,7 @@ from app.admin.realms import router as admin_realms_router
 from app.admin.user_sessions import router as admin_user_sessions_router
 from app.admin.reporting import router as admin_reporting_router
 from app.admin.waf import router as admin_waf_router
-from app.api_errors import api_error_from_detail, api_error_response
+from app.api_errors import api_error_from_detail, api_error_response, public_validation_errors
 from app.auth.auth_request import router as auth_router
 from app.bastion.unknown_host_routes import router as unknown_host_router
 from app.auth.breakglass import admin_router as breakglass_admin_router
@@ -379,7 +379,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     path = request.url.path
     locale = get_request_locale(request)
     if _json_api_path(path) or _wants_json_response(request):
-        return api_error_from_detail(status_code=422, detail=exc.errors(), locale=locale)
+        return api_error_from_detail(
+            status_code=422, detail=public_validation_errors(exc.errors()), locale=locale
+        )
     return _html_client_error_response(
         request,
         status_code=422,
