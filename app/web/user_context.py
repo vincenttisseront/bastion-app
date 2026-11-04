@@ -231,11 +231,64 @@ def parse_groups_header(raw: str | None) -> list[str]:
     return _parse_groups(raw)
 
 
-def _is_admin_via_groups(groups: list[str], auth_source: str, settings: Settings) -> bool:
+def _admin_group_key(raw: str) -> str:
+    """Canonical *full path* of a group (``portal-admins`` ≡ ``/portal-admins``).
+
+    Unlike :func:`_normalize_group_name`, the parent path is kept so that a
+    nested ``/client-a/portal-admins`` never matches a top-level admin group.
+    """
+    name = (raw or "").strip().rstrip("/")
+    if not name:
+        return ""
+    return name if name.startswith("/") else f"/{name}"
+
+
+def _raw_group_paths(raw: str | None) -> list[str]:
+    """Group claims as sent by the IdP (full paths kept) for the admin check."""
+    if not raw:
+        return []
+    return [k for k in (_admin_group_key(g) for g in raw.split(",")) if k]
+
+
+def _portal_default_realm_slugs(settings: Settings, db: Session | None) -> set[str]:
+    """Realm(s) whose groups may grant portal admin.
+
+    ``SSO_PORTAL_DEFAULT_REALM_SLUG`` plus the DB default IdP realm — the one
+    ``/internal/oauth2-auth`` stamps as ``X-Auth-Request-Realm``.
+    """
+    slugs = {(settings.sso_portal_default_realm_slug or "").strip() or "default"}
+    if db is not None:
+        try:
+            from app.auth.flow import get_default_idp_realm
+
+            default = get_default_idp_realm(db)
+        except Exception:  # noqa: BLE001 — DB hiccup must not grant admin
+            default = None
+        if default is not None and (default.slug or "").strip():
+            slugs.add(default.slug.strip())
+    return slugs
+
+
+def _is_admin_via_groups(
+    group_paths: list[str],
+    auth_source: str,
+    settings: Settings,
+    *,
+    realm_slug: str = "",
+    db: Session | None = None,
+) -> bool:
+    """Admin by group membership — exact full-path match, portal default realm only.
+
+    ``auth_source == "breakglass"`` is only ever set after the ``bg_session``
+    cookie has been validated (never from a header or an e-mail suffix).
+    """
     if auth_source == "breakglass":
         return True
-    admin_groups = {_normalize_group_name(g) for g in settings.portal_admin_groups}
-    return any(g in admin_groups for g in groups)
+    if (realm_slug or "").strip() not in _portal_default_realm_slugs(settings, db):
+        return False
+    admin_groups = {_admin_group_key(g) for g in settings.portal_admin_groups}
+    admin_groups.discard("")
+    return any(_admin_group_key(g) in admin_groups for g in group_paths)
 
 
 def _bastion_identity_names(
@@ -402,9 +455,18 @@ def get_user_context(
         preferred = request.headers.get("X-Preferred-Username", "").strip()
         x_user = request.headers.get("X-User", "").strip()
         keycloak_user_id = request.headers.get("X-User-Id", "").strip() or None
-        groups = _parse_groups(request.headers.get("X-Groups"))
+        raw_groups = request.headers.get("X-Groups")
+        groups = _parse_groups(raw_groups)
+        group_paths = _raw_group_paths(raw_groups)
         realm_slug = _resolve_portal_realm_slug(request, settings, db)
-        auth_source = request.headers.get("X-Portal-Auth-Source", "sso")
+        # Never read the auth source from a header: break-glass is set only
+        # below, once the bg_session cookie has been validated.
+        auth_source = "sso"
+        if any(is_breakglass_email(v) for v in (email, preferred, x_user)):
+            # The break-glass domain is reserved: an IdP identity carrying it
+            # (unverified e-mail, editable username…) must not authenticate.
+            logger.warning("security.reserved_identity_domain_rejected")
+            return None
         given_name = (
             request.headers.get("X-Given-Name", "").strip()
             or request.headers.get("X-Auth-Request-Given-Name", "").strip()
@@ -422,6 +484,7 @@ def get_user_context(
         x_user = ""
         keycloak_user_id = None
         groups = []
+        group_paths = []
         realm_slug = (settings.sso_portal_default_realm_slug or "").strip() or "default"
         auth_source = "sso"
         given_name = None
@@ -445,17 +508,13 @@ def get_user_context(
             auth_source = "breakglass"
             groups = list(settings.portal_admin_groups)
             keycloak_user_id = None
+            # Break-glass is emergency local auth — never attribute to an SSO realm.
+            realm_slug = ""
         else:
             return None
 
     if not email:
         email = username
-
-    # Break-glass is emergency local auth — never attribute to an SSO realm.
-    if auth_source == "breakglass" or is_breakglass_email(email):
-        auth_source = "breakglass"
-        realm_slug = ""
-        keycloak_user_id = None
 
     # Fallback: X-User / X-User-Id holding a Keycloak subject (not an email).
     if headers_trusted and not keycloak_user_id:
@@ -469,7 +528,9 @@ def get_user_context(
                 keycloak_user_id = cand
                 break
 
-    is_admin = _is_admin_via_groups(groups, auth_source, settings)
+    is_admin = _is_admin_via_groups(
+        group_paths, auth_source, settings, realm_slug=realm_slug, db=db
+    )
     user = UserContext(
         email=email,
         username=username,

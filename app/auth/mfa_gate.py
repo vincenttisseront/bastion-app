@@ -145,3 +145,39 @@ def enforce_admin_mfa(
     now = datetime.now(timezone.utc)
     if now > deadline:
         raise MfaEnrollmentRequired(ENROLLMENT_REDIRECT)
+
+
+def admin_mfa_satisfied(
+    request: Request,
+    user: UserContext,
+    db: Session,
+    settings: Settings,
+) -> bool:
+    """True when ``enforce_admin_mfa`` would let this admin through.
+
+    For non-admin routes that grant an *admin bypass* (robotic open, files,
+    sessions): when the MFA gate is not satisfied, the caller must fall back
+    to the regular (non-admin) authorization instead of redirecting.
+    """
+    try:
+        enforce_admin_mfa(request, user, db, settings)
+    except (MfaChallengeRequired, MfaEnrollmentRequired):
+        return False
+    return True
+
+
+def elevate_portal_admin_mfa(
+    request: Request,
+    user: UserContext,
+    db: Session,
+    settings: Settings,
+) -> UserContext:
+    """Copy of ``user`` with ``is_admin`` set only if admin *and* MFA satisfied."""
+    from dataclasses import replace
+
+    from app.web.user_context import is_portal_admin
+
+    admin = is_portal_admin(user, db, settings) and admin_mfa_satisfied(
+        request, user, db, settings
+    )
+    return replace(user, is_admin=bool(admin))

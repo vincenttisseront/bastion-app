@@ -51,7 +51,9 @@ def test_get_user_context_breakglass_has_empty_realm(db_session: Session):
     assert user.realm_slug == ""
 
 
-def test_get_user_context_breakglass_header_clears_default_realm():
+def test_get_user_context_breakglass_header_is_rejected():
+    """S1: headers claiming break-glass (reserved domain / X-Portal-Auth-Source)
+    must not authenticate — break-glass only comes from a validated cookie."""
     from starlette.datastructures import Headers
 
     settings = _settings()
@@ -71,10 +73,7 @@ def test_get_user_context_breakglass_header_clears_default_realm():
     request.url = MagicMock(path="/")
     request.method = "GET"
 
-    user = get_user_context(request, settings=settings, db=None)
-    assert user is not None
-    assert user.is_breakglass
-    assert user.realm_slug == ""
+    assert get_user_context(request, settings=settings, db=None) is None
 
 
 def test_touch_portal_session_breakglass_no_realm_no_pending(db_session: Session):
