@@ -741,6 +741,9 @@ def render_rate_limits_conf(profile: WafProfile) -> str:
         f"rate={z['standard_rate']}r/s;\n"
         "limit_req_zone $binary_remote_addr zone=portal_unknown_host:10m "
         "rate=5r/s;\n"
+        "# S2: ActiveSync / Autodiscover (anonymous Basic path) — per client IP.\n"
+        "limit_req_zone $binary_remote_addr zone=activesync_auth:10m "
+        "rate=20r/s;\n"
     )
 
 

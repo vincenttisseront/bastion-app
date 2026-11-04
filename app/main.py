@@ -126,6 +126,10 @@ async def lifespan(app: FastAPI):
                     "SESSION_HOP_SECRET missing after ensure "
                     "(set env override or check portal_settings / migrate)"
                 )
+            from app.web.csrf import portal_signing_secret
+
+            # S7: fail closed in production if no dedicated signing secret.
+            portal_signing_secret(settings)
             from app.security.banning.engine import ensure_security_defaults
 
             ensure_security_defaults(db)

@@ -106,6 +106,7 @@ def test_session_cookie_hop_endpoint_sets_host_only(client):
         target_url="/dashboard",
         slug="demo",
         settings=live,
+        fqdn="app.example.com",  # S4: hop is bound to the target FQDN
     )
     resp = client.get(
         "/api/internal/session-cookie-hop",
@@ -149,6 +150,7 @@ def test_legacy_crush_hop_alias_still_works(client):
         target_url="/WebInterface/new-ui/index.html",
         slug="transfer",
         settings=live,
+        fqdn="transfer.example.com",  # S4: hop is bound to the target FQDN
     )
     resp = client.get(
         "/api/internal/crush-cookie-hop",

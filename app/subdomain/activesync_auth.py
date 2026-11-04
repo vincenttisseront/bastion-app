@@ -341,6 +341,31 @@ def _evaluate_device(
             client_kind=client_kind,
             client_ip=client_ip,
         )
+    except device_service.PendingDeviceCapExceeded as exc:
+        # S2: forged Basic + fresh DeviceIds — no new row; deny when gated.
+        logger.warning(
+            "activesync pending device cap reached scope=%s app=%s ip=%s",
+            exc,
+            app.slug,
+            client_ip or "-",
+        )
+        if enforce and control:
+            _log_device_denial(
+                db,
+                app=app,
+                actor=actor,
+                client_ip=client_ip,
+                uri=uri,
+                host=host,
+                user_agent=user_agent,
+                client_kind=client_kind,
+                reason="device_pending_cap",
+                device_id=device_id,
+                device_type=device_type,
+                device_status=None,
+            )
+            return None, _deny_device_response(app=app)
+        return None, None
     except Exception:
         logger.exception("activesync inventory failed device_id=%s", device_id)
         return None, None

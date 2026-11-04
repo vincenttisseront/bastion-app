@@ -51,7 +51,7 @@ def set_mfa_ok_cookie(
     if not email:
         return
     expires_at = int(time.time()) + int(ttl_seconds)
-    secret = portal_signing_secret(settings)
+    secret = portal_signing_secret(settings, purpose="mfa-cookie")
     signature = generate_mfa_signature(secret, email, expires_at)
     value = f"{email}|{expires_at}|{signature}"
     response.set_cookie(
@@ -84,7 +84,7 @@ def is_mfa_cookie_valid(request: Request, settings, expected_email: str) -> bool
         return False
     if time.time() > expires_at:
         return False
-    secret = portal_signing_secret(settings)
+    secret = portal_signing_secret(settings, purpose="mfa-cookie")
     expected_sig = generate_mfa_signature(secret, email, expires_at)
     return hmac.compare_digest(signature, expected_sig)
 

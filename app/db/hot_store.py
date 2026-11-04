@@ -1009,7 +1009,13 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
             stored_password = decrypt_secret(row.hot_store_password_encrypted, settings) or ""
         except Exception:
             logger.exception("hot store: stored password could not be decrypted")
-    fp_key = getattr(settings, "vault_portal_internal_token", "") or _FINGERPRINT_FALLBACK_KEY
+    # S7: never key the fingerprint with the nginx internal token.
+    from app.web.csrf import portal_signing_secret
+
+    try:
+        fp_key = portal_signing_secret(settings, purpose="hot-store-fingerprint")
+    except RuntimeError:
+        fp_key = _FINGERPRINT_FALLBACK_KEY
     env_fp = password_fingerprint(env_password, key=fp_key)
     stored_fp = password_fingerprint(stored_password, key=fp_key)
     if env_password:

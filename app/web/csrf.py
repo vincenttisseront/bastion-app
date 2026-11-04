@@ -49,18 +49,42 @@ def _nonce(request: Request) -> str:
 _DEV_SIGNING_SECRET = "dev-insecure"
 
 
-def portal_signing_secret(settings) -> str:
-    """HMAC key for portal cookies (CSRF tokens, flash messages, one-shot reveals).
+def _portal_signing_base(settings) -> str:
+    """Root signing secret (S7) — never the nginx internal token.
 
-    Outside production an empty ``VAULT_PORTAL_INTERNAL_TOKEN`` falls back to a
-    public constant; in production that would make every signed cookie forgeable.
+    Priority: ``PORTAL_SIGNING_SECRET`` env, then the value generated into
+    ``portal_settings`` at boot (process cache). Production fails closed when
+    neither exists. Development / test derive a stable key (or use a public
+    constant when no token at all) so local runs keep working.
     """
-    secret = (settings.vault_portal_internal_token or "").strip()
+    secret = (getattr(settings, "portal_signing_secret", "") or "").strip()
     if secret:
         return secret
+    from app.runtime_secrets_service import get_cached_portal_signing_secret
+
+    cached = get_cached_portal_signing_secret()
+    if cached:
+        return cached
     if getattr(settings, "is_production", False):
-        raise RuntimeError("VAULT_PORTAL_INTERNAL_TOKEN is required in production")
+        raise RuntimeError(
+            "portal signing secret missing (PORTAL_SIGNING_SECRET or portal_settings)"
+        )
+    token = (settings.vault_portal_internal_token or "").strip()
+    if token:
+        return hmac.new(token.encode(), b"bastion-dev-signing-fallback", hashlib.sha256).hexdigest()
     return _DEV_SIGNING_SECRET
+
+
+def portal_signing_secret(settings, purpose: str = "portal") -> str:
+    """HMAC key for one usage, derived from the root signing secret.
+
+    ``purpose="portal"`` covers CSRF tokens, flash messages and one-shot
+    reveals (each already domain-separates its message). MFA cookies, WebAuthn
+    challenges and the hot-store fingerprint use their own purpose so a key
+    recovered from one usage does not forge another.
+    """
+    base = _portal_signing_base(settings)
+    return hmac.new(base.encode(), f"bastion:{purpose}:v1".encode(), hashlib.sha256).hexdigest()
 
 
 def make_csrf_token(request: Request, secret: str) -> str:

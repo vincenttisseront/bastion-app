@@ -89,6 +89,8 @@ def proxy_location_lines(app: App) -> list[str]:
         lines.append(f"# [{app.slug}] legacy_path_proxy")
         lines.append(f"location /proxy/{app.slug}/ {{")
         lines.append(f"    proxy_pass {app.upstream_url};")
+        # S4: never hand portal session tokens to the application upstream.
+        lines.append("    proxy_set_header Cookie $bastion_upstream_app_cookie;")
         lines.extend(robotic_auth_request_lines(app))
         lines.append("    # auth_request /internal/oauth2-auth;")
         lines.append("}")

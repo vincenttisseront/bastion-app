@@ -19,6 +19,7 @@ import time
 from typing import Any
 from urllib.parse import quote, urlencode, urlparse
 
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import RedirectResponse
 
@@ -62,13 +63,17 @@ def _hop_secret(settings: Settings) -> bytes:
     return hashlib.sha256(f"session-cookie-hop:{raw}".encode()).digest()
 
 
-def _b64url_encode(raw: bytes) -> str:
-    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+def _hop_fernet(settings: Settings) -> Fernet:
+    """AEAD key for the hop cookie (S4) — derived from the hop secret."""
+    key = hmac.new(_hop_secret(settings), b"session-cookie-hop:fernet:v1", hashlib.sha256)
+    return Fernet(base64.urlsafe_b64encode(key.digest()))
 
 
-def _b64url_decode(text: str) -> bytes:
-    pad = "=" * (-len(text) % 4)
-    return base64.urlsafe_b64decode(text + pad)
+def _normalize_host(host: str | None) -> str:
+    text = (host or "").strip().lower()
+    if text.startswith((_SCHEME_HTTPS, _SCHEME_HTTP)):
+        text = urlparse(text).hostname or ""
+    return text.split(",")[0].strip().split(":")[0].rstrip(".")
 
 
 def seal_session_hop_payload(
@@ -77,41 +82,49 @@ def seal_session_hop_payload(
     target_url: str,
     slug: str,
     settings: Settings,
+    fqdn: str | None = None,
     ttl_seconds: int = HOP_TTL_SECONDS,
 ) -> str:
-    """Return signed payload for the hop cookie value (any target session cookies)."""
+    """Encrypted + authenticated hop cookie value (Fernet), bound to ``fqdn``.
+
+    S4: the hop cookie lives on the parent domain, so every sibling app host
+    receives it — target session cookies must not be readable (was signed
+    base64), and only the intended FQDN may redeem it.
+    """
+    host = _normalize_host(fqdn) or _normalize_host(target_url)
     body = {
         "c": {k: v for k, v in cookies.items() if v},
         "n": target_url,
         "s": slug,
+        "h": host,
         "e": int(time.time()) + int(ttl_seconds),
     }
-    payload = _b64url_encode(
-        json.dumps(body, separators=(",", ":"), sort_keys=True).encode()
-    )
-    sig = hmac.new(_hop_secret(settings), payload.encode(), hashlib.sha256).hexdigest()
-    return f"{payload}.{sig}"
+    raw = json.dumps(body, separators=(",", ":"), sort_keys=True).encode()
+    return _hop_fernet(settings).encrypt(raw).decode("ascii")
 
 
 def unseal_session_hop_payload(
-    token: str, settings: Settings
+    token: str,
+    settings: Settings,
+    *,
+    expected_host: str | None = None,
 ) -> tuple[dict[str, Any] | None, str]:
-    """Return ``(body, reason)`` — reason is empty on success."""
-    if not token or "." not in token:
+    """Return ``(body, reason)`` — reason is empty on success.
+
+    ``expected_host``: the app FQDN serving the hop; must match the sealed host.
+    """
+    if not token:
         return None, "missing_hop_cookie"
-    payload, _, sig = token.partition(".")
-    if not payload or not sig:
-        return None, "malformed_token"
     try:
-        expected = hmac.new(
-            _hop_secret(settings), payload.encode(), hashlib.sha256
-        ).hexdigest()
+        fernet = _hop_fernet(settings)
     except RuntimeError:
         return None, "hop_secret_unavailable"
-    if not hmac.compare_digest(expected, sig):
+    try:
+        raw = fernet.decrypt(token.encode("ascii"))
+    except (InvalidToken, UnicodeEncodeError, ValueError):
         return None, "bad_signature"
     try:
-        body = json.loads(_b64url_decode(payload))
+        body = json.loads(raw)
     except (ValueError, json.JSONDecodeError):
         return None, "bad_payload"
     if not isinstance(body, dict):
@@ -119,6 +132,10 @@ def unseal_session_hop_payload(
     exp = body.get("e")
     if not isinstance(exp, int) or exp < int(time.time()):
         return None, "expired"
+    if expected_host is not None:
+        sealed_host = str(body.get("h") or "")
+        if not sealed_host or sealed_host != _normalize_host(expected_host):
+            return None, "wrong_host"
     cookies = body.get("c")
     if not isinstance(cookies, dict) or not cookies:
         return None, "empty_cookies"
@@ -192,6 +209,7 @@ def attach_session_hop_portal_cookies(
         target_url=target_url,
         slug=slug,
         settings=settings,
+        fqdn=fqdn,
     )
     hop_kwargs: dict = {
         "key": HOP_COOKIE_NAME,
@@ -372,7 +390,12 @@ def _hop_handler(
     next: str | None,  # noqa: A002
 ):
     token = _read_hop_token(request)
-    body, reason = unseal_session_hop_payload(token, settings)
+    serving_host = (
+        request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    )
+    body, reason = unseal_session_hop_payload(
+        token, settings, expected_host=serving_host
+    )
     if body is None:
         logger.warning(
             "session cookie hop rejected reason=%s has_cookie=%s host=%s xf_host=%s",

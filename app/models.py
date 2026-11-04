@@ -1008,6 +1008,9 @@ class PortalSettings(Base):
     oidc_session_jwt_secret_encrypted = Column(Text, nullable=True)
     # Session-cookie hop HMAC (Fernet) — DB source of truth; env only for pytest override.
     session_hop_secret_encrypted = Column(Text, nullable=True)
+    # Portal signing secret (CSRF / flash / MFA cookie base) — distinct from the
+    # nginx internal token (S7). Env PORTAL_SIGNING_SECRET overrides.
+    portal_signing_secret_encrypted = Column(Text, nullable=True)
     # Optional Postgres hot store (sessions / audit / rate) — config stays on SQLite.
     hot_store_enabled = Column(Boolean, nullable=False, default=False)
     hot_store_host = Column(String, nullable=True)

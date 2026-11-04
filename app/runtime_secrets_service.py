@@ -26,13 +26,40 @@ AUDIT_ENSURED = "portal_runtime_secrets_ensured"
 _CACHED_HOP_SECRET: str | None = None
 _CACHED_BREAKGLASS_SECRET: str | None = None
 _CACHED_OIDC_SESSION_JWT_SECRET: str | None = None
+_CACHED_PORTAL_SIGNING_SECRET: str | None = None
 
 
 def reset_runtime_secrets_cache_for_tests() -> None:
     global _CACHED_HOP_SECRET, _CACHED_BREAKGLASS_SECRET, _CACHED_OIDC_SESSION_JWT_SECRET
+    global _CACHED_PORTAL_SIGNING_SECRET
     _CACHED_HOP_SECRET = None
     _CACHED_BREAKGLASS_SECRET = None
     _CACHED_OIDC_SESSION_JWT_SECRET = None
+    _CACHED_PORTAL_SIGNING_SECRET = None
+
+
+def cache_portal_signing_secret(plain: str) -> None:
+    global _CACHED_PORTAL_SIGNING_SECRET
+    _CACHED_PORTAL_SIGNING_SECRET = (plain or "").strip() or None
+
+
+def get_cached_portal_signing_secret() -> str | None:
+    return _CACHED_PORTAL_SIGNING_SECRET
+
+
+def get_db_portal_signing_secret(db: Session | None, settings: Settings) -> str | None:
+    if db is None:
+        return None
+    row = ensure_portal_settings(db, settings)
+    raw = (getattr(row, "portal_signing_secret_encrypted", None) or "").strip()
+    if not raw:
+        return None
+    try:
+        plain = decrypt_secret(raw, settings).strip()
+    except ValueError:
+        logger.warning("failed to decrypt portal_settings.portal_signing_secret_encrypted")
+        return None
+    return plain or None
 
 
 def cache_session_hop_secret(plain: str) -> None:
@@ -178,6 +205,23 @@ def ensure_portal_runtime_secrets(
     else:
         cache_oidc_session_jwt_secret(oidc_db)
 
+    # S7: dedicated portal signing secret (never the nginx internal token).
+    sign_db = get_db_portal_signing_secret(db, settings)
+    sign_env = (settings.portal_signing_secret or "").strip()
+    token = (settings.vault_portal_internal_token or "").strip()
+    if sign_db and token and sign_db == token:
+        sign_db = None  # never keep a value equal to the internal token
+    if not sign_db:
+        plain = sign_env or generate_cookie_secret()
+        row.portal_signing_secret_encrypted = encrypt_secret(plain, settings)
+        if sign_env:
+            migrated_from_env.append("portal_signing")
+        else:
+            created.append("portal_signing")
+        cache_portal_signing_secret(sign_env or plain)
+    else:
+        cache_portal_signing_secret(sign_env or sign_db)
+
     if created or migrated_from_env:
         row.updated_at = utcnow()
         row.updated_by = actor
@@ -214,6 +258,7 @@ def ensure_portal_runtime_secrets(
         "breakglass_present": bool(
             bg_env or get_ui_breakglass_secret(db, settings) or get_cached_breakglass_secret()
         ),
+        "portal_signing_present": bool(get_cached_portal_signing_secret()),
         "oidc_session_jwt_present": bool(
             get_cached_oidc_session_jwt_secret()
             or get_db_oidc_session_jwt_secret(db, settings)
