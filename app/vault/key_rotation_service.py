@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -215,6 +214,17 @@ def rotate_fernet_key(
     return report
 
 
+def _checkpoint_wal() -> None:
+    """Fold the WAL into the main file before a file-level backup (best effort)."""
+    try:
+        from app.database import engine
+
+        with engine.connect() as conn:
+            conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception:  # noqa: BLE001 — copy_sqlite_file still copies the -wal
+        logger.warning("wal checkpoint before backup failed", exc_info=True)
+
+
 def _backup_portal_db(settings: Settings) -> Path | None:
     from sqlalchemy.engine.url import make_url
 
@@ -226,7 +236,10 @@ def _backup_portal_db(settings: Settings) -> Path | None:
         return None
     stamp = utcnow().strftime("%Y%m%dT%H%M%SZ")
     dest = db_path.with_name(f"{db_path.name}.bak-pre-rotation-{stamp}")
-    shutil.copy2(db_path, dest)
+    from app.db_cipher import copy_sqlite_file
+
+    _checkpoint_wal()
+    copy_sqlite_file(db_path, dest)
     try:
         os.chmod(dest, 0o640)
     except OSError:

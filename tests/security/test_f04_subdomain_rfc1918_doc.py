@@ -17,7 +17,8 @@ def test_settings_default_rfc1918_bypass_disabled():
 
 
 def test_subdomain_rfc1918_honours_settings_flag():
-    src = inspect.getsource(mod.subdomain_auth)
+    # A1: the bypass decision lives in the threadpool phase before the IdP call.
+    src = inspect.getsource(mod._subdomain_auth_before_idp)
     assert "settings.rfc1918_bypass_enabled" in src
     assert "F-04" in src or "2026-07-25" in src
 

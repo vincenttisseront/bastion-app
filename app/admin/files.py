@@ -7,9 +7,11 @@ import logging
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.audit import log_action
 from app.database import get_db
+from app.files.upload_limits import read_upload_bounded
 from app.files.service import (
     archive_file_version,
     assign_beta_channel,
@@ -320,7 +322,7 @@ async def admin_files_deposit(
             'mode must be "new" or "existing"',
         )
 
-    data = await upload.read()
+    data = await read_upload_bounded(upload)
     written_path: str | None = None
     fr: FileResource | None = None
     version: FileVersion | None = None
@@ -336,7 +338,8 @@ async def admin_files_deposit(
             description=description,
             created_by=user.email,
         )
-        version = store_file_version(
+        version = await run_in_threadpool(
+            store_file_version,
             db,
             file=fr,
             channel=channel,
@@ -567,9 +570,10 @@ async def admin_files_upload_version(
     user=Depends(require_admin),
 ):
     fr = _file_or_404(db, file_id)
-    data = await upload.read()
+    data = await read_upload_bounded(upload)
     try:
-        version = store_file_version(
+        version = await run_in_threadpool(
+            store_file_version,
             db,
             file=fr,
             channel=channel,

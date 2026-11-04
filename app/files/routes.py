@@ -7,9 +7,11 @@ import logging
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.audit import log_action
 from app.database import get_db
+from app.files.upload_limits import read_upload_bounded
 from app.files.service import (
     archive_file_resource,
     archive_file_version,
@@ -214,9 +216,11 @@ async def files_upload(
     user: UserContext = Depends(require_user_enriched),
 ):
     is_admin = _portal_admin(request, user, db, settings)
-    data = await upload.read()
+    data = await read_upload_bounded(upload)
     try:
-        fr, version, created_new = deposit_file(
+        # A2: hashing, encryption and disk write must not block the event loop.
+        fr, version, created_new = await run_in_threadpool(
+            deposit_file,
             db,
             folder_id=folder_id,
             filename=upload.filename or "upload.bin",
@@ -228,7 +232,7 @@ async def files_upload(
             is_portal_admin=is_admin,
             settings=settings,
         )
-        db.commit()
+        await run_in_threadpool(db.commit)
     except PermissionError as exc:
         db.rollback()
         return JSONResponse({"ok": False, "detail": str(exc)}, status_code=403)

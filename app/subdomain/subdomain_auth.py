@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from dataclasses import dataclass
 from typing import Mapping, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app import re_safe
 from app.audit import log_action
@@ -282,34 +284,26 @@ def native_subdomain_auth_would_allow(
     )
 
 
-@router.get("/internal/subdomain-auth")
-async def subdomain_auth(
+@dataclass(frozen=True)
+class _SubdomainAuthState:
+    """What the IdP round-trip and the second DB phase need (no ORM objects)."""
+
+    original_host: str
+    original_uri: str
+    client_ip: str
+    cookie_header: str
+    app_id: int
+    app_slug: str
+    app_realm_slug: str | None
+    proxy_url: str
+
+
+def _subdomain_auth_before_idp(
     request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-) -> Response:
-    """
-    auth_request handler for subdomain SSO vhosts.
-
-    Expected Nginx headers (from subdomain_auth_common.conf.j2):
-        X-Original-Host — vhost FQDN (e.g. transfer.example.com)
-        X-Original-URI  — requested URI
-        X-Real-IP         — client source IP
-        Cookie            — client cookies (bastion_session / oauth2-proxy / break-glass)
-
-    Decision flow:
-        1. RFC1918 bypass (if RFC1918_BYPASS_ENABLED) -> 200 (LAN, no identity —
-           no AccessGrant check). Default OFF; IP via client_ip_from_request
-           (trusted proxy only).
-        2. App resolution       -> 401 if no app for this Host
-        3. Session              -> native bastion_session, then oauth2-proxy, then
-           break-glass cookie
-        4. Authorization        -> AccessGrant launch+ via get_effective_apps_for_user
-           Break-glass: full access to all apps (emergency admin; no grant required)
-        5. Deny                 -> 401 access_denied_no_grant (authenticated but not
-           authorized). Must stay 401/2xx — nginx auth_request turns any other
-           status (including legacy 403) into a client HTTP 500 with upstream=-.
-    """
+    db: Session,
+    settings: Settings,
+) -> Response | _SubdomainAuthState:
+    """Steps 1–3a (bypass, app, M2M, native session) — sync, runs in a worker thread."""
     # Prefer X-Original-Host (auth_request snippet). Fall back like activesync-auth
     # when a misconfigured edge omits it — Host alone is the vhost FQDN on
     # bastion-nginx subdomain server blocks.
@@ -490,23 +484,36 @@ async def subdomain_auth(
 
     # auth_request is high-concurrency — never hold a pool slot across httpx.
     release_db_connection(db)
+    return _SubdomainAuthState(
+        original_host=original_host,
+        original_uri=original_uri,
+        client_ip=client_ip,
+        cookie_header=cookie_header,
+        app_id=app_id,
+        app_slug=app_slug,
+        app_realm_slug=app_realm_slug,
+        proxy_url=proxy_url,
+    )
 
-    oauth2_ok = False
-    oauth2_headers: Mapping[str, str] = {}
-    oauth2_unreachable = False
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"{proxy_url}/oauth2/auth",
-                headers={"Cookie": cookie_header},
-            )
-        if resp.status_code in (200, 202):
-            oauth2_ok = True
-            oauth2_headers = resp.headers
-    except httpx.RequestError:
-        # Fall through to break-glass; if neither works, return 401 below
-        # (never 503 — nginx auth_request maps unexpected codes to client 500).
-        oauth2_unreachable = True
+
+def _subdomain_auth_after_idp(
+    request: Request,
+    db: Session,
+    settings: Settings,
+    state: _SubdomainAuthState,
+    *,
+    oauth2_ok: bool,
+    oauth2_headers: Mapping[str, str],
+    oauth2_unreachable: bool,
+) -> Response:
+    """Steps 3b–5 (grant, presence, break-glass, deny) — sync, worker thread."""
+    original_host = state.original_host
+    original_uri = state.original_uri
+    client_ip = state.client_ip
+    cookie_header = state.cookie_header
+    app_id = state.app_id
+    app_slug = state.app_slug
+    app_realm_slug = state.app_realm_slug
 
     if oauth2_ok:
         # user_id_claim=sub → X-Auth-Request-User is the Keycloak subject UUID.
@@ -665,4 +672,67 @@ async def subdomain_auth(
             ),
             "X-Auth-App": app_slug,
         },
+    )
+
+
+@router.get("/internal/subdomain-auth")
+async def subdomain_auth(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    """
+    auth_request handler for subdomain SSO vhosts.
+
+    Expected Nginx headers (from subdomain_auth_common.conf.j2):
+        X-Original-Host — vhost FQDN (e.g. transfer.example.com)
+        X-Original-URI  — requested URI
+        X-Real-IP         — client source IP
+        Cookie            — client cookies (bastion_session / oauth2-proxy / break-glass)
+
+    Decision flow:
+        1. RFC1918 bypass (if RFC1918_BYPASS_ENABLED) -> 200 (LAN, no identity —
+           no AccessGrant check). Default OFF; IP via client_ip_from_request
+           (trusted proxy only).
+        2. App resolution       -> 401 if no app for this Host
+        3. Session              -> native bastion_session, then oauth2-proxy, then
+           break-glass cookie
+        4. Authorization        -> AccessGrant launch+ via get_effective_apps_for_user
+           Break-glass: full access to all apps (emergency admin; no grant required)
+        5. Deny                 -> 401 access_denied_no_grant (authenticated but not
+           authorized). Must stay 401/2xx — nginx auth_request turns any other
+           status (including legacy 403) into a client HTTP 500 with upstream=-.
+    """
+    # A1: every SQL step runs in the threadpool — only the oauth2-proxy call
+    # stays on the event loop (single uvicorn worker serves all auth).
+    pre = await run_in_threadpool(_subdomain_auth_before_idp, request, db, settings)
+    if isinstance(pre, Response):
+        return pre
+
+    oauth2_ok = False
+    oauth2_headers: Mapping[str, str] = {}
+    oauth2_unreachable = False
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{pre.proxy_url}/oauth2/auth",
+                headers={"Cookie": pre.cookie_header},
+            )
+        if resp.status_code in (200, 202):
+            oauth2_ok = True
+            oauth2_headers = resp.headers
+    except httpx.RequestError:
+        # Fall through to break-glass; if neither works, return 401 below
+        # (never 503 — nginx auth_request maps unexpected codes to client 500).
+        oauth2_unreachable = True
+
+    return await run_in_threadpool(
+        _subdomain_auth_after_idp,
+        request,
+        db,
+        settings,
+        pre,
+        oauth2_ok=oauth2_ok,
+        oauth2_headers=oauth2_headers,
+        oauth2_unreachable=oauth2_unreachable,
     )
