@@ -248,6 +248,8 @@ _RAW_EVENTS: tuple[EventDef, ...] = (
        legacy_action='app_launch'),
     _e('BST-AUTH-0009', 'ACTIVESYNC_DEVICE_DISCOVERED', 'Nouvel appareil ActiveSync découvert', ('authentication',),
        legacy_action='activesync.device_discovered'),
+    _e('BST-AUTH-0010', 'PASSKEY_LOGIN_SUCCEEDED', "Connexion par clé d'accès réussie", ('authentication',),
+       legacy_action='oidc_login_passkey_success'),
     _e('BST-AUTH-1001', 'ACTIVESYNC_DEVICE_APPROVED', 'Appareil ActiveSync approuvé', ('authentication', 'iam',),
        legacy_action='activesync.device_approved'),
     _e('BST-AUTH-1002', 'ACTIVESYNC_DEVICE_REVOKED', 'Appareil ActiveSync révoqué par son propriétaire', ('authentication', 'iam',),
@@ -284,6 +286,11 @@ _RAW_EVENTS: tuple[EventDef, ...] = (
     _e('BST-AUTH-2009', 'ACTIVESYNC_DEVICE_UNIDENTIFIED', 'Appareil ActiveSync non identifiable', ('authentication',),
        legacy_action='activesync.device_unidentified',
        runbook="DeviceId non extractible : laissé passer si contrôle inactif ; 403 si contrôle actif. Regrouper par miss_family : 'decoder_failure' = corriger le décodeur MS-ASHTTP ; 'no_device_sent' = identifier le client avant la bascule."),
+    _e('BST-AUTH-2010', 'PASSKEY_LOGIN_FAILED', "Échec de connexion par clé d'accès", ('authentication',),
+       legacy_action='oidc_login_passkey_failed',
+       runbook="Lire details.reason. sign_count_regression = authentificateur possiblement cloné : révoquer la clé. "
+               "idp_unavailable = API admin Keycloak injoignable (login refusé, fail closed). "
+               "user_disabled / account_disabled / required_action = compte à traiter côté Keycloak."),
     _e('BST-AUTH-4001', 'AUTH_BYPASS_ATTEMPT', "Tentative de contournement de l'authentification", ('authentication', 'intrusion_detection',),
        legacy_action='security.identity_header_spoof',
        runbook='Isoler la route, vérifier la chaîne oauth2-auth / X-Portal-Internal-Token, auditer les accès récents.'),

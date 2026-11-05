@@ -177,6 +177,15 @@ class Settings(BaseSettings):
             "oidc_native_session_enabled_realms",
         ),
     )
+    # Passkey (passwordless) sign-in pilot — same OR semantics as the CSV above
+    # with ``RealmConfig.passkey_login_enabled``. Example: PASSKEY_LOGIN_ENABLED_REALMS=pilot
+    passkey_login_enabled_realms: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "PASSKEY_LOGIN_ENABLED_REALMS",
+            "passkey_login_enabled_realms",
+        ),
+    )
     vault_sso_portal_oidc_client_secret: str = Field(
         default="",
         validation_alias=AliasChoices(
