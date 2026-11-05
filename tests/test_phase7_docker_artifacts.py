@@ -1,8 +1,53 @@
 """Smoke structural checks for Phase 7 Docker artifacts (no Docker daemon required)."""
 
+import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
+DOCKERFILES = [ROOT / "Dockerfile", ROOT / "docker" / "nginx" / "Dockerfile"]
+
+# Instructions whose arguments Docker takes literally (no shell): a trailing
+# "# ..." is NOT a comment there, it becomes part of the value.
+_LITERAL_INSTRUCTIONS = (
+    "ADD|ARG|COPY|ENV|EXPOSE|FROM|LABEL|ONBUILD|SHELL|STOPSIGNAL|USER|VOLUME|WORKDIR"
+)
+_INLINE_COMMENT_RE = re.compile(rf"^\s*(?:{_LITERAL_INSTRUCTIONS})\s.*\s#", re.IGNORECASE)
+
+
+def _instruction_starts(path: Path) -> list[str]:
+    """Physical lines that start an instruction (continuation lines skipped)."""
+    starts: list[str] = []
+    continued = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not continued and line.strip() and not line.lstrip().startswith("#"):
+            starts.append(line)
+        continued = line.rstrip().endswith("\\")
+    return starts
+
+
+def _user_values(path: Path) -> list[str]:
+    return [
+        ln.split(None, 1)[1].strip()
+        for ln in _instruction_starts(path)
+        if ln.strip().upper().startswith("USER ")
+    ]
+
+
+@pytest.mark.parametrize("dockerfile", DOCKERFILES, ids=lambda p: p.relative_to(ROOT).as_posix())
+def test_dockerfile_has_no_inline_comment_on_literal_instruction(dockerfile):
+    """Regression: ``USER root  # NOSONAR ...`` set the image user to that whole string."""
+    offenders = [ln.strip() for ln in _instruction_starts(dockerfile) if _INLINE_COMMENT_RE.match(ln)]
+    assert not offenders, f"move these comments to their own line: {offenders}"
+
+
+@pytest.mark.parametrize("dockerfile", DOCKERFILES, ids=lambda p: p.relative_to(ROOT).as_posix())
+def test_dockerfile_user_values_are_plain_identities(dockerfile):
+    users = _user_values(dockerfile)
+    assert users, f"{dockerfile} has no USER instruction"
+    for user in users:
+        assert re.fullmatch(r"[A-Za-z0-9_.-]+(?::[A-Za-z0-9_.-]+)?", user), user
 
 
 def test_dockerfile_no_alembic_in_runtime_cmd():
@@ -15,22 +60,41 @@ def test_dockerfile_no_alembic_in_runtime_cmd():
     assert "uvicorn" in runtime
 
 
-def test_nginx_dockerfile_last_user_is_not_root():
-    """docker:S6471 — last USER must not be root; compose overrides to 0:0 for the entrypoint."""
-    lines = [
-        ln.strip()
-        for ln in (ROOT / "docker" / "nginx" / "Dockerfile").read_text(encoding="utf-8").splitlines()
-        if ln.strip().upper().startswith("USER ")
-    ]
-    assert lines, "nginx Dockerfile has no USER instruction"
-    last = lines[-1].split(None, 1)[1]
-    assert last.split(":")[0] not in {"root", "0"}
-    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
-    nginx_block = compose.split("\n  nginx:\n", 1)[1].split("\n  acme-companion:", 1)[0]
-    assert 'user: "0:0"' in nginx_block
-    deploy = (ROOT / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
-    deploy_nginx = deploy.split("\n  nginx:\n", 1)[1].split("\n  acme-companion:", 1)[0]
-    assert 'user: "0:0"' in deploy_nginx
+def _compose_service_block(compose: Path, service: str) -> str:
+    text = compose.read_text(encoding="utf-8")
+    block = text.split(f"\n  {service}:\n", 1)[1]
+    return re.split(r"\n  [A-Za-z0-9_-]+:\n", block, maxsplit=1)[0]
+
+
+@pytest.mark.parametrize(
+    "dockerfile, stage_marker, service",
+    [
+        (ROOT / "docker" / "nginx" / "Dockerfile", None, "nginx"),
+        (ROOT / "Dockerfile", "AS migrate", "bastion-app-migrate"),
+    ],
+    ids=["nginx", "migrate"],
+)
+def test_image_defaults_to_nonroot_and_compose_elevates(tmp_path, dockerfile, stage_marker, service):
+    """docker:S6471 — image default user is non-root; compose pins 0:0 where root is needed.
+
+    nginx: the entrypoint mirrors root:600 ACME PEMs then su-execs to nginx.
+    migrate: the one-shot job chowns data volumes.
+    """
+    text = dockerfile.read_text(encoding="utf-8")
+    if stage_marker:
+        text = text.split(stage_marker, 1)[1]
+    stage = tmp_path / "Dockerfile.stage"
+    stage.write_text(text, encoding="utf-8")
+    users = _user_values(stage)
+    assert users, f"{dockerfile} ({stage_marker or 'final'}) has no USER instruction"
+    assert users[-1].split(":")[0] not in {"root", "0"}
+    for compose in (ROOT / "docker-compose.yml", ROOT / "deploy" / "docker-compose.yml"):
+        assert 'user: "0:0"' in _compose_service_block(compose, service), compose
+
+
+def test_nginx_entrypoint_drops_root_to_nginx():
+    entry = (ROOT / "docker" / "nginx" / "docker-entrypoint.sh").read_text(encoding="utf-8")
+    assert "exec su-exec nginx:nginx" in entry
 
 
 def test_compose_split_topology_binds():
