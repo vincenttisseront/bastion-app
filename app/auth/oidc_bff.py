@@ -808,10 +808,14 @@ async def _resolve_session_groups(
             exc_info=True,
         )
         return ()
+    return groups_from_keycloak_admin_entries(kc_groups)
 
+
+def groups_from_keycloak_admin_entries(entries: list[Any] | None) -> tuple[str, ...]:
+    """Normalize Admin API ``/users/{id}/groups`` rows like OIDC ``groups`` claims."""
     names = [
         str(raw).strip()
-        for entry in kc_groups
+        for entry in entries or ()
         if isinstance(entry, dict)
         and (raw := entry.get("path") or entry.get("name")) is not None
         and str(raw).strip()
@@ -871,59 +875,124 @@ async def _complete_login(ctx: _LoginCtx, step: LoginStepResult):
     if not session_email and display_username and "@" in display_username:
         session_email = display_username
 
+    identity = NativeLoginIdentity(
+        sub=tokens.sub,
+        username=display_username,
+        email=session_email,
+        groups=tuple(session_groups),
+        realm_slug=ctx.realm_slug,
+        kc_sid=sid if isinstance(sid := tokens.claims.get("sid"), str) and sid else None,
+    )
+    return finalize_native_login(
+        ctx.db,
+        ctx.settings,
+        identity,
+        secret=secret,
+        client_ip=ctx.client_ip,
+        login_username=ctx.username,
+        safe_rd=ctx.safe_rd,
+        html_mode=ctx.html_mode,
+        audit_action="oidc_login_otp_success" if ctx.otp_step else "oidc_login_success",
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class NativeLoginIdentity:
+    """Verified identity ready to receive a native ``bastion_session``."""
+
+    sub: str
+    username: str | None
+    email: str | None
+    groups: tuple[str, ...]
+    realm_slug: str
+    # Keycloak user-session id — absent when Keycloak did not run the login (passkey).
+    kc_sid: str | None = None
+
+
+def finalize_native_login(
+    db: Session,
+    settings: Settings,
+    identity: NativeLoginIdentity,
+    *,
+    secret: str,
+    client_ip: str,
+    login_username: str,
+    safe_rd: str,
+    html_mode: bool,
+    audit_action: str,
+    audit_details: dict[str, Any] | None = None,
+    include_redirect: bool = False,
+) -> Response:
+    """Issue the session JWT + registry row, reset failure counters, audit, set cookie.
+
+    Shared by every native login path (password/OTP, passkey) so session shape,
+    audience, lifetime and counter resets cannot drift between them.
+    ``login_username`` is the throttle / ban key the caller checked before.
+    """
     try:
         from app.rbac.account_lifecycle_service import touch_bastion_login
 
         touch_bastion_login(
-            ctx.db,
-            keycloak_user_id=tokens.sub,
-            email=session_email or ctx.email,
-            username=display_username or ctx.username,
+            db,
+            keycloak_user_id=identity.sub,
+            email=identity.email,
+            username=identity.username or login_username,
         )
     except Exception:
         logger.debug("bastion last_login touch skipped", exc_info=True)
 
     token, jti = issue_oidc_session(
-        ctx.db,
-        sub=tokens.sub,
-        username=display_username,
-        realm=ctx.realm_slug,
+        db,
+        sub=identity.sub,
+        username=identity.username,
+        realm=identity.realm_slug,
         secret=secret,
-        max_age=ctx.settings.oidc_session_max_age,
-        groups=session_groups,
-        email=session_email,
-        audience=resolve_oidc_session_jwt_audience(ctx.settings),
-        kc_sid=sid if isinstance(sid := tokens.claims.get("sid"), str) and sid else None,
+        max_age=settings.oidc_session_max_age,
+        groups=identity.groups,
+        email=identity.email,
+        audience=resolve_oidc_session_jwt_audience(settings),
+        kc_sid=identity.kc_sid,
     )
-    ctx.db.commit()
-    _clear_login_failures(ctx.client_ip, ctx.username)
+    db.commit()
+    _clear_login_failures(client_ip, login_username)
     # Also clear SQL sliding-window counters: past failures must not re-ban.
     try:
         clear_failed_login_counters(
-            ctx.db,
-            ips={ctx.client_ip} if (ctx.client_ip or "").strip() else None,
-            usernames={ctx.username} if ctx.username else None,
+            db,
+            ips={client_ip} if (client_ip or "").strip() else None,
+            usernames={login_username} if login_username else None,
         )
     except Exception:
         logger.exception("oidc_login sql failed-login counters clear failed")
-    _audit(
-        ctx,
-        "oidc_login_otp_success" if ctx.otp_step else "oidc_login_success",
-        {"realm": ctx.realm_slug, "jti": jti, "sub": tokens.sub},
-        actor=display_username or tokens.sub,
+    log_action(
+        db,
+        actor=identity.username or identity.sub,
+        action=audit_action,
+        details={
+            "realm": identity.realm_slug,
+            "jti": jti,
+            "sub": identity.sub,
+            **(audit_details or {}),
+        },
+        ip_address=client_ip or None,
     )
-    if ctx.html_mode:
-        from app.robotic.session_cookie_hop import redirect_via_subdomain_sso_mirror
+    from app.robotic.session_cookie_hop import redirect_via_subdomain_sso_mirror
 
-        final_rd = redirect_via_subdomain_sso_mirror(
-            ctx.safe_rd, portal_domain=ctx.settings.portal_domain or ""
-        )
+    final_rd = redirect_via_subdomain_sso_mirror(
+        safe_rd, portal_domain=settings.portal_domain or ""
+    )
+    if html_mode:
         response: Response = RedirectResponse(url=final_rd, status_code=302)
     else:
-        response = JSONResponse(
-            {"status": "ok", "username": display_username, "realm": ctx.realm_slug}
-        )
-    set_oidc_session_cookie(response, token, ctx.settings)
+        body: dict[str, Any] = {
+            "status": "ok",
+            "username": identity.username,
+            "realm": identity.realm_slug,
+        }
+        if include_redirect:
+            body["redirect"] = final_rd
+        response = JSONResponse(body)
+    set_oidc_session_cookie(response, token, settings)
     return response
 
 

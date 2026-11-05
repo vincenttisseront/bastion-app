@@ -672,6 +672,8 @@ class RealmConfig(Base):
     # Bastion-side MFA for native OIDC: enrollment UI + admin « Configurer OTP ».
     # When false, CONFIGURE_TOTP is refused; login OTP challenge still honored if IdP asks.
     oidc_mfa_enabled = Column(Boolean, nullable=False, default=True)
+    # Passwordless sign-in with a bastion-held passkey (requires native session too).
+    passkey_login_enabled = Column(Boolean, nullable=False, default=False)
     # Public login chooser: show this realm among Interne / Clients / … options.
     show_on_login = Column(Boolean, nullable=False, default=True)
     # Optional short label for the login audience tabs (overrides heuristic).
@@ -1426,6 +1428,75 @@ class AdminMfaCredential(Base):
     webauthn_enabled = Column(Boolean, nullable=False, default=False)
     created_at = Column(UTCDateTime, nullable=False, default=utcnow)
     updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class UserWebauthnHandle(Base):
+    """Opaque WebAuthn ``user.id`` per Keycloak identity (discoverable login).
+
+    Random bytes, never derived from the e-mail: the authenticator hands it back
+    on usernameless sign-in, so it must not be correlatable nor change with the
+    e-mail address.
+    """
+
+    __tablename__ = "user_webauthn_handles"
+    __table_args__ = (
+        UniqueConstraint("realm_id", "keycloak_sub", name="uq_user_webauthn_handle_identity"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    realm_id = Column(Integer, ForeignKey(_FK_REALM_CONFIGS_ID), nullable=False, index=True)
+    keycloak_sub = Column(String, nullable=False)
+    user_handle = Column(String, nullable=False, unique=True)  # base64url
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
+
+
+class UserPasskey(RevocationMixin, Base):
+    """End-user passkey (primary, passwordless factor) — public key only.
+
+    Identity is the Keycloak ``sub`` within a realm; ``username`` is a display /
+    audit copy. Several passkeys per user (phone, laptop, security key…).
+    """
+
+    __tablename__ = "user_passkeys"
+
+    id = Column(Integer, primary_key=True)
+    realm_id = Column(Integer, ForeignKey(_FK_REALM_CONFIGS_ID), nullable=False, index=True)
+    keycloak_sub = Column(String, nullable=False, index=True)
+    username = Column(String, nullable=True)
+    credential_id = Column(String, nullable=False, unique=True)  # base64url
+    public_key = Column(Text, nullable=False)  # COSE, base64url
+    sign_count = Column(Integer, nullable=False, default=0)
+    transports = Column(JSON, nullable=True)
+    aaguid = Column(String, nullable=True)
+    # Multi-device (synced) credential vs bound to one authenticator.
+    backup_eligible = Column(Boolean, nullable=False, default=False)
+    backup_state = Column(Boolean, nullable=False, default=False)
+    name = Column(String, nullable=True)
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
+    last_used_at = Column(UTCDateTime, nullable=True)
+    last_used_ip = Column(String, nullable=True)
+
+    realm = relationship("RealmConfig", foreign_keys=[realm_id])
+
+    __table_args__ = (Index("ix_user_passkeys_identity", "realm_id", "keycloak_sub"),)
+
+
+class WebauthnChallenge(Base):
+    """Single-use WebAuthn challenge (consumed atomically, cross-worker).
+
+    ``id`` travels in an HttpOnly cookie; ``subject`` is empty for usernameless
+    login and ``<realm_id>:<sub>`` for registration.
+    """
+
+    __tablename__ = "webauthn_challenges"
+
+    id = Column(String, primary_key=True)
+    purpose = Column(String, nullable=False)
+    subject = Column(String, nullable=False, default="")
+    challenge = Column(String, nullable=False)  # base64url
+    expires_at = Column(UTCDateTime, nullable=False, index=True)
+    consumed_at = Column(UTCDateTime, nullable=True)
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
 
 
 class MtlsClientApp(Base):

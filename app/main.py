@@ -39,6 +39,7 @@ from app.logging_config import configure_logging
 from app.logging_middleware import RequestIdMiddleware
 from app.models import Base
 from app.auth.oidc_bff import router as oidc_bff_router
+from app.auth.passkey_login import router as passkey_login_router
 from app.realm_service import router as realm_router
 from app.robotic.client_open_action import router as robotic_router
 from app.robotic.session_cookie_hop import router as session_cookie_hop_router
@@ -596,6 +597,7 @@ app.include_router(sessions_router)
 app.include_router(sessions_admin_router)
 app.include_router(auth_router)
 app.include_router(oidc_bff_router)
+app.include_router(passkey_login_router)
 app.include_router(breakglass_router)
 # Admin break-glass session APIs — guard attached here to avoid circular import
 # with user_context (which imports breakglass for cookie validation).

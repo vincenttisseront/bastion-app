@@ -39,6 +39,12 @@ PUBLIC_ROUTES_ALLOWLIST: dict[str, str] = {
     "/auth/setup": (
         "initial break-glass setup before any session exists; LAN gate same as break-glass login"
     ),
+    "/auth/passkey/options": (
+        "passkey sign-in challenge — pre-auth by design; CSRF + IP throttle, single-use row"
+    ),
+    "/auth/passkey/verify": (
+        "passkey sign-in — WebAuthn assertion (UV) + Keycloak account re-check; CSRF + throttle"
+    ),
     "/auth/sso-start": "OIDC start redirect — unauthenticated by design",
     "/auth/sso-failed": "OIDC failure landing — unauthenticated by design",
     "/auth/access-request": (
