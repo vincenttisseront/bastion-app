@@ -19,8 +19,9 @@
   {% set ns.panel = 'local' %}
 {% endif %}
 
+{% set show_login_aside = not mfa_step and (has_sso or show_breakglass) %}
 <div
-  class="login-wrap"
+  class="login-wrap{% if show_login_aside %} login-wrap--with-aside{% endif %}"
   data-login-root
   data-initial-panel="{{ ns.panel }}"
   data-has-sso="{{ '1' if has_sso else '0' }}"
@@ -48,6 +49,7 @@
   </button>
   </div>
 
+  <div class="login-shell">
   <div class="login-card">
     <div class="login-header">
       <div class="login-logo">
@@ -284,6 +286,47 @@
       </p>
     </div>
     {% endif %}
+  </div>
+
+  {% if show_login_aside %}
+  {# Wide screens only (CSS). Plain-language benefits — no infrastructure detail
+     on a pre-authentication page. #}
+  <aside class="login-aside" aria-labelledby="login-aside-title">
+    <div>
+      <h2 class="login-aside-title" id="login-aside-title">{{ _('Un accès unique et protégé') }}</h2>
+      <p class="login-aside-lead">{{ _('Toutes vos applications professionnelles derrière une seule connexion.') }}</p>
+    </div>
+    <ul class="login-aside-list">
+      <li class="login-aside-item">
+        <span class="login-aside-icon" aria-hidden="true">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        </span>
+        <div>
+          <p class="login-aside-item-title">{{ _('Une seule connexion') }}</p>
+          <p class="login-aside-item-text">{{ _('Ouvrez toutes vos applications sans ressaisir vos identifiants.') }}</p>
+        </div>
+      </li>
+      <li class="login-aside-item">
+        <span class="login-aside-icon" aria-hidden="true">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </span>
+        <div>
+          <p class="login-aside-item-title">{{ _('Identifiants protégés') }}</p>
+          <p class="login-aside-item-text">{{ _('Les mots de passe de vos applications sont conservés chiffrés.') }}</p>
+        </div>
+      </li>
+      <li class="login-aside-item">
+        <span class="login-aside-icon" aria-hidden="true">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+        </span>
+        <div>
+          <p class="login-aside-item-title">{{ _('Accès vérifiés') }}</p>
+          <p class="login-aside-item-text">{{ _('Chaque connexion est contrôlée et peut être révoquée à tout moment.') }}</p>
+        </div>
+      </li>
+    </ul>
+  </aside>
+  {% endif %}
   </div>
 
   <p class="login-footer">
