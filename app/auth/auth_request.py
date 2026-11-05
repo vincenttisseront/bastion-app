@@ -8,6 +8,7 @@ import httpx
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.admin.export import realm_oauth2_proxy_url
 from app.auth.flow import get_default_idp_realm
@@ -197,25 +198,33 @@ async def _get_oauth2_auth(
         return await client.get(url, headers=headers)
 
 
+def _oauth2_proxy_target(settings: Settings, db: Session) -> tuple[str, str] | None:
+    """(realm_slug, proxy_url) of the default IdP realm — sync DB phase."""
+    from app.database import release_db_connection
+
+    default_realm = get_default_idp_realm(db)
+    if not default_realm:
+        return None
+    # Never take the realm from a client header (X-Realm-Slug is not set nor
+    # stripped by nginx): it would be echoed as X-Auth-Request-Realm.
+    realm_slug = default_realm.slug
+    proxy_url = get_realm_proxy_url(realm_slug, settings, db)
+    # Portal auth_request is hot — release pool slot before outbound HTTP.
+    release_db_connection(db)
+    return realm_slug, proxy_url
+
+
 async def _oauth2_proxy_auth_response(
     request: Request,
     settings: Settings,
     db: Session,
 ) -> Response | None:
     """Call oauth2-proxy /oauth2/auth. None if no IdP; else proxy status (202/401/503)."""
-    from app.database import release_db_connection
-
-    default_realm = get_default_idp_realm(db)
-    if not default_realm:
+    target = await run_in_threadpool(_oauth2_proxy_target, settings, db)
+    if target is None:
         return None
-
-    # Never take the realm from a client header (X-Realm-Slug is not set nor
-    # stripped by nginx): it would be echoed as X-Auth-Request-Realm.
-    realm_slug = default_realm.slug
-    proxy_url = get_realm_proxy_url(realm_slug, settings, db)
+    realm_slug, proxy_url = target
     cookie_header = request.headers.get("Cookie", "")
-    # Portal auth_request is hot — release pool slot before outbound HTTP.
-    release_db_connection(db)
     try:
         resp = await _get_oauth2_auth(request, f"{proxy_url}/oauth2/auth", cookie_header)
         # Preserve oauth2-proxy status (often 202 Accepted on success with set_xauthrequest).
@@ -300,7 +309,8 @@ async def oauth2_auth(
     # (auth OK → portal 401 → /auth/login loop). LAN recovery = break-glass.
 
     # Progressive cutover: native bastion_session before oauth2-proxy (flag-gated).
-    native = _native_oidc_auth_response(request, settings, db)
+    # A1: DB work runs in the threadpool; only the oauth2-proxy call is awaited.
+    native = await run_in_threadpool(_native_oidc_auth_response, request, settings, db)
     if native is not None:
         return native
 
@@ -308,12 +318,14 @@ async def oauth2_auth(
     # Otherwise a leftover bg_session sends /apps → 302 /dashboard and never hits oauth2.
     oauth2_resp = await _oauth2_proxy_auth_response(request, settings, db)
     if oauth2_resp is not None and oauth2_resp.status_code in (200, 202):
-        _apply_oauth2_sso_binding(db, request, oauth2_resp)
+        await run_in_threadpool(_apply_oauth2_sso_binding, db, request, oauth2_resp)
         return oauth2_resp
 
     bg_cookie = request.cookies.get(COOKIE_NAME)
     if bg_cookie:
-        return _breakglass_auth_response(db, request, settings, bg_cookie)
+        return await run_in_threadpool(
+            _breakglass_auth_response, db, request, settings, bg_cookie
+        )
 
     if oauth2_resp is not None:
         return oauth2_resp

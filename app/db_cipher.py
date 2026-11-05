@@ -148,6 +148,38 @@ def verify_db_readable(connection) -> None:
         ) from exc
 
 
+SQLITE_BUSY_TIMEOUT_MS = 5000
+
+
+def apply_sqlite_pragmas(dbapi_connection) -> None:  # noqa: ANN001
+    """busy_timeout + WAL + synchronous=NORMAL (safe with WAL) on a new connection."""
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+    finally:
+        cursor.close()
+
+
+SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm")
+
+
+def copy_sqlite_file(src: Path, dest: Path) -> None:
+    """File-level copy of a SQLite DB that stays consistent in WAL mode.
+
+    Committed pages may still live in ``<db>-wal``; copying only the main file
+    would silently drop them. Callers that can should checkpoint first.
+    """
+    import shutil
+
+    shutil.copy2(src, dest)
+    for suffix in SQLITE_SIDECAR_SUFFIXES:
+        side = src.with_name(src.name + suffix)
+        if side.is_file():
+            shutil.copy2(side, dest.with_name(dest.name + suffix))
+
+
 def _register_key_on_connect(engine: Engine, key_hex: str) -> None:
     @event.listens_for(engine, "connect")
     def _set_sqlcipher_key(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
@@ -204,13 +236,12 @@ def create_portal_engine(database_url: str, settings: Settings | None = None, **
 
     if is_sqlite:
 
+        # Registered after PRAGMA key (SQLCipher) so the pragmas run on a
+        # readable database. WAL lets readers proceed during a write instead of
+        # queueing behind the lock for up to busy_timeout on the single worker.
         @event.listens_for(engine, "connect")
-        def _sqlite_busy_timeout(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
-            cursor = dbapi_connection.cursor()
-            try:
-                cursor.execute("PRAGMA busy_timeout=5000")
-            finally:
-                cursor.close()
+        def _sqlite_pragmas(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
+            apply_sqlite_pragmas(dbapi_connection)
 
     return engine
 

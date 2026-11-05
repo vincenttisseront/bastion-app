@@ -604,7 +604,10 @@ async def require_user_enriched(
     settings: Settings = Depends(get_settings),
 ) -> UserContext:
     """Like require_user, but fills email from Keycloak when X-Email is missing/short."""
-    user = require_user(request, db=db, settings=settings)
+    from starlette.concurrency import run_in_threadpool
+
+    # A1: identity resolution is synchronous SQL — keep it off the event loop.
+    user = await run_in_threadpool(require_user, request, db, settings)
     if user.is_breakglass or not user.keycloak_user_id:
         return user
     from app.rbac.oidc_email import looks_like_email, resolve_user_email

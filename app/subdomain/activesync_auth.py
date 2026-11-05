@@ -5,11 +5,13 @@ from __future__ import annotations
 import base64
 import logging
 import time
-from typing import Mapping
+from dataclasses import dataclass
+from typing import Any, Mapping
 
 import httpx
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app import re_safe
 from app.audit import log_action
@@ -374,19 +376,31 @@ def _evaluate_device(
     return device, _deny_device_response(app=app)
 
 
-@router.get("/internal/activesync-auth")
-async def activesync_auth(
-    request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-) -> Response:
-    """auth_request for EAS/Autodiscover locations (no oauth2 HTML redirect).
+@dataclass(frozen=True)
+class _ActiveSyncAuthState:
+    """Request facts + resolved app carried across the IdP round-trip."""
 
-    Allow when:
-      - App has allow_activesync and client sent HTTP Basic (upstream validates password), or
-      - Valid OIDC / break-glass session with launch grant (same as subdomain auth).
-    Deny with 401 + WWW-Authenticate: Basic (nginx named location also adds the header).
-    """
+    original_host: str
+    original_uri: str
+    client_ip: str
+    user_agent: str
+    cookie_header: str
+    client_kind: str
+    device_id: str | None
+    device_type: str | None
+    device_exempt: bool
+    app_id: int
+    app_slug: str
+    proxy_url: str
+    app: Any
+
+
+def _activesync_auth_before_idp(
+    request: Request,
+    db: Session,
+    settings: Settings,
+) -> Response | _ActiveSyncAuthState:
+    """App resolution, device gate and Basic path — sync, runs in a worker thread."""
     original_host = request.headers.get("X-Original-Host", "") or request.headers.get("Host", "")
     original_uri = request.headers.get("X-Original-URI", "") or request.url.path
     # Absent until nginx is reloaded with the header — treated as "unknown
@@ -507,106 +521,134 @@ async def activesync_auth(
     app_slug = app.slug
     proxy_url = get_realm_proxy_url(app.realm_slug, settings, db)
     release_db_connection(db)
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"{proxy_url}/oauth2/auth",
-                headers={"Cookie": cookie_header},
+    return _ActiveSyncAuthState(
+        original_host=original_host,
+        original_uri=original_uri,
+        client_ip=client_ip,
+        user_agent=user_agent,
+        cookie_header=cookie_header,
+        client_kind=client_kind,
+        device_id=device_id,
+        device_type=device_type,
+        device_exempt=device_exempt,
+        app_id=app_id,
+        app_slug=app_slug,
+        proxy_url=proxy_url,
+        app=app,
+    )
+
+
+def _activesync_auth_after_idp(
+    request: Request,
+    db: Session,
+    settings: Settings,
+    state: _ActiveSyncAuthState,
+    *,
+    oauth2_headers: Mapping[str, str] | None,
+) -> Response:
+    """OIDC grant / break-glass / deny — sync, runs in a worker thread."""
+    original_host = state.original_host
+    original_uri = state.original_uri
+    client_ip = state.client_ip
+    user_agent = state.user_agent
+    client_kind = state.client_kind
+    device_id = state.device_id
+    device_type = state.device_type
+    device_exempt = state.device_exempt
+    app_id = state.app_id
+    app_slug = state.app_slug
+    app = state.app
+    if oauth2_headers is not None:
+        keycloak_user_id = _header(
+            oauth2_headers, "X-Auth-Request-User", "X-Auth-User"
+        )
+        groups = parse_groups_header(
+            _header(oauth2_headers, "X-Auth-Request-Groups", "X-Auth-Groups")
+        )
+        email = _header(oauth2_headers, "X-Auth-Request-Email", "X-Auth-Email")
+        preferred = _header(
+            oauth2_headers,
+            "X-Auth-Request-Preferred-Username",
+            "X-Auth-Preferred-Username",
+        )
+        actor = email or preferred or keycloak_user_id or "unknown"
+        app = db.get(App, app_id)
+        if app is None:
+            return Response(
+                status_code=401,
+                headers={
+                    "X-Auth-Error": "no_app_for_host",
+                    "WWW-Authenticate": _WWW_AUTHENTICATE_EAS,
+                },
             )
-        if resp.status_code in (200, 202):
-            oauth2_headers: Mapping[str, str] = resp.headers
-            keycloak_user_id = _header(
-                oauth2_headers, "X-Auth-Request-User", "X-Auth-User"
-            )
-            groups = parse_groups_header(
-                _header(oauth2_headers, "X-Auth-Request-Groups", "X-Auth-Groups")
-            )
-            email = _header(oauth2_headers, "X-Auth-Request-Email", "X-Auth-Email")
-            preferred = _header(
-                oauth2_headers,
-                "X-Auth-Request-Preferred-Username",
-                "X-Auth-Preferred-Username",
-            )
-            actor = email or preferred or keycloak_user_id or "unknown"
-            app = db.get(App, app_id)
-            if app is None:
-                return Response(
-                    status_code=401,
-                    headers={
-                        "X-Auth-Error": "no_app_for_host",
-                        "WWW-Authenticate": _WWW_AUTHENTICATE_EAS,
-                    },
-                )
-            if not user_can_launch_application(
+        if not user_can_launch_application(
+            db,
+            application_id=app_id,
+            keycloak_user_id=keycloak_user_id or None,
+            group_names=groups,
+            realm_slug=app.realm_slug,
+        ):
+            _log_activesync(
                 db,
-                application_id=app_id,
-                keycloak_user_id=keycloak_user_id or None,
-                group_names=groups,
-                realm_slug=app.realm_slug,
-            ):
-                _log_activesync(
-                    db,
-                    action=_AUDIT_EAS_DENIED,
-                    app=app,
-                    actor=actor,
-                    client_ip=client_ip,
-                    uri=original_uri,
-                    host=original_host,
-                    user_agent=user_agent,
-                    auth_source="oidc",
-                    client_kind=client_kind,
-                    reason="access_denied_no_grant",
-                )
-                return Response(
-                    status_code=403,
-                    headers={
-                        "X-Auth-Error": "access_denied_no_grant",
-                        "X-Auth-App": app_slug,
-                    },
-                )
-            device, denied = _evaluate_device(
-                db,
-                # Never the Keycloak UUID: the inventory is keyed on the same
-                # identity Basic Auth sends, or the two never join.
-                actor=email or preferred or "",
+                action=_AUDIT_EAS_DENIED,
                 app=app,
-                device_id=device_id,
-                device_type=device_type,
-                exempt=device_exempt,
+                actor=actor,
+                client_ip=client_ip,
                 uri=original_uri,
                 host=original_host,
                 user_agent=user_agent,
+                auth_source="oidc",
                 client_kind=client_kind,
-                client_ip=client_ip,
+                reason="access_denied_no_grant",
             )
-            if denied is not None:
-                return denied
-            if _should_log_allow(app_slug, client_ip or "", actor, device_id):
-                _log_activesync(
-                    db,
-                    action=_AUDIT_EAS_ALLOWED,
-                    app=app,
-                    actor=actor,
-                    client_ip=client_ip,
-                    uri=original_uri,
-                    host=original_host,
-                    user_agent=user_agent,
-                    auth_source="oidc",
-                    client_kind=client_kind,
-                    device_id=device_id,
-                    device_type=device_type,
-                    device_status=device.status if device is not None else None,
-                )
             return Response(
-                status_code=200,
+                status_code=403,
                 headers={
-                    "X-Auth-Source": "oidc",
-                    "X-Auth-User": keycloak_user_id or preferred or email or "",
+                    "X-Auth-Error": "access_denied_no_grant",
                     "X-Auth-App": app_slug,
                 },
             )
-    except httpx.RequestError:
-        pass
+        device, denied = _evaluate_device(
+            db,
+            # Never the Keycloak UUID: the inventory is keyed on the same
+            # identity Basic Auth sends, or the two never join.
+            actor=email or preferred or "",
+            app=app,
+            device_id=device_id,
+            device_type=device_type,
+            exempt=device_exempt,
+            uri=original_uri,
+            host=original_host,
+            user_agent=user_agent,
+            client_kind=client_kind,
+            client_ip=client_ip,
+        )
+        if denied is not None:
+            return denied
+        if _should_log_allow(app_slug, client_ip or "", actor, device_id):
+            _log_activesync(
+                db,
+                action=_AUDIT_EAS_ALLOWED,
+                app=app,
+                actor=actor,
+                client_ip=client_ip,
+                uri=original_uri,
+                host=original_host,
+                user_agent=user_agent,
+                auth_source="oidc",
+                client_kind=client_kind,
+                device_id=device_id,
+                device_type=device_type,
+                device_status=device.status if device is not None else None,
+            )
+        return Response(
+            status_code=200,
+            headers={
+                "X-Auth-Source": "oidc",
+                "X-Auth-User": keycloak_user_id or preferred or email or "",
+                "X-Auth-App": app_slug,
+            },
+        )
 
     bg_cookie = request.cookies.get(COOKIE_NAME)
     if bg_cookie:
@@ -692,3 +734,43 @@ async def activesync_auth(
             "WWW-Authenticate": _WWW_AUTHENTICATE_EAS,
         },
     )
+
+
+@router.get("/internal/activesync-auth")
+async def activesync_auth(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    """auth_request for EAS/Autodiscover locations (no oauth2 HTML redirect).
+
+    Allow when:
+      - App has allow_activesync and client sent HTTP Basic (upstream validates password), or
+      - Valid OIDC / break-glass session with launch grant (same as subdomain auth).
+    Deny with 401 + WWW-Authenticate: Basic (nginx named location also adds the header).
+    """
+    # A1: SQL (app, devices, grants, audit, e-mail) runs in the threadpool;
+    # only the oauth2-proxy round-trip stays on the event loop.
+    pre = await run_in_threadpool(_activesync_auth_before_idp, request, db, settings)
+    if isinstance(pre, Response):
+        return pre
+    oauth2_headers: Mapping[str, str] | None = None
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{pre.proxy_url}/oauth2/auth",
+                headers={"Cookie": pre.cookie_header},
+            )
+        if resp.status_code in (200, 202):
+            oauth2_headers = resp.headers
+    except httpx.RequestError:
+        pass
+    return await run_in_threadpool(
+        _activesync_auth_after_idp,
+        request,
+        db,
+        settings,
+        pre,
+        oauth2_headers=oauth2_headers,
+    )
+

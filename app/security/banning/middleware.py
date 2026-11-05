@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -16,6 +17,7 @@ from app.security.banning.engine import (
     check_request_allowed,
     end_concurrent,
     identity_username_from_headers,
+    is_login_path,
     is_sensitive_path,
     rate_limit_retry_after,
 )
@@ -76,6 +78,48 @@ def _security_denied_response(
     return api_error_response(status_code=status, message=message)
 
 
+_PRECHECK_FAILED_MESSAGE = "Service temporairement indisponible."
+
+
+def _pre_check(*, ip: str, path: str, method: str, username: str) -> Response | bool:
+    """Ban / rate decision. Returns a deny response, or whether ``ip`` is tracked.
+
+    S6: fail **closed** on login endpoints — if the check itself fails (e.g.
+    database locked), brute-force protection must not silently switch off.
+    Other sensitive paths stay fail-open (availability of authenticated pages).
+    """
+    db = SessionLocal()
+    try:
+        allowed, reason, _ban = check_request_allowed(
+            db,
+            ip=ip,
+            path=path,
+            method=method,
+            username=username or None,
+        )
+        if not allowed:
+            return _security_denied_response(
+                db, reason=reason, ip=ip, path=path, method=method, username=username
+            )
+        begin_concurrent(ip)
+        return True
+    except Exception:
+        logger.exception("security ban middleware pre-check failed")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        if is_login_path(path, method):
+            return api_error_response(
+                status_code=503,
+                message=_PRECHECK_FAILED_MESSAGE,
+                headers={"Retry-After": "5"},
+            )
+        return False
+    finally:
+        db.close()
+
+
 class SecurityBanMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
@@ -86,31 +130,15 @@ class SecurityBanMiddleware(BaseHTTPMiddleware):
 
         ip = client_ip_from_request(request)
         username = identity_username_from_headers(request.headers)
-        db = SessionLocal()
-        tracked = False
-        try:
-            allowed, reason, _ban = check_request_allowed(
-                db,
-                ip=ip,
-                path=path,
-                method=request.method,
-                username=username or None,
-            )
-            if not allowed:
-                return _security_denied_response(
-                    db, reason=reason, ip=ip, path=path, method=request.method, username=username
-                )
-
-            begin_concurrent(ip)
-            tracked = True
-        except Exception:
-            logger.exception("security ban middleware pre-check failed")
-            try:
-                db.rollback()
-            except Exception:
-                pass
-        finally:
-            db.close()
+        method = request.method
+        # A1/S6: the ban check is synchronous SQL — run it in the threadpool so
+        # a locked database cannot freeze the single worker's event loop.
+        outcome = await run_in_threadpool(
+            _pre_check, ip=ip, path=path, method=method, username=username
+        )
+        if isinstance(outcome, Response):
+            return outcome
+        tracked = outcome
 
         try:
             return await call_next(request)

@@ -17,7 +17,6 @@ Exit code non-zero on failure. Does NOT restore the DB backup automatically
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +28,7 @@ if str(_REPO_ROOT) not in sys.path:
 from sqlalchemy.engine.url import make_url  # noqa: E402
 
 from app.database import SessionLocal  # noqa: E402
+from app.db_cipher import copy_sqlite_file  # noqa: E402
 from app.sso_settings import get_settings  # noqa: E402
 from app.vault.key_rotation_service import (  # noqa: E402
     KeyRotationError,
@@ -49,7 +49,7 @@ def _sqlite_path(database_url: str) -> Path | None:
 def _backup_portal_db(db_path: Path) -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     dest = db_path.with_name(f"{db_path.name}.bak-pre-rotation-{stamp}")
-    shutil.copy2(db_path, dest)
+    copy_sqlite_file(db_path, dest)
     os.chmod(dest, 0o640)
     return dest
 

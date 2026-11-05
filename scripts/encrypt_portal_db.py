@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +24,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from app.db_cipher import (  # noqa: E402
+    copy_sqlite_file,
     DbEncryptionError,
     apply_pragma_key,
     normalize_db_encryption_key,
@@ -92,7 +92,7 @@ def encrypt_database(db_path: Path, key_hex: str) -> int:
         encrypted.unlink()
 
     logger.info("backing up plaintext to %s", backup)
-    shutil.copy2(db_path, backup)
+    copy_sqlite_file(db_path, backup)
     try:
         os.chmod(backup, 0o600)
     except OSError:
