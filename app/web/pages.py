@@ -3861,18 +3861,22 @@ def admin_security_banning_add(
     from app.security.banning.service import apply_manual_ban
 
     permanent = ban_mode == "permanent"
-    ban = apply_manual_ban(
-        db,
-        target_type=target_type,
-        target=target,
-        reason=reason,
-        permanent=permanent,
-        ban_minutes=ban_minutes,
-        confirm_permanent=confirm_permanent == "on",
-        actor=user.email or user.username or "admin",
-        ip_address=_client_ip(request),
-    )
     response = RedirectResponse(url=_PATH_BANNING, status_code=302)
+    try:
+        ban = apply_manual_ban(
+            db,
+            target_type=target_type,
+            target=target,
+            reason=reason,
+            permanent=permanent,
+            ban_minutes=ban_minutes,
+            confirm_permanent=confirm_permanent == "on",
+            actor=user.email or user.username or "admin",
+            ip_address=_client_ip(request),
+        )
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", portal_signing_secret(settings))
+        return response
     if ban is None and permanent and confirm_permanent != "on":
         flash_redirect(
             response,

@@ -31,7 +31,7 @@ def test_validate_exclusion_rejects_missing_reason_and_rule():
     with pytest.raises(ValueError, match="raison"):
         _validate_exclusion_fields(
             reason="  ",
-            crs_rule_id=1,
+            crs_rule_id=942100,
             uri_pattern="/x",
             host=None,
             scope_kind=None,
@@ -56,7 +56,7 @@ def test_validate_exclusion_global_and_args_require_target():
     with pytest.raises(ValueError, match="host ou URI"):
         _validate_exclusion_fields(
             reason="ok",
-            crs_rule_id=1,
+            crs_rule_id=942100,
             uri_pattern=None,
             host=None,
             scope_kind=SCOPE_RULE,
@@ -66,7 +66,7 @@ def test_validate_exclusion_global_and_args_require_target():
         )
     ok = _validate_exclusion_fields(
         reason="ok",
-        crs_rule_id=1,
+        crs_rule_id=942100,
         uri_pattern=None,
         host=None,
         scope_kind=SCOPE_RULE,
@@ -78,7 +78,7 @@ def test_validate_exclusion_global_and_args_require_target():
     with pytest.raises(ValueError, match="nom de variable"):
         _validate_exclusion_fields(
             reason="ok",
-            crs_rule_id=1,
+            crs_rule_id=942100,
             uri_pattern="/x",
             host=None,
             scope_kind=SCOPE_ARGS,
@@ -92,7 +92,7 @@ def test_validate_exclusion_invalid_kind_and_match():
     with pytest.raises(ValueError, match="scope_kind"):
         _validate_exclusion_fields(
             reason="ok",
-            crs_rule_id=1,
+            crs_rule_id=942100,
             uri_pattern="/x",
             host=None,
             scope_kind="nope",
@@ -103,7 +103,7 @@ def test_validate_exclusion_invalid_kind_and_match():
     with pytest.raises(ValueError, match="uri_match"):
         _validate_exclusion_fields(
             reason="ok",
-            crs_rule_id=1,
+            crs_rule_id=942100,
             uri_pattern="/x",
             host=None,
             scope_kind=SCOPE_RULE,

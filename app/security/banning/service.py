@@ -7,6 +7,7 @@ from datetime import timedelta
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
+from app.ip_cidrs import canonical_ip_or_network, waf_acl_entry_problem
 from app.models import (
     SecurityAllowlistEntry,
     SecurityBan,
@@ -175,10 +176,19 @@ def apply_manual_ban(
 ) -> SecurityBan | None:
     if target_type not in (TARGET_IP, TARGET_USERNAME):
         raise ValueError("target_type must be ip or username")
+    target_s = (target or "").strip()
+    if target_type == TARGET_IP:
+        # IP bans are promoted to nginx ``deny`` at http{} level: refuse values
+        # that are not addresses (``all`` → deny all) or that would cut the
+        # infrastructure hops (loopback / Docker) or most of the Internet.
+        problem = waf_acl_entry_problem(target_s, deny=True)
+        if problem:
+            raise ValueError(f"IP refusée : {problem}")
+        target_s = canonical_ip_or_network(target_s) or target_s
     return apply_ban(
         db,
         target_type=target_type,
-        target=target.strip(),
+        target=target_s,
         reason=reason.strip() or "Manual ban",
         rule_type="manual",
         permanent=permanent,
@@ -238,6 +248,13 @@ def add_allowlist_entry(
         raw = _normalize_username(raw)
     if not raw:
         raise ValueError("value required")
+    if entry_type == TARGET_IP:
+        # Exported as nginx ``allow`` BEFORE every deny: ``all`` / 0.0.0.0/0
+        # would silently bypass all bans.
+        problem = waf_acl_entry_problem(raw, deny=False)
+        if problem:
+            raise ValueError(f"IP refusée : {problem}")
+        raw = canonical_ip_or_network(raw) or raw
     existing = (
         db.query(SecurityAllowlistEntry)
         .filter_by(entry_type=entry_type, value=raw)

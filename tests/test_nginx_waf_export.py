@@ -272,7 +272,7 @@ def test_render_crs_setup_paranoia_overlay():
 
     excl = WafExclusion(
         id=42,
-        crs_rule_id=1,
+        crs_rule_id=942100,
         reason="r",
         uri_pattern="/x",
         active=True,
@@ -280,8 +280,8 @@ def test_render_crs_setup_paranoia_overlay():
         uri_match="exact",
     )
     out = render_exclusions_generated([excl])
-    assert "SecRuleRemoveById 1" not in out
-    assert "ctl:ruleRemoveById=1" in out
+    assert "SecRuleRemoveById 942100" not in out
+    assert "ctl:ruleRemoveById=942100" in out
     assert "REQUEST_URI" in out
 
 
@@ -324,7 +324,7 @@ def test_render_exclusions_global_rule_remove():
 def test_render_exclusions_uri_prefix_and_regex():
     prefix = WafExclusion(
         id=2,
-        crs_rule_id=100,
+        crs_rule_id=942110,
         reason="p",
         uri_pattern="/api/",
         active=True,
@@ -333,7 +333,7 @@ def test_render_exclusions_uri_prefix_and_regex():
     )
     regex = WafExclusion(
         id=3,
-        crs_rule_id=101,
+        crs_rule_id=941110,
         reason="r",
         uri_pattern=r"^/blog/[0-9]+$",
         active=True,
@@ -344,9 +344,9 @@ def test_render_exclusions_uri_prefix_and_regex():
     out_p = render_exclusions_generated([prefix])
     out_r = render_exclusions_generated([regex])
     assert '@beginsWith /api/' in out_p
-    assert "ctl:ruleRemoveById=100" in out_p
+    assert "ctl:ruleRemoveById=942110" in out_p
     assert '@rx ^/blog/[0-9]+$' in out_r
-    assert "ctl:ruleRemoveTargetById=101;REQUEST_COOKIES:session" in out_r
+    assert "ctl:ruleRemoveTargetById=941110;REQUEST_COOKIES:session" in out_r
 
 
 def test_render_exclusions_decodes_percent_uri():
