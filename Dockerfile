@@ -80,6 +80,8 @@ COPY migrations /app/migrations
 COPY scripts /app/scripts
 COPY pyproject.toml package.json package-lock.json /app/
 
-USER root  # NOSONAR — migrate one-shot needs root for volume chown (runtime stays nonroot)
+# NOSONAR — migrate one-shot needs root for volume chown (runtime stays nonroot).
+# Comment kept on its own line: Docker has no inline comments.
+USER root
 # Default command overridden by compose (encrypt DB, alembic, chown).
 CMD ["alembic", "upgrade", "head"]
