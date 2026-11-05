@@ -272,7 +272,28 @@ limit_req_zone $binary_remote_addr zone=portal_login:10m rate=2r/s;
 limit_req_zone $binary_remote_addr zone=portal_api:10m rate=50r/s;
 limit_req_zone $binary_remote_addr zone=portal_standard:10m rate=20r/s;
 limit_req_zone $binary_remote_addr zone=portal_unknown_host:10m rate=5r/s;
+limit_req_zone $binary_remote_addr zone=activesync_auth:10m rate=20r/s;
 EOF
+}
+# Every zone a vhost may reference, with its default rate. exports/ can be older
+# than this image (rendered by a previous app version before the next WAF apply):
+# a zone missing there while a vhost uses it crash-loops nginx with
+# "zero size shared memory zone". Keep in sync with nginx_waf_export.py.
+RATE_LIMITS_CONF="${RATE_LIMITS_CONF:-/etc/nginx/includes/nginx-portal-rate-limits.conf}"
+_ensure_rate_zone() {
+  local zone="$1" rate="$2"
+  if ! grep -qE "zone=${zone}:[1-9][0-9]*[mMkK]" "$RATE_LIMITS_CONF"; then
+    echo "WARN: nginx-portal-rate-limits.conf lacks ${zone} zone — appending default (${rate})" >&2
+    printf 'limit_req_zone $binary_remote_addr zone=%s:10m rate=%s;\n' "$zone" "$rate" \
+      >> "$RATE_LIMITS_CONF"
+  fi
+}
+_ensure_required_rate_zones() {
+  _ensure_rate_zone portal_login 2r/s
+  _ensure_rate_zone portal_api 50r/s
+  _ensure_rate_zone portal_standard 20r/s
+  _ensure_rate_zone portal_unknown_host 5r/s
+  _ensure_rate_zone activesync_auth 20r/s
 }
 if [[ -f "$EXPORTS/nginx-portal-rate-limits.conf" ]] \
   && grep -qE 'zone=portal_standard:[1-9][0-9]*[mMkK]' \
@@ -291,6 +312,7 @@ if ! grep -qE 'zone=portal_standard:[1-9][0-9]*[mMkK]' \
   echo "ERROR: nginx-portal-rate-limits.conf lacks portal_standard zone — rewriting defaults" >&2
   _write_default_rate_limits
 fi
+_ensure_required_rate_zones
 
 # Dynamic burst snippets (included from vhost locations).
 _sync_limit_req_burst() {
