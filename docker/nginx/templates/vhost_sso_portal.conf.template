@@ -288,7 +288,6 @@ server {
         proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         proxy_set_header X-Portal-Realm-Slug $portal_x_realm_slug;
-        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
@@ -429,7 +428,6 @@ server {
         proxy_set_header X-Groups $auth_groups;
         proxy_set_header X-Preferred-Username $auth_preferred;
         proxy_set_header X-Portal-Realm-Slug $portal_x_realm_slug;
-        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
@@ -457,7 +455,6 @@ server {
         proxy_set_header X-Groups $auth_groups;
         proxy_set_header X-Preferred-Username $auth_preferred;
         proxy_set_header X-Portal-Realm-Slug $portal_x_realm_slug;
-        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
@@ -486,7 +483,6 @@ server {
         proxy_set_header X-Groups $auth_groups;
         proxy_set_header X-Preferred-Username $auth_preferred;
         proxy_set_header X-Portal-Realm-Slug $portal_x_realm_slug;
-        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
@@ -515,7 +511,6 @@ server {
         proxy_set_header X-Groups $auth_groups;
         proxy_set_header X-Preferred-Username $auth_preferred;
         proxy_set_header X-Portal-Realm-Slug $portal_x_realm_slug;
-        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
@@ -563,7 +558,6 @@ server {
         proxy_set_header X-Groups $auth_groups;
         proxy_set_header X-Preferred-Username $auth_preferred;
         proxy_set_header X-Portal-Realm-Slug $portal_x_realm_slug;
-        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
@@ -591,7 +585,6 @@ server {
         proxy_set_header X-Groups $auth_groups;
         proxy_set_header X-Preferred-Username $auth_preferred;
         proxy_set_header X-Portal-Realm-Slug $portal_x_realm_slug;
-        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 }

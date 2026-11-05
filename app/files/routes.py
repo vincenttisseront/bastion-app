@@ -51,12 +51,18 @@ def _client_ip(request: Request) -> str:
     return client_ip_from_request(request)
 
 
-def _portal_admin(user: UserContext, db: Session, settings: Settings) -> bool:
-    if user.is_admin or user.is_breakglass:
+def _portal_admin(
+    request: Request, user: UserContext, db: Session, settings: Settings
+) -> bool:
+    """Portal admin for the file browser — requires the admin MFA gate."""
+    if user.is_breakglass:
         return True
-    from app.web.portal import _resolve_portal_admin
+    from app.auth.mfa_gate import admin_mfa_satisfied
+    from app.web.user_context import is_portal_admin
 
-    return bool(_resolve_portal_admin(user, db, settings))
+    if not is_portal_admin(user, db, settings):
+        return False
+    return admin_mfa_satisfied(request, user, db, settings)
 
 
 def _actor(user: UserContext) -> str:
@@ -86,16 +92,16 @@ async def files_browser_page(
     # Break-glass admins must reach the browser (sidebar → /files|/admin/files).
     # Portal /apps still redirects break-glass to /dashboard; files does not.
 
-    from app.web.portal import _portal_page_ctx, _resolve_portal_admin, touch_portal_session
+    from app.web.portal import _portal_page_ctx, touch_portal_session
 
     touch_portal_session(db, user, _client_ip(request), request=request)
-    portal_admin = _resolve_portal_admin(user, db, settings) or user.is_breakglass
+    portal_admin = _portal_admin(request, user, db, settings)
     listing = list_folder_contents(
         db,
         folder_id=folder_id,
         keycloak_user_id=user.keycloak_user_id,
         group_names=user.groups,
-        is_portal_admin=bool(portal_admin or user.is_admin or user.is_breakglass),
+        is_portal_admin=bool(portal_admin),
     )
     return render(
         "files/browser.html",
@@ -114,13 +120,14 @@ async def files_browser_page(
 
 @router.get("/api/files")
 async def api_list_folder(
+    request: Request,
     folder_id: int | None = Query(None),
     q: str | None = Query(None),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user: UserContext = Depends(require_user_enriched),
 ):
-    is_admin = _portal_admin(user, db, settings)
+    is_admin = _portal_admin(request, user, db, settings)
     return JSONResponse(
         {
             "ok": True,
@@ -159,7 +166,7 @@ async def files_create_folder(
     settings: Settings = Depends(get_settings),
     user: UserContext = Depends(require_user_enriched),
 ):
-    is_admin = _portal_admin(user, db, settings)
+    is_admin = _portal_admin(request, user, db, settings)
     access = get_effective_access_on_folder(
         db,
         folder_id=parent_folder_id,
@@ -206,7 +213,7 @@ async def files_upload(
     settings: Settings = Depends(get_settings),
     user: UserContext = Depends(require_user_enriched),
 ):
-    is_admin = _portal_admin(user, db, settings)
+    is_admin = _portal_admin(request, user, db, settings)
     data = await upload.read()
     try:
         fr, version, created_new = deposit_file(
@@ -280,12 +287,13 @@ async def files_upload(
 
 @router.get("/files/versions/{file_id}", responses=RESP_403 | RESP_404)
 async def files_versions(
+    request: Request,
     file_id: int,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user: UserContext = Depends(require_user_enriched),
 ):
-    is_admin = _portal_admin(user, db, settings)
+    is_admin = _portal_admin(request, user, db, settings)
     fr = db.query(FileResource).filter_by(id=file_id).first()
     if not fr or not fr.is_active:
         raise HTTPException(status_code=404, detail=_MSG_FILE_NOT_FOUND)
@@ -331,7 +339,7 @@ async def files_version_channel(
     settings: Settings = Depends(get_settings),
     user: UserContext = Depends(require_user_enriched),
 ):
-    is_admin = _portal_admin(user, db, settings)
+    is_admin = _portal_admin(request, user, db, settings)
     version = db.query(FileVersion).filter_by(id=version_id).first()
     if not version:
         raise HTTPException(status_code=404, detail=_MSG_VERSION_NOT_FOUND)
@@ -377,7 +385,7 @@ async def files_version_patch(
     settings: Settings = Depends(get_settings),
     user: UserContext = Depends(require_user_enriched),
 ):
-    is_admin = _portal_admin(user, db, settings)
+    is_admin = _portal_admin(request, user, db, settings)
     version = db.query(FileVersion).filter_by(id=version_id).first()
     if not version:
         raise HTTPException(status_code=404, detail=_MSG_VERSION_NOT_FOUND)
@@ -431,7 +439,7 @@ async def files_download_version(
     settings: Settings = Depends(get_settings),
     user: UserContext = Depends(require_user_enriched),
 ):
-    is_admin = _portal_admin(user, db, settings)
+    is_admin = _portal_admin(request, user, db, settings)
     version = db.query(FileVersion).filter_by(id=version_id).first()
     if not version or version.status != "active":
         return JSONResponse({"ok": False, "detail": _MSG_VERSION_NOT_FOUND}, status_code=404)
@@ -492,7 +500,7 @@ async def files_download_by_slug(
         user_can_download_file,
     )
 
-    is_admin = _portal_admin(user, db, settings)
+    is_admin = _portal_admin(request, user, db, settings)
     fr = db.query(FileResource).filter_by(slug=slug, is_active=True).first()
     if not fr:
         return JSONResponse({"ok": False, "detail": _MSG_FILE_NOT_FOUND}, status_code=404)
@@ -529,7 +537,7 @@ async def files_rename(
     settings: Settings = Depends(get_settings),
     user: UserContext = Depends(require_user_enriched),
 ):
-    is_admin = _portal_admin(user, db, settings)
+    is_admin = _portal_admin(request, user, db, settings)
     fr = db.query(FileResource).filter_by(id=file_id).first()
     if not fr:
         raise HTTPException(status_code=404, detail=_MSG_FILE_NOT_FOUND)
@@ -567,7 +575,7 @@ async def files_archive(
     settings: Settings = Depends(get_settings),
     user: UserContext = Depends(require_user_enriched),
 ):
-    is_admin = _portal_admin(user, db, settings)
+    is_admin = _portal_admin(request, user, db, settings)
     fr = db.query(FileResource).filter_by(id=file_id).first()
     if not fr:
         raise HTTPException(status_code=404, detail=_MSG_FILE_NOT_FOUND)

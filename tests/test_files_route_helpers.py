@@ -33,12 +33,24 @@ def test_actor_prefers_email_then_username():
 
 
 def test_portal_admin_short_circuits(monkeypatch):
-    assert files_routes._portal_admin(_user(is_admin=True), MagicMock(), MagicMock()) is True
+    request = MagicMock()
     assert (
         files_routes._portal_admin(
-            _user(auth_source="breakglass"), MagicMock(), MagicMock()
+            request, _user(auth_source="breakglass"), MagicMock(), MagicMock()
         )
         is True
+    )
+
+    # Admins go through the MFA gate (S3).
+    monkeypatch.setattr("app.auth.mfa_gate.admin_mfa_satisfied", lambda *_a: True)
+    assert (
+        files_routes._portal_admin(request, _user(is_admin=True), MagicMock(), MagicMock())
+        is True
+    )
+    monkeypatch.setattr("app.auth.mfa_gate.admin_mfa_satisfied", lambda *_a: False)
+    assert (
+        files_routes._portal_admin(request, _user(is_admin=True), MagicMock(), MagicMock())
+        is False
     )
 
     called = {"n": 0}
@@ -47,6 +59,6 @@ def test_portal_admin_short_circuits(monkeypatch):
         called["n"] += 1
         return False
 
-    monkeypatch.setattr("app.web.portal._resolve_portal_admin", resolve)
-    assert files_routes._portal_admin(_user(), MagicMock(), MagicMock()) is False
+    monkeypatch.setattr("app.web.user_context.is_portal_admin", resolve)
+    assert files_routes._portal_admin(request, _user(), MagicMock(), MagicMock()) is False
     assert called["n"] == 1

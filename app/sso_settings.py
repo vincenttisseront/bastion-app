@@ -421,7 +421,7 @@ class Settings(BaseSettings):
     )
 
     portal_admin_groups: Annotated[list[str], NoDecode] = Field(
-        default=["portal-admins", "bastion-admins", "admins"]
+        default=["portal-admins", "bastion-admins"]
     )
 
     health_probe_interval_minutes: int = Field(
@@ -462,7 +462,7 @@ class Settings(BaseSettings):
     def parse_portal_admin_groups(cls, value: Any) -> list[str]:
         return _parse_csv_or_json_list(
             value,
-            default=["portal-admins", "bastion-admins", "admins"],
+            default=["portal-admins", "bastion-admins"],
         )
 
     @field_validator("rfc1918_cidrs", mode="before")

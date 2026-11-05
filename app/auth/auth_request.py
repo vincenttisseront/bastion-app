@@ -209,7 +209,9 @@ async def _oauth2_proxy_auth_response(
     if not default_realm:
         return None
 
-    realm_slug = request.headers.get("X-Realm-Slug", default_realm.slug)
+    # Never take the realm from a client header (X-Realm-Slug is not set nor
+    # stripped by nginx): it would be echoed as X-Auth-Request-Realm.
+    realm_slug = default_realm.slug
     proxy_url = get_realm_proxy_url(realm_slug, settings, db)
     cookie_header = request.headers.get("Cookie", "")
     # Portal auth_request is hot — release pool slot before outbound HTTP.

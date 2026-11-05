@@ -42,7 +42,6 @@ from app.web.session_cookie_seal import (
 )
 from app.web.user_context import (
     UserContext,
-    elevate_portal_admin,
     require_admin,
     require_user,
 )
@@ -1902,7 +1901,9 @@ def list_sessions(
     settings: Settings = Depends(get_settings),
     kind: str | None = Query(None),
 ):
-    user = elevate_portal_admin(user, db, settings)
+    from app.auth.mfa_gate import elevate_portal_admin_mfa
+
+    user = elevate_portal_admin_mfa(request, user, db, settings)
     from app.i18n.middleware import get_request_locale
 
     locale = get_request_locale(request)
@@ -1926,7 +1927,9 @@ async def live_verify_sessions(
     """
     from app.web.session_verify import live_verify_user_sessions
 
-    user = elevate_portal_admin(user, db, settings)
+    from app.auth.mfa_gate import elevate_portal_admin_mfa
+
+    user = elevate_portal_admin_mfa(request, user, db, settings)
 
     body: dict[str, Any] = {}
     try:

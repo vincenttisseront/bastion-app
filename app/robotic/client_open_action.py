@@ -128,13 +128,23 @@ def _check_app_rbac(
     db: Session,
     slug: str,
     user: UserContext,
+    *,
+    request: Request,
+    settings: Settings,
 ) -> JSONResponse | None:
-    """Authorize robotic open / header endpoints via AccessGrant launch+."""
+    """Authorize robotic open / header endpoints via AccessGrant launch+.
+
+    The admin bypass requires the admin MFA gate (same as ``/admin``); an admin
+    whose challenge is pending falls back to the regular AccessGrant check.
+    """
     app = get_app_by_slug(db, slug)
     if app is None:
         return JSONResponse({"detail": f"App '{slug}' not found"}, status_code=404)
     if user.is_admin:
-        return None
+        from app.auth.mfa_gate import admin_mfa_satisfied
+
+        if admin_mfa_satisfied(request, user, db, settings):
+            return None
     if not user_can_launch_application(
         db,
         application_id=app.id,
@@ -408,7 +418,7 @@ async def client_impersonate(
     settings: Settings = Depends(get_settings),
     user: UserContext = Depends(require_user_enriched),
 ):
-    denied = _check_app_rbac(db, slug, user)
+    denied = _check_app_rbac(db, slug, user, request=request, settings=settings)
     if denied is not None:
         return denied
 
@@ -461,7 +471,7 @@ async def open_with_identity(
     wants_json = _wants_json(request)
 
     denied_resp = _open_identity_rbac_denied(
-        db, slug, user, settings=settings, wants_json=wants_json
+        db, slug, user, request=request, settings=settings, wants_json=wants_json
     )
     if denied_resp is not None:
         return denied_resp
@@ -575,10 +585,11 @@ def _open_identity_rbac_denied(
     slug: str,
     user: UserContext,
     *,
+    request: Request,
     settings: Settings,
     wants_json: bool,
 ):
-    denied = _check_app_rbac(db, slug, user)
+    denied = _check_app_rbac(db, slug, user, request=request, settings=settings)
     if denied is None:
         return None
     if wants_json:
@@ -649,7 +660,7 @@ async def basic_auth_header(
     if wait := throttle_retry_after_key(throttle_key, min_interval_seconds=5):
         return Response(status_code=429, headers={"Retry-After": str(int(wait) + 1)})
 
-    denied = _check_app_rbac(db, slug, user)
+    denied = _check_app_rbac(db, slug, user, request=request, settings=settings)
     if denied is not None:
         return Response(status_code=denied.status_code)
 
@@ -696,7 +707,7 @@ async def wsse_header(
         # Refuse rather than serve a cached/reused UsernameToken (replay risk).
         return Response(status_code=429, headers={"Retry-After": str(int(wait) + 1)})
 
-    denied = _check_app_rbac(db, slug, user)
+    denied = _check_app_rbac(db, slug, user, request=request, settings=settings)
     if denied is not None:
         return Response(status_code=denied.status_code)
 

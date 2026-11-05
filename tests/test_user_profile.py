@@ -24,12 +24,17 @@ ADMIN_HEADERS = {
     "X-Groups": "portal-admins",
 }
 
-BREAKGLASS_HEADERS = {
-    "X-Email": "admin@breakglass.local",
-    "X-Preferred-Username": "admin",
-    "X-Portal-Auth-Source": "breakglass",
-    "X-Groups": "portal-admins",
-}
+# Break-glass is only ever derived from a validated bg_session cookie (S1):
+# identity headers carrying @breakglass.local are rejected.
+BREAKGLASS_JWT_SECRET = "test-bg-jwt-secret"  # conftest ``client`` settings
+
+
+def _breakglass_cookie(client: TestClient, db: Session) -> None:
+    from app.auth.breakglass import COOKIE_NAME, issue_breakglass_token
+
+    token, _jti = issue_breakglass_token(db, "admin", BREAKGLASS_JWT_SECRET)
+    db.commit()
+    client.cookies.set(COOKIE_NAME, token)
 
 
 def _app(db: Session, *, slug: str, label: str) -> App:
@@ -103,7 +108,8 @@ def test_user_profile_security_hidden_for_breakglass(
     client: TestClient, db_session: Session
 ):
     _default_realm(db_session)
-    resp = client.get("/profile", headers=BREAKGLASS_HEADERS)
+    _breakglass_cookie(client, db_session)
+    resp = client.get("/profile")
     assert resp.status_code == 200
     assert "Compte de secours local" in resp.text
     assert "Gérer la sécurité du compte" not in resp.text

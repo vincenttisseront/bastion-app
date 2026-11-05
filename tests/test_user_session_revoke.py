@@ -17,7 +17,8 @@ ADMIN_HEADERS = {
     "X-Email": "admin@example.com",
     "X-Preferred-Username": "admin",
     "X-Groups": "portal-admins",
-    "X-Portal-Realm-Slug": "example-corp",
+    # Admin groups only count in the portal default realm (S5).
+    "X-Portal-Realm-Slug": "default",
 }
 
 
