@@ -560,6 +560,8 @@ def _create_device(
             )
         return device
 
+    # S2: a forged Basic header + fresh DeviceId must not grow the table.
+    _assert_pending_capacity(db, app=app, client_ip=client_ip)
     now = _utcnow()
     device = ActiveSyncDevice(
         application_id=app.id,
@@ -957,25 +959,133 @@ def disable_device_control(db: Session, app: App, *, actor: str) -> None:
     )
 
 
+# --- S2: anti-abuse for the anonymous ActiveSync path -------------------------
+# The Basic password is only checked by the upstream: anything reaching the
+# inventory may be forged. Notifications go to known accounts only, through a
+# quota and the mail outbox; new pending rows are capped per (app, IP).
+
+NOTIFY_MAX_PER_ADDRESS_PER_HOUR = 3
+NOTIFY_MAX_PER_IP_PER_HOUR = 10
+PENDING_MAX_PER_IP_PER_DAY = 10
+PENDING_MAX_PER_APP = 1000
+
+_NOTIFY_WINDOW_S = 3600.0
+_notify_lock = threading.Lock()
+_notify_events: dict[str, list[float]] = {}
+
+
+class PendingDeviceCapExceeded(Exception):
+    """Too many pending devices for this (app, source IP) — refuse new rows."""
+
+
+def reset_notify_quota_for_tests() -> None:
+    with _notify_lock:
+        _notify_events.clear()
+
+
+def _quota_take(key: str, limit: int, now: float) -> bool:
+    events = [t for t in _notify_events.get(key, []) if now - t < _NOTIFY_WINDOW_S]
+    if len(events) >= limit:
+        _notify_events[key] = events
+        return False
+    events.append(now)
+    _notify_events[key] = events
+    return True
+
+
+def notify_quota_take(*, address: str, ip: str | None) -> bool:
+    """Sliding 1 h window per recipient and per source IP (single worker)."""
+    now = time.monotonic()
+    with _notify_lock:
+        if ip and not _quota_take(f"ip:{ip}", NOTIFY_MAX_PER_IP_PER_HOUR, now):
+            return False
+        return _quota_take(
+            f"to:{address.lower()}", NOTIFY_MAX_PER_ADDRESS_PER_HOUR, now
+        )
+
+
+def account_exists_for_email(db: Session, app: App, address: str) -> bool:
+    """True when ``address`` is a portal-known identity (never a forged one).
+
+    Known = a bastion account with that e-mail, a portal SSO session seen for
+    it, or an already approved device under that key for this app.
+    """
+    from sqlalchemy import func
+
+    from app.models import ActiveSession, BastionAccount
+
+    email = (address or "").strip().lower()
+    if "@" not in email:
+        return False
+    if (
+        db.query(BastionAccount.id)
+        .filter(func.lower(BastionAccount.email) == email)
+        .first()
+        is not None
+    ):
+        return True
+    if (
+        db.query(ActiveSession.id)
+        .filter(func.lower(ActiveSession.user_email) == email)
+        .first()
+        is not None
+    ):
+        return True
+    return (
+        db.query(ActiveSyncDevice.id)
+        .filter(
+            ActiveSyncDevice.application_id == app.id,
+            func.lower(ActiveSyncDevice.user_key) == email,
+            ActiveSyncDevice.status == ACTIVESYNC_DEVICE_APPROVED,
+        )
+        .first()
+        is not None
+    )
+
+
+def _assert_pending_capacity(db: Session, *, app: App, client_ip: str | None) -> None:
+    from datetime import timedelta
+
+    pending = db.query(ActiveSyncDevice.id).filter(
+        ActiveSyncDevice.application_id == app.id,
+        ActiveSyncDevice.status == ACTIVESYNC_DEVICE_PENDING,
+    )
+    if pending.count() >= PENDING_MAX_PER_APP:
+        raise PendingDeviceCapExceeded("app")
+    if client_ip:
+        since = _utcnow() - timedelta(days=1)
+        per_ip = pending.filter(
+            ActiveSyncDevice.last_ip == client_ip,
+            ActiveSyncDevice.first_seen_at >= since,
+        ).count()
+        if per_ip >= PENDING_MAX_PER_IP_PER_DAY:
+            raise PendingDeviceCapExceeded("ip")
+
+
 def maybe_notify_owner_new_pending(
     db: Session, *, device: ActiveSyncDevice, app: App, settings=None
 ) -> None:
-    """Best-effort email on first pending when the gate is already armed."""
+    """Best-effort email on first pending when the gate is already armed.
+
+    S2: known accounts only, rate-limited, queued (never SMTP inline).
+    """
     if not getattr(app, "activesync_device_control", False):
         return
     to_addr = (device.user_key or "").strip()
     if "@" not in to_addr:
         return
     try:
-        from app.mail.smtp_service import send_email, smtp_configured
-        from app.portal_settings_service import ensure_portal_settings
+        from app.mail.outbox import enqueue_mail
         from app.sso_settings import get_settings
 
+        if not account_exists_for_email(db, app, to_addr):
+            logger.info("activesync pending notify skipped: unknown account")
+            return
+        if not notify_quota_take(address=to_addr, ip=device.last_ip):
+            logger.warning("activesync pending notify skipped: quota")
+            return
         if settings is None:
             settings = get_settings()
-        row = ensure_portal_settings(db, settings)
-        if not smtp_configured(row):
-            return
         domain = (getattr(settings, "portal_domain", None) or "").strip()
         profile = (
             f"https://{domain}/profile#section-devices"
@@ -990,13 +1100,7 @@ def maybe_notify_owner_new_pending(
             "Aucun lien d'approbation directe n'est inclus dans ce message "
             "(une session SSO est obligatoire).\n"
         )
-        send_email(
-            row,
-            settings,
-            to_email=to_addr,
-            subject=subject,
-            body_text=body_text,
-        )
+        enqueue_mail(to_email=to_addr, subject=subject, body_text=body_text)
     except Exception:
         logger.exception(
             "activesync pending notify failed device_id=%s", device.device_id

@@ -60,6 +60,12 @@ _NGX_PROXY_X_FORWARDED_PROTO = "        proxy_set_header X-Forwarded-Proto $bast
 _NGX_PROXY_X_REAL_IP = "        proxy_set_header X-Real-IP $remote_addr;"
 _NGX_PROXY_X_FORWARDED_FOR = "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"
 _NGX_PROXY_COOKIE = "        proxy_set_header Cookie $http_cookie;"
+# S4: application upstreams never receive portal session tokens (see
+# nginx-subdomain-auth.map.conf). Only /.bastion/* → portal keeps $http_cookie.
+_NGX_PROXY_APP_COOKIE = "        proxy_set_header Cookie $bastion_upstream_app_cookie;"
+# S2: the EAS path is reachable with any forged Basic header — throttle per IP
+# (zone in nginx-portal-rate-limits.conf / WAF export).
+_NGX_LIMIT_REQ_ACTIVESYNC = "        limit_req zone=activesync_auth burst=100 nodelay;"
 _NGX_AUTH_SET_USER = "        auth_request_set $auth_user $upstream_http_x_auth_user;"
 _NGX_AUTH_SET_APP = "        auth_request_set $auth_app $upstream_http_x_auth_app;"
 _NGX_AUTH_SET_SOURCE = "        auth_request_set $auth_source $upstream_http_x_auth_source;"
@@ -158,6 +164,7 @@ def _activesync_locations(
         "        # WBXML Sync/Ping — CRS false positives; subdomain WAF stays on elsewhere.",
         _NGX_MODSECURITY_OFF,
         *_AUTH_COOKIE_CAPTURE_LINES,
+        _NGX_LIMIT_REQ_ACTIVESYNC,
         "        auth_request /internal/activesync-auth;",
         *_AUTH_REQUEST_DIAG_LINES,
         f"        error_page 401 = @activesync_unauthorized_{slug};",
@@ -178,6 +185,7 @@ def _activesync_locations(
         _NGX_PROXY_X_FORWARDED_PROTO,
         "        # Upstream (grommunio) validates Basic; auth_request only gates access.",
         _NGX_PROXY_AUTHORIZATION,
+        _NGX_PROXY_APP_COOKIE,
         _NGX_PROXY_PASS_REQUEST_HEADERS,
         "",
         _NGX_AUTH_SET_USER,
@@ -191,6 +199,7 @@ def _activesync_locations(
         "    location ~* ^/(AutoDiscover|autodiscover)/ {",
         _NGX_MODSECURITY_OFF,
         *_AUTH_COOKIE_CAPTURE_LINES,
+        _NGX_LIMIT_REQ_ACTIVESYNC,
         "        auth_request /internal/activesync-auth;",
         *_AUTH_REQUEST_DIAG_LINES,
         f"        error_page 401 = @activesync_unauthorized_{slug};",
@@ -209,6 +218,7 @@ def _activesync_locations(
         _NGX_PROXY_X_FORWARDED_FOR,
         _NGX_PROXY_X_FORWARDED_PROTO,
         _NGX_PROXY_AUTHORIZATION,
+        _NGX_PROXY_APP_COOKIE,
         "",
         _NGX_AUTH_SET_USER,
         _NGX_AUTH_SET_APP,
@@ -423,7 +433,7 @@ def _upstream_cookie_forward_lines(
     """Return (cookie_lines, forwarded_ip_lines, redirect_lines)."""
     if not crushftp:
         return (
-            [_NGX_PROXY_COOKIE],
+            [_NGX_PROXY_APP_COOKIE],
             [_NGX_PROXY_X_REAL_IP, _NGX_PROXY_X_FORWARDED_FOR],
             [_NGX_PROXY_REDIRECT_OFF],
         )

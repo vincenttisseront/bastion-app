@@ -78,7 +78,7 @@ def stash_challenge(
     purpose: str,
     challenge: bytes,
 ) -> None:
-    secret = portal_signing_secret(settings)
+    secret = portal_signing_secret(settings, purpose="webauthn-challenge")
     exp = int(time.time()) + CHALLENGE_TTL_SEC
     chal_b64 = bytes_to_base64url(challenge)
     sig = _sign_challenge(secret, user_email, purpose, chal_b64, exp)
@@ -116,7 +116,7 @@ def pop_challenge(
         return None
     if time.time() > exp:
         return None
-    secret = portal_signing_secret(settings)
+    secret = portal_signing_secret(settings, purpose="webauthn-challenge")
     expected = _sign_challenge(secret, email, purp, chal_b64, exp)
     if not hmac.compare_digest(sig, expected):
         return None

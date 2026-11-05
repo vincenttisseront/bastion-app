@@ -68,6 +68,13 @@ class Settings(BaseSettings):
             "vault_portal_internal_token",
         ),
     )
+    # S7: HMAC base for CSRF / flash / MFA cookies — must differ from
+    # VAULT_PORTAL_INTERNAL_TOKEN. Empty → generated once into portal_settings.
+    portal_signing_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("PORTAL_SIGNING_SECRET", "portal_signing_secret"),
+    )
+
     # ALTCHA PoW captcha HMAC (empty → derived from vault_portal_internal_token).
     altcha_hmac_key: str = Field(
         default="",
@@ -511,6 +518,17 @@ class Settings(BaseSettings):
         current = (self.oidc_session_jwt_secret or "").strip()
         if current and current in forbidden:
             object.__setattr__(self, "oidc_session_jwt_secret", "")
+        return self
+
+    @model_validator(mode="after")
+    def reject_shared_signing_secret(self) -> "Settings":
+        """S7: one leaked secret must not both authenticate nginx and sign cookies."""
+        signing = (self.portal_signing_secret or "").strip()
+        token = (self.vault_portal_internal_token or "").strip()
+        if signing and token and signing == token:
+            raise ValueError(
+                "PORTAL_SIGNING_SECRET must differ from VAULT_PORTAL_INTERNAL_TOKEN"
+            )
         return self
 
     @model_validator(mode="after")
