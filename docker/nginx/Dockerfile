@@ -67,10 +67,10 @@ EXPOSE 80 443 8080
 ENTRYPOINT ["/docker-entrypoint-portal.sh"]
 CMD ["nginx", "-g", "daemon off;"]
 
-# Stay root for entrypoint: ACME PEMs on the host volume are often root:600
-# (acme.sh). Entrypoint mirrors them into ssl-local then drops to nginx via
-# su-exec (see docker-entrypoint.sh). Compose also sets user: "0:0".
-# NOSONAR docker:S6471 — intentional; runtime drops to uid 101 via su-exec.
+# Image default stays non-root (docker:S6471). Compose starts the service as
+# user "0:0" so the entrypoint can mirror root:600 ACME PEMs (acme.sh) into
+# ssl-local, then su-execs to nginx (see docker-entrypoint.sh). Started without
+# that override, the entrypoint takes its non-root path.
 # Keep comments on their own line: Docker has no inline comments, so text after
 # USER would become part of the user name and `docker run` would fail.
-USER root
+USER nginx

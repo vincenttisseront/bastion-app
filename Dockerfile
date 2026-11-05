@@ -80,8 +80,9 @@ COPY migrations /app/migrations
 COPY scripts /app/scripts
 COPY pyproject.toml package.json package-lock.json /app/
 
-# NOSONAR — migrate one-shot needs root for volume chown (runtime stays nonroot).
-# Comment kept on its own line: Docker has no inline comments.
-USER root
+# Image default stays non-root (docker:S6471). The one-shot job needs root to
+# chown data volumes: compose runs bastion-app-migrate as user "0:0".
+# Comments stay on their own line: Docker has no inline comments.
+USER 65532
 # Default command overridden by compose (encrypt DB, alembic, chown).
 CMD ["alembic", "upgrade", "head"]

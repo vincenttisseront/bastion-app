@@ -60,21 +60,41 @@ def test_dockerfile_no_alembic_in_runtime_cmd():
     assert "uvicorn" in runtime
 
 
-def test_nginx_dockerfile_root_start_drops_to_nginx():
-    """Image starts as root (root:600 ACME PEMs), entrypoint su-execs workers to nginx.
+def _compose_service_block(compose: Path, service: str) -> str:
+    text = compose.read_text(encoding="utf-8")
+    block = text.split(f"\n  {service}:\n", 1)[1]
+    return re.split(r"\n  [A-Za-z0-9_-]+:\n", block, maxsplit=1)[0]
 
-    docker:S6471 is accepted for this reason; compose also pins user 0:0.
+
+@pytest.mark.parametrize(
+    "dockerfile, stage_marker, service",
+    [
+        (ROOT / "docker" / "nginx" / "Dockerfile", None, "nginx"),
+        (ROOT / "Dockerfile", "AS migrate", "bastion-app-migrate"),
+    ],
+    ids=["nginx", "migrate"],
+)
+def test_image_defaults_to_nonroot_and_compose_elevates(tmp_path, dockerfile, stage_marker, service):
+    """docker:S6471 — image default user is non-root; compose pins 0:0 where root is needed.
+
+    nginx: the entrypoint mirrors root:600 ACME PEMs then su-execs to nginx.
+    migrate: the one-shot job chowns data volumes.
     """
-    users = _user_values(ROOT / "docker" / "nginx" / "Dockerfile")
-    assert users and users[-1] == "root"
+    text = dockerfile.read_text(encoding="utf-8")
+    if stage_marker:
+        text = text.split(stage_marker, 1)[1]
+    stage = tmp_path / "Dockerfile.stage"
+    stage.write_text(text, encoding="utf-8")
+    users = _user_values(stage)
+    assert users, f"{dockerfile} ({stage_marker or 'final'}) has no USER instruction"
+    assert users[-1].split(":")[0] not in {"root", "0"}
+    for compose in (ROOT / "docker-compose.yml", ROOT / "deploy" / "docker-compose.yml"):
+        assert 'user: "0:0"' in _compose_service_block(compose, service), compose
+
+
+def test_nginx_entrypoint_drops_root_to_nginx():
     entry = (ROOT / "docker" / "nginx" / "docker-entrypoint.sh").read_text(encoding="utf-8")
     assert "exec su-exec nginx:nginx" in entry
-    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
-    nginx_block = compose.split("\n  nginx:\n", 1)[1].split("\n  acme-companion:", 1)[0]
-    assert 'user: "0:0"' in nginx_block
-    deploy = (ROOT / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
-    deploy_nginx = deploy.split("\n  nginx:\n", 1)[1].split("\n  acme-companion:", 1)[0]
-    assert 'user: "0:0"' in deploy_nginx
 
 
 def test_compose_split_topology_binds():
