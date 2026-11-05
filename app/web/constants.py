@@ -1,3 +1,3 @@
 """Shared web layer constants."""
 
-APP_VERSION = "0.11.1"
+APP_VERSION = "0.11.2"
