@@ -42,6 +42,41 @@
     </div>
   </div>
 
+  <div class="metrics-grid dep-metrics" aria-label="{{ _('Synthèse des dépendances') }}">
+    <div class="metric-card info">
+      <div class="metric-head">
+        <div class="metric-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+      </div>
+      <div class="metric-value">{{ summary.total }}</div>
+      <div class="metric-label">{{ _('Paquets') }}</div>
+      <div class="metric-sub">{{ _('Python et npm') }}</div>
+    </div>
+    <div class="metric-card warning">
+      <div class="metric-head">
+        <div class="metric-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></div>
+      </div>
+      <div class="metric-value">{{ summary.outdated }}</div>
+      <div class="metric-label">{{ _('MAJ disponibles') }}</div>
+      <div class="metric-sub">{{ _('à planifier') }}</div>
+    </div>
+    <div class="metric-card ok">
+      <div class="metric-head">
+        <div class="metric-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+      </div>
+      <div class="metric-value">{{ summary.up_to_date }}</div>
+      <div class="metric-label">{{ _('À jour') }}</div>
+      <div class="metric-sub">{{ _('dernière version installée') }}</div>
+    </div>
+    <div class="metric-card muted">
+      <div class="metric-head">
+        <div class="metric-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
+      </div>
+      <div class="metric-value">{{ summary.unknown | default(0) }}</div>
+      <div class="metric-label">{{ _('Non applicables') }}</div>
+      <div class="metric-sub">{{ _('dernière version inconnue') }}</div>
+    </div>
+  </div>
+
   <div class="dep-toolbar">
     <div class="form-group dep-toolbar-search">
       <label class="form-label" for="dep-filter-q">{{ _('Recherche') }}</label>
@@ -220,7 +255,8 @@
   .dep-row-major td{background:color-mix(in srgb,var(--danger,#b91c1c) 6%,transparent)}
   .dep-latest-major{color:var(--danger,#b91c1c);font-weight:600}
   #dep-tabs .tab{cursor:pointer;border:none;background:transparent;font:inherit;color:inherit}
-  .dep-filter-btn.active{outline:2px solid var(--accent,#2563eb);outline-offset:1px}
+  .dep-filter-btn.active{box-shadow:inset 0 0 0 1px var(--border-bright);color:var(--text)}
+  .dep-metrics{margin-top:calc(-1 * var(--sp-2))}
   .dep-filter-empty{margin:0 0 var(--sp-3)}
   .dep-filter-empty[hidden]{display:none!important}
   .dep-table tbody tr[hidden]{display:none!important}

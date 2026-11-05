@@ -3038,5 +3038,20 @@
   "Dernière sync en erreur": "Last sync failed",
   "Version déployée": "Deployed version",
   "24 h · aucune activité CRS enregistrée (mesure effectuée — RelevantOnly)": "24 h · no CRS activity recorded (measured — RelevantOnly)",
-  "Déduit de la chaîne Include ModSecurity du dépôt / image — pas une sonde runtime": "Derived from the ModSecurity Include chain in the repo / image — not a runtime probe"
+  "Déduit de la chaîne Include ModSecurity du dépôt / image — pas une sonde runtime": "Derived from the ModSecurity Include chain in the repo / image — not a runtime probe",
+  "Un accès unique et protégé": "One protected point of access",
+  "Toutes vos applications professionnelles derrière une seule connexion.": "All your business applications behind a single sign-in.",
+  "Une seule connexion": "One sign-in",
+  "Ouvrez toutes vos applications sans ressaisir vos identifiants.": "Open all your applications without re-entering your credentials.",
+  "Identifiants protégés": "Protected credentials",
+  "Les mots de passe de vos applications sont conservés chiffrés.": "Your application passwords are stored encrypted.",
+  "Accès vérifiés": "Verified access",
+  "Chaque connexion est contrôlée et peut être révoquée à tout moment.": "Every session is checked and can be revoked at any time.",
+  "Synthèse des dépendances": "Dependency summary",
+  "Paquets": "Packages",
+  "Python et npm": "Python and npm",
+  "à planifier": "to schedule",
+  "dernière version installée": "latest version installed",
+  "Non applicables": "Not applicable",
+  "dernière version inconnue": "latest version unknown"
 }

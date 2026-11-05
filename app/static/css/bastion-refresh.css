@@ -1,0 +1,147 @@
+/* app/static/css/bastion-refresh.css — visual refresh (Stitch mock-ups, 2026-11).
+ *
+ * Loaded LAST by bastion.css / portal.css so it can calm the v2 chrome without
+ * rewriting every component file: flat surfaces, no decorative glows, a slightly
+ * larger content type scale, KPI tiles with the label on top, quieter tables,
+ * and the two-column login. Colors stay on tokens — the accent is still the
+ * branding variable (--accent) set inline by app.branding.branding_css_vars.
+ */
+
+/* ---------- Surfaces ---------- */
+[data-theme="light"] body{background-image:none}
+.brand-icon,.sidebar-brand-icon{box-shadow:none}
+.nav-item.active::before,.sidebar-nav-item.active::before{box-shadow:none}
+.card,.table-wrap,.data-table-wrapper,.group-card{border-radius:var(--r-lg)}
+.card-header{padding:var(--sp-4) var(--sp-5)}
+.card-body{padding:var(--sp-5)}
+
+/* ---------- Content type scale (admin + portal shells) ----------
+   v2 rendered body copy at 12px; the mock-ups read at 13px with 22px titles. */
+.app-body{
+  --content-fs-body:0.8125rem;
+  --fs-sm:0.8125rem;
+  --fs-base:0.875rem;
+  --fs-lg:0.9375rem;
+  --fs-xl:1rem;
+  --fs-2xl:1.125rem;
+  --fs-3xl:1.625rem;
+}
+.page-title{font-size:1.375rem;font-weight:700;letter-spacing:-.02em;line-height:1.25}
+.page-sub,.page-subtitle{font-size:0.8125rem;margin-top:var(--sp-1)}
+
+/* ---------- Buttons: no lift, no glow ---------- */
+.btn-primary{box-shadow:var(--sh-sm)}
+.btn-primary:hover{transform:none;box-shadow:var(--sh-sm);filter:brightness(.94)}
+.btn-danger:hover{box-shadow:none}
+
+/* ---------- KPI tiles: label on top, icon top-right, big number ---------- */
+/* 200px keeps uppercase labels on one line; 4 per row from ~1 100px of content. */
+.metrics-grid{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+/* .metric-head becomes display:contents so its icon and trend pill are placed
+   independently: icon top-right next to the label, trend beside the number. */
+.metric-card{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;
+  grid-template-areas:"label icon" "value trend" "sub sub";
+  align-items:center;column-gap:var(--sp-3);
+  padding:var(--sp-4) var(--sp-5);border-radius:var(--r-lg);
+}
+.metric-card::before,.metric-card::after{display:none}
+.metric-card:hover{transform:none;box-shadow:var(--sh-card);border-color:var(--border-bright)}
+.metric-head{display:contents}
+.metric-card-header{grid-area:icon;margin:0;gap:var(--sp-2)}
+.metric-head > .metric-icon{grid-area:icon}
+.metric-head > .metric-trend{grid-area:trend;justify-self:end;align-self:end;margin-bottom:var(--sp-1)}
+.metric-label{grid-area:label;font-size:0.6875rem;letter-spacing:.06em;line-height:1.3}
+.metric-value{grid-area:value;margin:var(--sp-3) 0 var(--sp-1)}
+.metric-card > .metric-sub{grid-area:sub;margin:0}
+/* Two-figure tiles (users · apps) need the full width: trend drops to the sub row. */
+.metric-card:has(.metric-value--split){grid-template-areas:"label icon" "value value" "sub trend"}
+.metric-card:has(.metric-value--split) .metric-head > .metric-trend{align-self:center;margin:0}
+.metric-icon{
+  width:32px;height:32px;border-radius:var(--r-md);border:0;
+  background:var(--mc-glow,var(--accent-muted));
+}
+.metric-icon svg{width:16px;height:16px}
+.metric-trend{font-size:0.6875rem}
+.metric-card.muted{--mc:var(--text-3);--mc-glow:var(--hover-bg-strong)}
+
+/* ---------- Shortcut cards (admin grid, portal tiles) ---------- */
+.admin-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.admin-card{border-radius:var(--r-lg)}
+.admin-card::before{display:none}
+.admin-card:hover{
+  transform:none;background:var(--bg-card);border-color:var(--border-bright);
+  box-shadow:var(--sh-md);
+}
+.admin-icon{width:36px;height:36px;border-radius:var(--r-md);border:0}
+.admin-card:hover .admin-icon{background:var(--accent-muted);color:var(--accent);box-shadow:none}
+.admin-arrow{position:absolute;top:var(--sp-4);right:var(--sp-4);opacity:.45}
+.admin-card:hover .admin-arrow{opacity:1;transform:translate(2px,-2px)}
+
+/* ---------- Tables ---------- */
+.data-table{background:var(--bg-card)}
+.data-table thead tr{background:var(--bg-card)}
+.data-table th{font-size:0.6875rem;letter-spacing:.06em;padding:var(--sp-3) var(--sp-4)}
+.data-table td{padding:var(--sp-3) var(--sp-4)}
+.table-toolbar{padding:var(--sp-3) var(--sp-5)}
+
+/* ---------- Badges: soft pills, no outline ---------- */
+.badge{font-weight:600;border-color:transparent !important}
+
+/* ---------- Login ---------- */
+body.page-login,body.auth-layout{background-image:none;background-color:var(--bg-base)}
+/* The generic .main-content is a scroll container (overflow:auto), which clipped the
+   language / theme toolbar positioned above the login card — it was never visible. */
+body.page-login .main-content,body.auth-layout .main-content{overflow:visible}
+[data-theme="dark"] body.page-login,
+[data-theme="dark"] body.auth-layout{
+  background-image:radial-gradient(ellipse 60% 45% at 50% 35%,color-mix(in srgb,var(--accent) 8%,transparent) 0%,transparent 70%);
+}
+.login-card{border-radius:var(--r-lg);box-shadow:var(--sh-lg);padding:var(--sp-8) var(--sp-8) var(--sp-6)}
+.login-card::before{display:none}
+.login-logo,.login-brand-icon{width:48px;height:48px;border-radius:var(--r-lg);box-shadow:none}
+.login-title,.login-brand-title{font-size:1.5rem;font-weight:700;letter-spacing:-.03em}
+.login-footer{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--sp-1) var(--sp-2)}
+
+.login-shell{width:100%;display:flex;flex-direction:column;align-items:center;gap:var(--sp-5)}
+.login-shell > .login-card{max-width:400px}
+.login-aside{display:none}
+@media (min-width:960px){
+  .login-wrap--with-aside{max-width:780px}
+  .login-wrap--with-aside .login-shell{
+    display:grid;grid-template-columns:400px minmax(0,1fr);
+    align-items:center;gap:var(--sp-8);
+  }
+  .login-aside{
+    display:flex;flex-direction:column;gap:var(--sp-5);
+    padding:var(--sp-6);
+    background:color-mix(in srgb,var(--bg-card) 70%,transparent);
+    border:1px solid var(--border-muted);border-radius:var(--r-lg);
+  }
+}
+.login-aside-title{margin:0;font-size:var(--fs-base);font-weight:700;color:var(--text)}
+.login-aside-lead{margin:var(--sp-1) 0 0;font-size:var(--fs-sm);color:var(--text-2);line-height:1.5}
+.login-aside-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--sp-4)}
+.login-aside-item{display:grid;grid-template-columns:32px minmax(0,1fr);gap:var(--sp-3);align-items:start}
+.login-aside-icon{
+  width:32px;height:32px;border-radius:var(--r-md);
+  display:inline-flex;align-items:center;justify-content:center;
+  color:var(--accent);background:var(--accent-muted);
+}
+.login-aside-item-title{margin:0;font-size:var(--fs-sm);font-weight:650;color:var(--text)}
+.login-aside-item-text{margin:2px 0 0;font-size:var(--fs-xs);color:var(--text-2);line-height:1.5}
+
+/* Access request: a quiet link row instead of a second full-width button. */
+.login-access-request{border-top-color:var(--border-muted) !important}
+
+/* ---------- User portal ----------
+   Portal pages re-link bastion-portal.css after this file, hence the
+   [data-theme] prefix (one extra attribute) to keep these rules in force. */
+[data-theme="light"] .portal-shell{background-image:none}
+[data-theme] .portal-hero{border-radius:var(--r-lg);border-color:var(--border-muted)}
+[data-theme] .app-tile:hover{transform:none;border-color:var(--border-bright);box-shadow:var(--sh-md)}
+[data-theme] .app-tile:hover .admin-icon{box-shadow:none}
+
+@media (prefers-reduced-motion:reduce){
+  .admin-card,.metric-card,.btn{transition:none}
+}
