@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app import re_safe
 from app.audit import log_action
-from app.auth.auth_request import get_realm_proxy_url, is_rfc1918
+from app.auth.auth_request import _get_oauth2_auth, get_realm_proxy_url, is_rfc1918
 from app.bastion.m2m_policy import app_uri_is_m2m_bypass, m2m_credential_allows
 from app.auth.breakglass import (
     COOKIE_NAME,
@@ -163,6 +163,20 @@ def _allow_identity_headers(
     if groups:
         headers["X-Auth-Groups"] = ",".join(groups)
     return headers
+
+
+def _allow_cache_headers(settings: Settings, uri: str) -> dict[str, str]:
+    """Let bastion-nginx reuse this ALLOW for a few seconds (proxy_cache).
+
+    Only for a fully authenticated decision (SSO session + AccessGrant + app
+    session cookie). nginx keys the entry on vhost + client IP + exact Cookie
+    jar, so only the same session can hit it; nothing is cached without this
+    header. The CrushFTP login bounce stays uncached (diagnostic log below).
+    """
+    ttl = int(getattr(settings, "subdomain_auth_cache_seconds", 0) or 0)
+    if ttl <= 0 or (uri or "").startswith(_CRUSHFTP_LOGIN_URI):
+        return {}
+    return {"X-Accel-Expires": str(ttl)}
 
 
 def _deny_no_app_session(app: App) -> Response:
@@ -472,14 +486,17 @@ def _subdomain_auth_before_idp(
         )
         return Response(
             status_code=200,
-            headers=_allow_identity_headers(
-                app_slug=app_slug,
-                auth_source=auth_source,
-                keycloak_user_id=keycloak_user_id,
-                email=email,
-                preferred=preferred,
-                groups=groups,
-            ),
+            headers={
+                **_allow_identity_headers(
+                    app_slug=app_slug,
+                    auth_source=auth_source,
+                    keycloak_user_id=keycloak_user_id,
+                    email=email,
+                    preferred=preferred,
+                    groups=groups,
+                ),
+                **_allow_cache_headers(settings, original_uri),
+            },
         )
 
     # auth_request is high-concurrency — never hold a pool slot across httpx.
@@ -593,14 +610,17 @@ def _subdomain_auth_after_idp(
         )
         return Response(
             status_code=200,
-            headers=_allow_identity_headers(
-                app_slug=app_slug,
-                auth_source="oidc",
-                keycloak_user_id=keycloak_user_id,
-                email=email,
-                preferred=preferred,
-                groups=groups,
-            ),
+            headers={
+                **_allow_identity_headers(
+                    app_slug=app_slug,
+                    auth_source="oidc",
+                    keycloak_user_id=keycloak_user_id,
+                    email=email,
+                    preferred=preferred,
+                    groups=groups,
+                ),
+                **_allow_cache_headers(settings, original_uri),
+            },
         )
 
     # 3b. Break-glass — emergency admin: allow all apps without AccessGrant.
@@ -713,11 +733,11 @@ async def subdomain_auth(
     oauth2_headers: Mapping[str, str] = {}
     oauth2_unreachable = False
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"{pre.proxy_url}/oauth2/auth",
-                headers={"Cookie": pre.cookie_header},
-            )
+        # Lifespan keep-alive client (same as portal /internal/oauth2-auth) —
+        # not a fresh TCP connection + client per auth_request.
+        resp = await _get_oauth2_auth(
+            request, f"{pre.proxy_url}/oauth2/auth", pre.cookie_header
+        )
         if resp.status_code in (200, 202):
             oauth2_ok = True
             oauth2_headers = resp.headers

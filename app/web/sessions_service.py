@@ -993,8 +993,6 @@ def _touch_app_presence(
     else:
         _default_realm = (get_settings().sso_portal_default_realm_slug or "default").strip()
         realm_n = (realm or app.realm_slug or _default_realm).strip() or _default_realm
-    if _looks_like_email(email_n):
-        _heal_short_session_emails(db, full_email=email_n, username=uname)
 
     session_id = _app_session_id(email_n, app.slug)
     now = utcnow()
@@ -1007,6 +1005,10 @@ def _touch_app_presence(
             and last >= now - timedelta(seconds=throttle_seconds)
         ):
             return row
+    # Hot path (every auth_request): heal only when we are about to write —
+    # a throttled heartbeat must cost one indexed lookup, not an extra IN scan.
+    if _looks_like_email(email_n):
+        _heal_short_session_emails(db, full_email=email_n, username=uname)
 
     existing_details = (
         dict(row.details) if row is not None and isinstance(row.details, dict) else {}

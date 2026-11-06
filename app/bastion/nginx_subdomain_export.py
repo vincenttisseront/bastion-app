@@ -6,6 +6,7 @@ Target architecture: Traefik/edge terminates TLS → bastion-nginx:8080 (Host-ba
 
 from __future__ import annotations
 
+import ipaddress
 import json
 from pathlib import Path
 from typing import Any
@@ -413,6 +414,7 @@ def _upstream_ssl_proxy_lines(
     upstream_is_https: bool,
     crushftp: bool,
     tls_verify: bool,
+    ssl_name: str | None = None,
 ) -> list[str]:
     if not upstream_is_https:
         return []
@@ -420,11 +422,76 @@ def _upstream_ssl_proxy_lines(
         "        proxy_ssl_server_name on;",
         nginx_proxy_ssl_verify_directive(tls_verify),
     ]
+    if ssl_name:
+        # proxy_pass targets an upstream{} name: SNI / certificate check must
+        # use the real backend host, not the group name ($proxy_host).
+        ssl_lines.insert(1, f"        proxy_ssl_name {ssl_name};")
     if crushftp:
         # CrushFTP often negotiates poorly with default openssl defaults.
         ssl_lines.insert(0, "        proxy_ssl_protocols TLSv1.2 TLSv1.3;")
         ssl_lines.append("        proxy_ssl_session_reuse off;")
     return ssl_lines
+
+
+# Host / port accepted verbatim in an upstream{} ``server`` line (unquoted).
+_UPSTREAM_DNS_HOST = re_safe.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252})$")
+_UPSTREAM_KEEPALIVE_IDLE_CONNECTIONS = 16
+
+
+def _upstream_group_name(slug: str) -> str:
+    return f"bastion_sub_{slug}"
+
+
+def _keepalive_upstream_target(origin: str) -> tuple[str, str] | None:
+    """(``server`` address, extra params) for an upstream{} — None if unsafe."""
+    parsed = urlparse(origin)
+    host = (parsed.hostname or "").strip()
+    scheme = (parsed.scheme or "").lower()
+    if not host or scheme not in ("http", "https"):
+        return None
+    try:
+        port = parsed.port or (443 if scheme == "https" else 80)
+    except ValueError:
+        return None
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None:
+        address = f"[{ip.compressed}]" if ip.version == 6 else ip.compressed
+        # Literal IP: nothing to re-resolve.
+        return f"{address}:{port}", ""
+    if not _UPSTREAM_DNS_HOST.match(host):
+        return None
+    # DNS name (docker alias, LAN FQDN): runtime resolution like the former
+    # `proxy_pass $var` (http{} resolver) — an unresolvable name at reload
+    # must not fail nginx -t for every vhost (nginx ≥ 1.27.3 open source).
+    return f"{host}:{port}", " resolve"
+
+
+def _keepalive_upstream_block(
+    *, slug: str, origin: str, keepalive_seconds: int
+) -> list[str] | None:
+    """http{}-level upstream with idle keepalive toward one app origin."""
+    target = _keepalive_upstream_target(origin)
+    if target is None:
+        return None
+    address, extra = target
+    name = _upstream_group_name(slug)
+    return [
+        f"# [{slug}] upstream keep-alive — reuse TCP/TLS toward {origin}",
+        "# (one handshake per idle socket instead of one per request).",
+        f"upstream {name} {{",
+        f"    zone {name} 64k;",
+        # max_fails=0: a transient error must never mark the only backend down.
+        f"    server {address} max_fails=0{extra};",
+        f"    keepalive {_UPSTREAM_KEEPALIVE_IDLE_CONNECTIONS};",
+        # Below the upstream's own idle timeout: nginx closes first, so it never
+        # reuses a socket the backend just dropped (POST would 502, no retry).
+        f"    keepalive_timeout {int(keepalive_seconds)}s;",
+        "}",
+        "",
+    ]
 
 
 def _upstream_cookie_forward_lines(
@@ -480,7 +547,6 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     origin = upstream_origin(raw_upstream)
     upstream_host = _upstream_host(raw_upstream)
     portal = (settings.portal_domain or "portal.example.com").strip()
-    origin_esc = _nginx_escape(origin)
     fqdn_esc = _nginx_escape(fqdn)
     portal_esc = _nginx_escape(portal)
     upstream_host_esc = _nginx_escape(upstream_host)
@@ -488,11 +554,31 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     crushftp = _is_crushftp_app(app)
     upstream_is_https = origin.lower().startswith("https://")
     tls_verify = resolve_upstream_tls_verify(app)
+    # CrushFTP only for now: a chatty UI behind a Java TLS stack where a fresh
+    # handshake per request dominates latency. Other apps keep `proxy_pass $var`
+    # (their idle timeouts are unknown — Node/uvicorn close after 5 s).
+    keepalive_seconds = int(getattr(settings, "crushftp_upstream_keepalive_seconds", 0) or 0)
+    upstream_block = (
+        _keepalive_upstream_block(
+            slug=slug, origin=origin, keepalive_seconds=keepalive_seconds
+        )
+        if crushftp and keepalive_seconds > 0
+        else None
+    )
+    keepalive = upstream_block is not None
+    proxy_target = (
+        f"{origin.split('://', 1)[0].lower()}://{_upstream_group_name(slug)}"
+        if keepalive
+        else origin
+    )
     ssl_lines = _upstream_ssl_proxy_lines(
         upstream_is_https=upstream_is_https,
         crushftp=crushftp,
         tls_verify=tls_verify,
+        ssl_name=upstream_host_esc if keepalive else None,
     )
+    # Plain requests must not send "Connection: close" to a pooled upstream.
+    connection_var = "$bastion_upstream_connection" if keepalive else "$connection_upgrade"
     cookie_lines, forwarded_ip_lines, redirect_lines = _upstream_cookie_forward_lines(
         crushftp=crushftp,
         upstream_host=upstream_host,
@@ -550,7 +636,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         # Needed for ws/wss (Immich socket.io, Teleport, …). Use the http{} map
         # $connection_upgrade — raw $http_connection is empty on HTTP/2 hops.
         "        proxy_set_header Upgrade $http_upgrade;",
-        "        proxy_set_header Connection $connection_upgrade;",
+        f"        proxy_set_header Connection {connection_var};",
         _NGX_PROXY_CONNECT_TIMEOUT_60,
         "        proxy_read_timeout 3600s;",
         "        proxy_send_timeout 3600s;",
@@ -573,6 +659,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     ]
 
     lines = [
+        *(upstream_block or []),
         f"# [{slug}] subdomain_proxy — {fqdn} (generated from App DB)",
         "server {",
         "    listen 0.0.0.0:8080;",
@@ -606,7 +693,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         f"    client_max_body_size {'2G' if crushftp else '64m'};",
         "",
         "    set $bastion_app_upstream bastion-app:8000;",
-        f'    set $app_upstream "{origin_esc}";',
+        f'    set $app_upstream "{_nginx_escape(proxy_target)}";',
         # Literal FQDN — re-set on auth_request rewrite; never empty like $host
         # can be on the subrequest.
         f'    set $bastion_vhost_fqdn "{fqdn_esc}";',
