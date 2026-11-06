@@ -41,6 +41,10 @@ from app.subdomain.eas_device_identity import describe_eas_device
 from app.pathutil import sanitize_log_value
 
 _MSG_DEVICE_BLOCKED_BY_ADMIN = 'Cet appareil est bloqué par un administrateur.'
+_MSG_ADMIN_APPROVAL_ONLY = (
+    "Cet appareil doit être validé par un administrateur. "
+    "Contactez le support si l'attente se prolonge."
+)
 
 logger = logging.getLogger(__name__)
 
@@ -784,6 +788,36 @@ def admin_approve_device(
     )
 
 
+def admin_approval_only(app: App | None) -> bool:
+    """True when only a portal admin may approve this app's new devices."""
+    return bool(app is not None and getattr(app, "activesync_admin_approval_only", False))
+
+
+def set_admin_approval_only(
+    db: Session, app: App, *, enabled: bool, actor: str
+) -> bool:
+    """Switch who approves new devices. Returns True when the setting changed.
+
+    Existing decisions are untouched: devices already approved keep syncing.
+    """
+    enabled = bool(enabled)
+    if bool(app.activesync_admin_approval_only) == enabled:
+        return False
+    app.activesync_admin_approval_only = enabled
+    db.commit()
+    log_action(
+        db,
+        actor=actor,
+        action="activesync.approval_mode_changed",
+        target=app.slug,
+        details={
+            "application_id": app.id,
+            "admin_approval_only": enabled,
+        },
+    )
+    return True
+
+
 def user_approve_device(
     db: Session, device: ActiveSyncDevice, *, actor: str, friendly_name: str | None = None
 ) -> ActiveSyncDevice:
@@ -791,6 +825,9 @@ def user_approve_device(
         raise DeviceDecisionError(
             _MSG_DEVICE_BLOCKED_BY_ADMIN
         )
+    # Owners may still refuse or revoke (the safe direction), never self-approve.
+    if admin_approval_only(db.get(App, device.application_id)):
+        raise DeviceDecisionError(_MSG_ADMIN_APPROVAL_ONLY)
     if friendly_name is not None:
         cleaned = (friendly_name or "").strip()[:120] or None
         device.friendly_name = cleaned
@@ -891,6 +928,7 @@ def preview_device_control(db: Session, app: App) -> dict:
         "inventory_since": oldest,
         "control_enabled": bool(app.activesync_device_control),
         "control_enabled_at": getattr(app, "activesync_device_control_enabled_at", None),
+        "admin_approval_only": admin_approval_only(app),
     }
 
 
@@ -1062,6 +1100,31 @@ def _assert_pending_capacity(db: Session, *, app: App, client_ip: str | None) ->
             raise PendingDeviceCapExceeded("ip")
 
 
+def _pending_notice(label: str, profile: str, *, admin_only: bool) -> tuple[str, str]:
+    """Owner e-mail for a new pending device: (subject, body)."""
+    if admin_only:
+        return (
+            f"Nouvel appareil {label} — en attente de validation",
+            (
+                f"Un nouvel appareil ({label}) tente d'accéder à votre messagerie.\n\n"
+                "Un administrateur doit le valider avant qu'il puisse se synchroniser.\n"
+                "S'il ne s'agit pas de vous, refusez-le depuis le portail et changez "
+                f"votre mot de passe :\n{profile}\n\n"
+                "Aucun lien d'action directe n'est inclus dans ce message "
+                "(une session SSO est obligatoire).\n"
+            ),
+        )
+    return (
+        f"Nouvel appareil {label} — validation requise",
+        (
+            f"Un nouvel appareil ({label}) tente d'accéder à votre messagerie.\n\n"
+            f"Connectez-vous au portail pour l'approuver ou le refuser :\n{profile}\n\n"
+            "Aucun lien d'approbation directe n'est inclus dans ce message "
+            "(une session SSO est obligatoire).\n"
+        ),
+    )
+
+
 def maybe_notify_owner_new_pending(
     db: Session, *, device: ActiveSyncDevice, app: App, settings=None
 ) -> None:
@@ -1093,13 +1156,7 @@ def maybe_notify_owner_new_pending(
             else "/profile#section-devices"
         )
         label = device.device_type or device.client_kind or "appareil"
-        subject = f"Nouvel appareil {label} — validation requise"
-        body_text = (
-            f"Un nouvel appareil ({label}) tente d'accéder à votre messagerie.\n\n"
-            f"Connectez-vous au portail pour l'approuver ou le refuser :\n{profile}\n\n"
-            "Aucun lien d'approbation directe n'est inclus dans ce message "
-            "(une session SSO est obligatoire).\n"
-        )
+        subject, body_text = _pending_notice(label, profile, admin_only=admin_approval_only(app))
         enqueue_mail(to_email=to_addr, subject=subject, body_text=body_text)
     except Exception:
         logger.exception(

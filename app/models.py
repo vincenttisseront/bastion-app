@@ -164,6 +164,8 @@ class App(Base):
     # EAS per-device gate: only approved devices sync. Meaningless without allow_activesync.
     activesync_device_control = Column(Boolean, default=False, nullable=False)
     activesync_device_control_enabled_at = Column(UTCDateTime, nullable=True)
+    # Only a portal admin may approve a new device (owners can still refuse/revoke).
+    activesync_admin_approval_only = Column(Boolean, default=False, nullable=False)
     # Machine-to-machine on subdomain_proxy (declarative — no product-name heuristics).
     # Basic/Bearer: same URL as browser SSO; upstream validates the credential.
     m2m_accept_basic = Column(Boolean, default=False, nullable=False)
