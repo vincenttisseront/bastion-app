@@ -540,3 +540,115 @@ def test_m2m_bypass_login_does_not_duplicate_portal_bounce():
     login = block.split("location = /login {", 1)[1].split("    }", 1)[0]
     assert "return 302 https://portal.example.com/auth/login;" in login
     assert "location ^~ /api/ {" in block
+
+
+# ─── Perf: upstream keep-alive toward CrushFTP ─────────────────────────────────
+
+
+def _crush_app(upstream_url: str = "https://10.20.0.106/", **kwargs) -> App:
+    base = {
+        "slug": "transfer",
+        "label": "Transfer",
+        "upstream_url": upstream_url,
+        "access_mode": "subdomain_proxy",
+        "public_fqdn": "transfer.example.com",
+        "realm_slug": "example-corp",
+        "robotic_driver": "crushftp",
+        "enabled": True,
+    }
+    base.update(kwargs)
+    return App(**base)
+
+
+def test_crushftp_upstream_keepalive_block_and_pooled_proxy_pass():
+    block = generate_subdomain_server_block(_crush_app(), _settings())
+    upstream, server = block.split("server {", 1)
+    assert "upstream bastion_sub_transfer {" in upstream
+    assert "zone bastion_sub_transfer 64k;" in upstream
+    # Default port made explicit (upstream{} would default to 80 even for https).
+    assert "server 10.20.0.106:443 max_fails=0;" in upstream
+    assert "resolve" not in upstream.split("server 10.20.0.106", 1)[1].split("\n", 1)[0]
+    assert "keepalive 16;" in upstream
+    assert "keepalive_timeout 10s;" in upstream
+    assert 'set $app_upstream "https://bastion_sub_transfer";' in server
+    named = server.split("location @app_upstream_transfer {", 1)[1]
+    named_body = named.split("location ^~ /WebInterface/function", 1)[0]
+    # Plain requests: no "Connection: close" (map yields "" → socket reused).
+    assert "proxy_set_header Connection $bastion_upstream_connection;" in named_body
+    assert "proxy_set_header Connection $connection_upgrade;" not in named_body
+    assert "proxy_http_version 1.1;" in named_body
+    # SNI / cert check on the real backend, not the group name.
+    assert "proxy_ssl_name 10.20.0.106;" in named_body
+    assert "proxy_ssl_server_name on;" in named_body
+    function_named = server.split("location @app_function_transfer {", 1)[1]
+    assert "proxy_set_header Connection $bastion_upstream_connection;" in function_named
+    # Redirect / cookie rewriting still keyed on the real upstream host.
+    assert "proxy_redirect https://10.20.0.106/ https://transfer.example.com/;" in server
+    assert "proxy_cookie_domain 10.20.0.106 transfer.example.com;" in server
+
+
+def test_crushftp_upstream_keepalive_dns_name_resolves_at_runtime():
+    block = generate_subdomain_server_block(
+        _crush_app("https://crushftp.lan.example:8443/"), _settings()
+    )
+    upstream = block.split("server {", 1)[0]
+    assert "server crushftp.lan.example:8443 max_fails=0 resolve;" in upstream
+    assert "proxy_ssl_name crushftp.lan.example;" in block
+
+
+def test_crushftp_upstream_keepalive_ipv6_and_plain_http():
+    block = generate_subdomain_server_block(
+        _crush_app("http://[fd00::20]:8080/"), _settings()
+    )
+    upstream = block.split("server {", 1)[0]
+    assert "server [fd00::20]:8080 max_fails=0;" in upstream
+    assert 'set $app_upstream "http://bastion_sub_transfer";' in block
+    assert "proxy_ssl_name" not in block
+
+
+def test_crushftp_upstream_keepalive_custom_timeout_and_kill_switch():
+    tuned = generate_subdomain_server_block(
+        _crush_app(), _settings(crushftp_upstream_keepalive_seconds=4)
+    )
+    assert "keepalive_timeout 4s;" in tuned
+
+    off = generate_subdomain_server_block(
+        _crush_app(), _settings(crushftp_upstream_keepalive_seconds=0)
+    )
+    assert "upstream bastion_sub_" not in off
+    assert 'set $app_upstream "https://10.20.0.106";' in off
+    assert "proxy_set_header Connection $connection_upgrade;" in off
+    assert "bastion_upstream_connection" not in off
+    assert "proxy_ssl_name" not in off
+
+
+def test_non_crushftp_app_keeps_per_request_upstream():
+    app = App(
+        slug="wiki",
+        label="Wiki",
+        upstream_url="https://10.0.0.9/",
+        access_mode="subdomain_proxy",
+        public_fqdn="wiki.example.com",
+        enabled=True,
+    )
+    block = generate_subdomain_server_block(app, _settings())
+    assert "upstream bastion_sub_" not in block
+    assert 'set $app_upstream "https://10.0.0.9";' in block
+    assert "bastion_upstream_connection" not in block
+
+
+def test_full_export_declares_each_upstream_once(db_session):
+    db_session.add_all(
+        [
+            _crush_app(),
+            _crush_app(
+                "https://10.20.0.107/",
+                slug="transfer2",
+                public_fqdn="transfer2.example.com",
+            ),
+        ]
+    )
+    db_session.commit()
+    conf = generate_subdomain_apps_nginx(db_session, _settings())
+    assert conf.count("upstream bastion_sub_transfer {") == 1
+    assert conf.count("upstream bastion_sub_transfer2 {") == 1

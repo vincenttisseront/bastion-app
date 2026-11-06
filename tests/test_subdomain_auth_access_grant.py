@@ -935,3 +935,204 @@ def test_subdomain_auth_teleport_with_host_session_allows(client, db_session):
 
     assert resp.status_code == 200
     assert resp.headers.get("x-auth-app") == "teleport"
+
+
+# ─── Perf: nginx proxy_cache opt-in (X-Accel-Expires) ──────────────────────────
+# bastion-nginx caches an auth decision ONLY when FastAPI sends X-Accel-Expires
+# (snippets/subdomain_auth_common.conf, no proxy_cache_valid). Only an
+# authenticated ALLOW may carry it — never a 401, a bypass or break-glass.
+
+
+def _grant_launch(db_session, app: App) -> None:
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id=KC_USER,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    db_session.commit()
+
+
+@respx.mock
+def test_subdomain_auth_oidc_allow_is_cacheable(client, db_session):
+    _override_settings(client, _settings())
+    _realm(db_session)
+    _grant_launch(db_session, _app(db_session))
+    respx.get(OIDC_URL).mock(return_value=_oidc_ok())
+
+    resp = client.get("/internal/subdomain-auth", headers=_auth_headers())
+
+    assert resp.status_code == 200
+    assert resp.headers.get("x-accel-expires") == "10"
+    # A Set-Cookie would make nginx skip the cache entirely.
+    assert "set-cookie" not in resp.headers
+
+
+@respx.mock
+def test_subdomain_auth_native_allow_is_cacheable_with_custom_ttl(client, db_session):
+    from app.auth.oidc_bff import issue_oidc_session
+
+    settings = _native_settings()
+    settings.subdomain_auth_cache_seconds = 3
+    _override_settings(client, settings)
+    realm = _realm(db_session)
+    realm.oidc_native_session_enabled = True
+    db_session.commit()
+    _grant_launch(db_session, _app(db_session))
+    token, _jti = issue_oidc_session(
+        db_session,
+        sub=KC_USER,
+        username="alice",
+        realm="example-corp",
+        secret=OIDC_SECRET,
+        max_age=3600,
+        email="alice@example.com",
+        groups=(),
+    )
+    db_session.commit()
+    respx.get(OIDC_URL).mock(return_value=Response(401))
+
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            "X-Original-Host": "transfer.example.com",
+            "X-Original-URI": "/WebInterface/new-ui/index.html",
+            "X-Real-IP": "8.8.8.8",
+            "Cookie": f"{COOKIE}={token}",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-source") == "oidc-native"
+    assert resp.headers.get("x-accel-expires") == "3"
+
+
+@respx.mock
+def test_subdomain_auth_cache_disabled_when_ttl_zero(client, db_session):
+    settings = _settings()
+    settings.subdomain_auth_cache_seconds = 0
+    _override_settings(client, settings)
+    _realm(db_session)
+    _grant_launch(db_session, _app(db_session))
+    respx.get(OIDC_URL).mock(return_value=_oidc_ok())
+
+    resp = client.get("/internal/subdomain-auth", headers=_auth_headers())
+
+    assert resp.status_code == 200
+    assert "x-accel-expires" not in resp.headers
+
+
+@respx.mock
+def test_subdomain_auth_denials_are_never_cacheable(client, db_session):
+    _override_settings(client, _settings())
+    _realm(db_session)
+    _app(db_session)  # no AccessGrant
+    respx.get(OIDC_URL).mock(return_value=_oidc_ok())
+
+    no_grant = client.get("/internal/subdomain-auth", headers=_auth_headers())
+    assert no_grant.status_code == 401
+    assert "x-accel-expires" not in no_grant.headers
+
+    respx.get(OIDC_URL).mock(return_value=Response(401))
+    anonymous = client.get("/internal/subdomain-auth", headers=_auth_headers())
+    assert anonymous.status_code == 401
+    assert "x-accel-expires" not in anonymous.headers
+
+
+@respx.mock
+def test_subdomain_auth_no_app_session_is_never_cacheable(client, db_session):
+    _override_settings(client, _settings())
+    _realm(db_session)
+    app = _app(db_session, slug="teleport")
+    app.robotic_driver = "teleport"
+    db_session.add(app)
+    db_session.commit()
+    _grant_launch(db_session, app)
+    respx.get(OIDC_URL).mock(return_value=_oidc_ok())
+
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers=_auth_headers(host="teleport.example.com", uri="/web/"),
+    )
+
+    assert resp.status_code == 401
+    assert resp.headers.get("x-auth-error") == "no-app-session"
+    assert "x-accel-expires" not in resp.headers
+
+
+@respx.mock
+def test_subdomain_auth_breakglass_allow_is_not_cacheable(client, db_session):
+    _override_settings(client, _settings())
+    _realm(db_session)
+    _app(db_session)
+    respx.get(OIDC_URL).mock(return_value=Response(401))
+    token = create_breakglass_token("bg-admin", "test-bg-jwt-secret")
+
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            "X-Original-Host": "transfer.example.com",
+            "X-Real-IP": "8.8.8.8",
+            "Cookie": f"{COOKIE_NAME}={token}",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-source") == "breakglass"
+    assert "x-accel-expires" not in resp.headers
+
+
+@respx.mock
+def test_subdomain_auth_crushftp_login_bounce_is_not_cacheable(client, db_session):
+    """The login.html bounce must keep reaching FastAPI (IP-lock diagnosis log)."""
+    _override_settings(client, _settings())
+    _realm(db_session)
+    app = _app(db_session)
+    app.robotic_driver = "crushftp"
+    db_session.add(app)
+    db_session.commit()
+    _grant_launch(db_session, app)
+    respx.get(OIDC_URL).mock(return_value=_oidc_ok())
+    headers = _auth_headers(uri="/WebInterface/login.html")
+    headers["Cookie"] = "_oauth2_proxy=valid; CrushAuth=abc_def; currentAuth=_def"
+
+    resp = client.get("/internal/subdomain-auth", headers=headers)
+
+    assert resp.status_code == 200
+    assert "x-accel-expires" not in resp.headers
+
+
+def test_nginx_auth_snippet_caches_only_on_fastapi_opt_in():
+    """Contract of the docker auth_request location (perf cache)."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    snippet = (root / "docker/nginx/snippets/subdomain_auth_common.conf").read_text(
+        encoding="utf-8"
+    )
+    loc = snippet.split("location = /internal/subdomain-auth {", 1)[1].split("\n}", 1)[0]
+    directives = [
+        " ".join(ln.split()) for ln in loc.splitlines() if not ln.strip().startswith("#")
+    ]
+    assert "proxy_cache subdomain_auth;" in directives
+    key = next(d for d in directives if d.startswith("proxy_cache_key "))
+    # Everything the decision reads: vhost, client IP, the exact Cookie jar sent.
+    for part in ("$bastion_auth_host", "$portal_client_real_ip", "$bastion_auth_cookie"):
+        assert part in key
+    assert any(d.startswith("proxy_set_header Cookie $bastion_auth_cookie") for d in directives)
+    # Opt-in only (X-Accel-Expires): no blanket validity, no stale/lock.
+    assert not any(d.startswith("proxy_cache_valid") for d in directives)
+    assert not any(d.startswith("proxy_cache_use_stale") for d in directives)
+    assert not any(d.startswith("proxy_cache_lock") for d in directives)
+    assert not any(d.startswith("proxy_ignore_headers") for d in directives)
+    assert "proxy_cache_bypass $bastion_auth_cache_skip;" in directives
+    assert "proxy_no_cache $bastion_auth_cache_skip;" in directives
+    main = (root / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
+    assert "keys_zone=subdomain_auth:" in main
+    assert "/var/cache/nginx/subdomain-auth" in main
+    assert "map $request_uri $bastion_auth_cache_skip" in main

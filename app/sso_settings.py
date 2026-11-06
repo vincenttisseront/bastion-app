@@ -434,6 +434,33 @@ class Settings(BaseSettings):
     rfc1918_cidrs: Annotated[list[str], NoDecode] = Field(
         default=list(DEFAULT_RFC1918_CIDRS)
     )
+    # Perf — seconds bastion-nginx may reuse an authenticated ALLOW from
+    # /internal/subdomain-auth (X-Accel-Expires → proxy_cache subdomain_auth).
+    # Cache key = vhost + client IP + exact Cookie jar, so only the same session
+    # hits it; revocation (logout, AccessGrant removed) applies within this
+    # window. 0 = every request re-checked by FastAPI (pre-cache behaviour).
+    subdomain_auth_cache_seconds: int = Field(
+        default=10,
+        ge=0,
+        le=300,
+        validation_alias=AliasChoices(
+            "SUBDOMAIN_AUTH_CACHE_SECONDS",
+            "subdomain_auth_cache_seconds",
+        ),
+    )
+    # Perf — idle keep-alive (seconds) of the generated upstream{} toward CrushFTP
+    # apps: reuses TCP+TLS instead of a full handshake per request. Keep it below
+    # CrushFTP's own idle timeout (a POST on a socket the upstream just closed is
+    # not retried → 502). 0 = no upstream{} (one connection per request).
+    crushftp_upstream_keepalive_seconds: int = Field(
+        default=10,
+        ge=0,
+        le=300,
+        validation_alias=AliasChoices(
+            "CRUSHFTP_UPSTREAM_KEEPALIVE_SECONDS",
+            "crushftp_upstream_keepalive_seconds",
+        ),
+    )
     # TCP peers allowed to set X-Real-IP / X-Forwarded-For (nginx-bastion → FastAPI).
     # Do NOT include the public Internet or the DMZ reverse alone — only the hop
     # that terminates TLS toward the app (docker vpcbr / loopback).
