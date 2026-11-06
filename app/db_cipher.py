@@ -10,8 +10,10 @@ PRAGMA key is applied via SQLAlchemy connect event — never in the URL.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,7 +62,7 @@ def _import_sqlcipher():
         raise DbEncryptionError(
             "sqlcipher3 is required when VAULT_PORTAL_DB_ENCRYPTION_KEY / "
             f"{DB_ENCRYPTION_KEY_FILENAME} is configured. "
-            "Install sqlcipher3-binary (Linux wheels) or build sqlcipher3."
+            "Install sqlcipher3 (self-contained Linux wheels, see pyproject.toml)."
         ) from exc
 
 
@@ -180,6 +182,102 @@ def copy_sqlite_file(src: Path, dest: Path) -> None:
             shutil.copy2(side, dest.with_name(dest.name + suffix))
 
 
+# --- Process-wide serialization of SQLite open / close -----------------------
+#
+# Incident 2026-11-06 (whole process frozen ~6 h, 0 % CPU): one thread was in
+# ``sqlcipher3.connect`` while another was in ``Connection.close()``.
+#
+# * SQLite 3.51.1 (bundled by sqlcipher3-binary 0.6.0) has a lock-order
+#   inversion in the unix VFS: ``unixOpen → findReusableFd`` takes the global
+#   VFS mutex then the inode mutex, while closing the *last* connection of a
+#   WAL database (``sqlite3WalClose → unixLock(EXCLUSIVE) →
+#   unixIsSharingShmNode``) takes the inode mutex then the global VFS mutex.
+#   Fixed upstream by SQLite check-in f65aa46796 (3.51.2+).
+# * sqlcipher3 runs ``sqlite3_close_v2`` *with the GIL held*, so the closing
+#   thread of that C-level deadlock froze every Python thread (event loop,
+#   /api/health, schedulers) — not just DB users.
+#
+# NullPool opens and closes a connection for every Session, from many threads
+# (request threadpool, APScheduler threads, the event loop). Serializing the C
+# open (``connect``) and close (``close()`` and the GC finalizer) under one
+# process-wide lock makes that interleaving impossible, whatever the bundled
+# SQLite version. The critical sections are short: ``sqlite3_open_v2`` does no
+# page I/O, and PRAGMA key / WAL pragmas run *after* the lock is released.
+#
+# RLock: a GC finalizer may close a stray connection on a thread that already
+# holds the lock (allocation inside ``connect``); re-entry is safe because the
+# SQLite deadlock needs two threads inside SQLite at once.
+_SQLITE_OPEN_CLOSE_LOCK = threading.RLock()
+_SERIALIZED_CLASSES: dict[type, type] = {}
+_SERIALIZED_CLASSES_GUARD = threading.Lock()
+
+
+def sqlite_open_close_lock() -> threading.RLock:
+    """Process-wide lock held around SQLite/SQLCipher connection open and close."""
+    return _SQLITE_OPEN_CLOSE_LOCK
+
+
+def _make_serialized_connection_class(base: type) -> type:
+    # Bound locally: finalizers may run late in interpreter shutdown.
+    lock = _SQLITE_OPEN_CLOSE_LOCK
+    suppress = contextlib.suppress
+
+    class SerializedCloseConnection(base):  # type: ignore[misc, valid-type]
+        """DBAPI connection whose close (explicit or GC) holds the open/close lock."""
+
+        _bastion_serialized_close = True
+
+        def close(self) -> None:
+            with lock:
+                super().close()
+
+        def __del__(self) -> None:
+            # Without this, dealloc of an unclosed connection would run
+            # sqlite3_close_v2 outside the lock (and, for sqlcipher3, with the
+            # GIL held). Closing here leaves nothing for the C dealloc to do.
+            # A finalizer must never raise.
+            with suppress(Exception), lock:
+                base_finalizer = getattr(super(), "__del__", None)
+                if base_finalizer is not None:
+                    base_finalizer()  # stdlib 3.13+: ResourceWarning + close
+                else:
+                    super().close()
+
+    SerializedCloseConnection.__name__ = f"Serialized{base.__name__}"
+    SerializedCloseConnection.__qualname__ = SerializedCloseConnection.__name__
+    return SerializedCloseConnection
+
+
+def serialized_connection_class(base: type) -> type:
+    """Subclass of DBAPI ``Connection`` type ``base`` whose close takes the lock (cached)."""
+    if getattr(base, "_bastion_serialized_close", False):
+        return base
+    with _SERIALIZED_CLASSES_GUARD:
+        cls = _SERIALIZED_CLASSES.get(base)
+        if cls is None:
+            cls = _make_serialized_connection_class(base)
+            _SERIALIZED_CLASSES[base] = cls
+        return cls
+
+
+def connect_serialized(dbapi_module, *cargs, **cparams):
+    """``dbapi_module.connect`` under the open/close lock, with a serialized-close factory.
+
+    Works for ``sqlcipher3`` and stdlib ``sqlite3`` (both accept ``factory=``).
+    """
+    cparams["factory"] = serialized_connection_class(
+        cparams.get("factory") or dbapi_module.Connection
+    )
+    with _SQLITE_OPEN_CLOSE_LOCK:
+        return dbapi_module.connect(*cargs, **cparams)
+
+
+def _register_serialized_open_close(engine: Engine) -> None:
+    @event.listens_for(engine, "do_connect")
+    def _serialized_connect(dialect, _conn_rec, cargs, cparams):
+        return connect_serialized(dialect.loaded_dbapi, *cargs, **cparams)
+
+
 def _register_key_on_connect(engine: Engine, key_hex: str) -> None:
     @event.listens_for(engine, "connect")
     def _set_sqlcipher_key(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
@@ -212,6 +310,8 @@ def create_portal_engine(database_url: str, settings: Settings | None = None, **
     # SQLAlchemy 2.0 defaults sqlite to QueuePool(5+10); under concurrent
     # auth_request that exhausts instantly. File sqlite must use NullPool.
     # Tests may pass StaticPool / QueuePool explicitly — respect that.
+    # NullPool means one open + close per Session: those are serialized by
+    # _register_serialized_open_close (see incident note above).
     if "poolclass" not in engine_kwargs and "pool" not in engine_kwargs:
         if is_sqlite:
             engine_kwargs["poolclass"] = NullPool
@@ -227,12 +327,15 @@ def create_portal_engine(database_url: str, settings: Settings | None = None, **
         sqlcipher3 = _import_sqlcipher()
         engine_kwargs["module"] = sqlcipher3
         engine = create_engine(database_url, **engine_kwargs)
+        _register_serialized_open_close(engine)
         _register_key_on_connect(engine, key_hex)
         with engine.connect() as conn:
             verify_db_readable(conn)
         logger.info("SQLCipher enabled for portal database")
     else:
         engine = create_engine(database_url, **engine_kwargs)
+        if is_sqlite:
+            _register_serialized_open_close(engine)
 
     if is_sqlite:
 

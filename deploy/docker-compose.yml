@@ -127,16 +127,17 @@ services:
     depends_on:
       bastion-app-migrate:
         condition: service_completed_successfully
+    # Self-healing (incident 2026-11-06: process frozen with the GIL held, container
+    # "unhealthy" for hours — Docker never restarts an unhealthy container).
+    # init: docker-init is PID 1, so uvicorn can be SIGKILLed from inside; the
+    # healthcheck (app/healthcheck.py) does so after BASTION_HEALTHCHECK_KILL_AFTER
+    # consecutive failures (default 6 ≈ 3 min, 0 = off) and the restart policy
+    # brings the container back. No Docker socket needed.
+    init: true
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)",
-        ]
+      test: ["CMD", "python", "-m", "app.healthcheck"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 25s
     restart: unless-stopped

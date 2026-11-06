@@ -188,3 +188,30 @@ def test_ansible_docker_role_present():
     assert (role / "tasks" / "smoke_test.yml").is_file()
     assert (ROOT / "ansible" / "linux_sso_portal_docker.yml").is_file()
     assert (ROOT / "ansible" / "roles" / "bastion_edge_dmz" / "tasks" / "main.yml").is_file()
+
+
+COMPOSE_FILES = [ROOT / "docker-compose.yml", ROOT / "deploy" / "docker-compose.yml"]
+
+
+@pytest.mark.parametrize("compose", COMPOSE_FILES, ids=lambda p: p.relative_to(ROOT).as_posix())
+def test_bastion_app_restarts_itself_when_frozen(compose):
+    """Incident 2026-11-06: a GIL-frozen app stayed "unhealthy" for hours.
+
+    init: true keeps uvicorn off PID 1 so the healthcheck (app/healthcheck.py)
+    can SIGKILL it; restart policy then brings the container back — without
+    ever mounting the Docker socket into the bastion app.
+    """
+    block = _compose_service_block(compose, "bastion-app")
+    assert re.search(r"^    init: true$", block, re.MULTILINE), compose
+    assert 'test: ["CMD", "python", "-m", "app.healthcheck"]' in block
+    assert "restart: unless-stopped" in block
+    timeout = re.search(r"^      timeout: (\d+)s$", block, re.MULTILINE)
+    assert timeout and int(timeout.group(1)) >= 10  # probe 4 s + stack-dump grace 2 s
+    assert "docker.sock" not in block
+
+
+def test_dockerfile_healthcheck_uses_self_healing_probe():
+    text = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    runtime = text.split("AS runtime", 1)[1].split("AS migrate", 1)[0]
+    assert 'CMD ["python", "-m", "app.healthcheck"]' in runtime
+    assert (ROOT / "app" / "healthcheck.py").is_file()

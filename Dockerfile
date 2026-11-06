@@ -53,8 +53,10 @@ USER 65532
 EXPOSE 8000
 
 # No curl/shell in DHI runtime — probe with stdlib only (exec form).
-HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"]
+# app/healthcheck.py also SIGKILLs a frozen uvicorn when run with an init as
+# PID 1 (compose `init: true` / `docker run --init`); otherwise it only reports.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=25s --retries=3 \
+    CMD ["python", "-m", "app.healthcheck"]
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
