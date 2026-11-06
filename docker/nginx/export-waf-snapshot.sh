@@ -6,6 +6,8 @@ set -euo pipefail
 OUT="${NGINX_WAF_SNAPSHOT_PATH:-/var/log/nginx/apps/nginx-waf-snapshot.json}"
 TMP="${OUT}.tmp.$$"
 MODSEC="/etc/nginx/modsecurity"
+# CRS + shared settings, parsed once in nginx.conf http{} (families only add SecRuleEngine).
+COMMON="${MODSEC}/main-common.conf"
 NGINX_T="$(mktemp)"
 trap 'rm -f "$NGINX_T" "$TMP"' EXIT
 
@@ -81,7 +83,9 @@ family_json() {
       fi
     fi
   done < <(
-    grep -E '^[[:space:]]*Include[[:space:]]+' "$main" \
+    # nginx load order: shared http{} file (CRS, crs-setup, packs, exclusions),
+    # then the family overlay that only sets SecRuleEngine (its mode wins).
+    grep -hE '^[[:space:]]*Include[[:space:]]+' "$COMMON" "$main" 2>/dev/null \
       | sed -E 's/^[[:space:]]*Include[[:space:]]+([^[:space:]#;]+).*/\1/'
   )
 

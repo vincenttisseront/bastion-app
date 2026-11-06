@@ -35,6 +35,8 @@ from app.sso_settings import Settings
 _COL_REALLY_ACTIVE_NGINX = 'Réellement actif (nginx)'
 
 WAF_FAMILIES = ("portal", "subdomain", "public")
+# Shared rules file loaded once in nginx.conf http{} (CRS, crs-setup, packs, exclusions).
+COMMON_RULES_FILE = "main-common.conf"
 SNAPSHOT_SCHEMA_VERSION = 1
 DEFAULT_STALE_MINUTES = 15
 
@@ -174,6 +176,17 @@ def _includes_from_main(main_text: str) -> list[str]:
     return _INCLUDE_RE.findall(main_text or "")
 
 
+def _family_include_chain(nginx_root: Path, main_path: Path) -> list[str]:
+    """Includes in nginx load order: shared http{} file, then the family overlay.
+
+    The CRS + shared settings live in ``main-common.conf`` (parsed once in
+    nginx.conf http{}); ``main-{family}.conf`` only sets SecRuleEngine, so it
+    comes last and its mode wins.
+    """
+    common = _read_text(nginx_root / "modsecurity" / COMMON_RULES_FILE)
+    return _includes_from_main(common) + _includes_from_main(_read_text(main_path))
+
+
 def _combine_engine_includes(
     nginx_root: Path,
     family: str,
@@ -222,10 +235,9 @@ def _effective_engine_for_family(
     *,
     engine_overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Walk main-{family}.conf include chain from an explicit repo root (dev only)."""
+    """Walk main-common.conf + main-{family}.conf from an explicit repo root (dev only)."""
     main_path = nginx_root / "modsecurity" / f"main-{family}.conf"
-    main_text = _read_text(main_path)
-    includes = _includes_from_main(main_text)
+    includes = _family_include_chain(nginx_root, main_path)
     engine_mode_gen_loaded = any(
         "engine-mode-generated.conf" in inc for inc in includes
     )
