@@ -449,7 +449,7 @@
             <span class="ds-accordion-summary">{{ _('Export de la clé active (passphrase requise)') }}</span>
           </div>
           <div class="ds-accordion-panel" id="vault-panel-export" hidden>
-            <form method="post" action="/admin/security/vault-key/export" class="stack">
+            <form method="post" action="/admin/security/vault-key/export" class="stack" data-bastion-download>
               <div class="form-group">
                 <label class="form-label" for="export_passphrase">{{ _('Passphrase (≥ 12 car.)') }}</label>
                 <input class="form-input" type="password" name="passphrase" id="export_passphrase"

@@ -14,7 +14,8 @@
       </p>
     </div>
     <div style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;">
-      <form method="post" action="/admin/infrastructure/apply" style="margin:0;">
+      <form method="post" action="/admin/infrastructure/apply" style="margin:0;"
+            data-bastion-busy-label="{{ _('Application de l’infrastructure…') }}">
         <button type="submit" class="btn btn-primary btn-sm">{{ _("Appliquer l'infrastructure") }}</button>
       </form>
     </div>

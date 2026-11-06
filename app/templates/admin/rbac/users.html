@@ -648,6 +648,12 @@
       return;
     }
     timer = setTimeout(async function () {
+      var done = window.BastionBusy
+        ? window.BastionBusy.start({
+            target: tbody.closest('.table-wrap'),
+            label: window.BastionI18n ? window.BastionI18n.t('Recherche en cours…') : 'Recherche en cours…',
+          })
+        : function () {};
       try {
         var url = '/admin/rbac/users/search?realm_id=' + encodeURIComponent(realmSelect.value) +
           '&q=' + encodeURIComponent(q);
@@ -665,6 +671,8 @@
       } catch (e) {
         tbody.innerHTML =
           '<tr><td colspan="3"><div class="alert alert-warn" style="margin:var(--sp-3);">Erreur réseau</div></td></tr>';
+      } finally {
+        done();
       }
     }, 280);
   }

@@ -273,12 +273,6 @@ body.app-layout{display:flex;min-height:100vh}
 }
 .notif-empty-title{font-weight:600;color:var(--text);margin:0 0 4px}
 .notif-empty-desc{margin:0;font-size:var(--fs-xs);color:var(--text-3);line-height:1.4}
-.notif-spinner{
-  display:inline-block;width:14px;height:14px;border:2px solid var(--border-bright);
-  border-top-color:var(--accent);border-radius:50%;animation:notif-spin .7s linear infinite;
-  vertical-align:-2px;margin-right:6px;
-}
-@keyframes notif-spin{to{transform:rotate(360deg)}}
 .notif-shortcuts-label{
   padding:var(--sp-2) var(--sp-4) 0;font-size:10px;font-weight:700;letter-spacing:.06em;
   text-transform:uppercase;color:var(--text-3);

@@ -98,17 +98,28 @@
     updateMetrics(counts, score);
   }
 
+  // Shared spinner (bastion-busy.js) inside the button; the probe skips the page overlay.
   function setButtonLoading(btn, loading) {
     if (!btn) return;
-    btn.disabled = loading;
-    btn.dataset.originalLabel = btn.dataset.originalLabel || btn.textContent;
-    btn.textContent = loading ? 'Test…' : btn.dataset.originalLabel;
+    if (loading) {
+      if (!btn._busyStop && window.BastionBusy && window.BastionBusy.start) {
+        var label = window.BastionI18n ? window.BastionI18n.t('Sonde en cours…') : 'Sonde en cours…';
+        btn._busyStop = window.BastionBusy.start({ button: btn, label: label });
+      }
+      btn.disabled = true;
+    } else {
+      if (btn._busyStop) {
+        btn._busyStop();
+        btn._busyStop = null;
+      }
+      btn.disabled = false;
+    }
   }
 
   async function probeApp(appId, btn) {
     setButtonLoading(btn, true);
     try {
-      var resp = await fetch('/admin/health/probe/' + appId, { method: 'POST', headers: { Accept: 'application/json' } });
+      var resp = await fetch('/admin/health/probe/' + appId, { method: 'POST', bastionBusy: false, headers: { Accept: 'application/json' } });
       if (!resp.ok) throw new Error('Probe failed');
       var payload = await resp.json();
       var row = document.querySelector('[data-probe-row][data-app-id="' + appId + '"]');
@@ -127,7 +138,7 @@
   async function probeAll(btn) {
     setButtonLoading(btn, true);
     try {
-      var resp = await fetch('/admin/health/probe-all', { method: 'POST', headers: { Accept: 'application/json' } });
+      var resp = await fetch('/admin/health/probe-all', { method: 'POST', bastionBusy: false, headers: { Accept: 'application/json' } });
       if (!resp.ok) throw new Error('Probe-all failed');
       var data = await resp.json();
       (data.results || []).forEach(function (payload) {

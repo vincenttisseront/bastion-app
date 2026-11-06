@@ -37,56 +37,93 @@
   'model_label': _('Modèle'),
   'target': _('Cible')
 } %}
-<div class="page" id="admin-logs-page"
+{% set app_access_apps = app_access_apps | default([]) %}
+<div class="page bp-stitch" id="admin-logs-page"
      data-sse-timeout="{{ admin_logs_sse_timeout_seconds }}"
      data-docker-enabled="{{ '1' if docker_logs_enabled else '0' }}"
      data-tail-lines="{{ docker_logs_tail_lines }}"
      data-columns="{{ visible_columns | join(',') }}"
-     data-focus-audit-id="{{ focus_audit_id or '' }}">
-  <div class="page-header">
-    <div>
+     data-focus-audit-id="{{ focus_audit_id or '' }}"
+     data-label-loading="{{ _('Chargement des journaux…') }}">
+  <header class="bp-page-head">
+    <div class="bp-page-head-text">
       <h1 class="page-title">{{ _("Journaux d'administration") }}</h1>
-      <p class="page-sub" id="audit-sub">{{ total }} {{ _('entrée(s) — logins, refus, hôtes non traités') }}</p>
+      <p class="page-sub" id="audit-sub">{{ _('Audit du portail, access logs nginx par application et logs des containers.') }}</p>
     </div>
-  </div>
+    <div class="bp-page-head-actions">
+      <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue">{{ _('Catalogue des événements') }}</a>
+    </div>
+  </header>
 
-  <div class="tabs" role="tablist" aria-label="{{ _('Sections logs') }}" id="logs-tabs">
-    <a href="#audit" class="tab active" role="tab" data-tab="audit" id="tab-audit" aria-selected="true">{{ _('Audit') }}</a>
-    <a href="#app-access" class="tab" role="tab" data-tab="app-access" id="tab-app-access" aria-selected="false">{{ _('Accès apps') }}</a>
-    <a href="#containers" class="tab" role="tab" data-tab="containers" id="tab-containers" aria-selected="false">Containers</a>
-  </div>
+  <nav class="bp-tabbar logs-tabbar" aria-label="{{ _('Sections logs') }}">
+    <div class="tabs" role="tablist" aria-label="{{ _('Sections logs') }}" id="logs-tabs">
+      <a href="#audit" class="tab active" role="tab" data-tab="audit" id="tab-audit" aria-selected="true">{{ _('Audit') }}<span class="badge badge-muted tab-badge">{{ total }}</span></a>
+      <a href="#app-access" class="tab" role="tab" data-tab="app-access" id="tab-app-access" aria-selected="false">{{ _('Accès apps') }}{% if app_access_apps %}<span class="badge badge-muted tab-badge">{{ app_access_apps | length }}</span>{% endif %}</a>
+      <a href="#containers" class="tab" role="tab" data-tab="containers" id="tab-containers" aria-selected="false">Containers{% if docker_logs_enabled and docker_containers %}<span class="badge badge-muted tab-badge">{{ docker_containers | length }}</span>{% endif %}</a>
+    </div>
+  </nav>
 
   <div class="logs-panel" id="audit" role="tabpanel" aria-labelledby="tab-audit">
-    {% if integrity %}
-    <div class="integrity-bar" style="margin-bottom:var(--sp-3);">
-      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      <span class="integrity-score">{{ integrity.score }}%</span>
-      <span class="integrity-label">{{ _('Intégrité des logs') }}</span>
-      <span class="badge badge-{{ 'ok' if integrity.ok else 'err' }}">{{ 'VALIDÉ' if integrity.ok else 'ALTÉRÉ' }}</span>
-      <span class="integrity-hash font-mono">SHA256: {{ integrity.hash[:32] }}…</span>
-    </div>
-    {% endif %}
-    <div class="logs-views">
-      <a class="btn btn-sm{% if not active_view_id %} btn-secondary{% else %} btn-ghost{% endif %}" href="/admin/logs#audit"{% if not active_view_id %} aria-current="true"{% endif %}>Tout</a>
-      {% for v in saved_views %}
-      <a class="btn btn-sm{% if active_view_id == v.id %} btn-secondary{% else %} btn-ghost{% endif %}" href="/admin/logs?view={{ v.id }}#audit"{% if active_view_id == v.id %} aria-current="true"{% endif %}>{{ v.name }}{% if v.is_system %} ★{% endif %}</a>
-      {% if not v.is_system %}
-      <form method="post" action="/admin/logs/views/{{ v.id }}/delete" class="inline-form">
-        <button type="submit" class="btn btn-ghost btn-sm" title="{{ _('Supprimer la vue') }}">×</button>
-      </form>
-      {% endif %}
-      {% endfor %}
-      <span style="flex:1;"></span>
-      <a class="btn btn-ghost btn-sm" href="/admin/logs/catalogue">{{ _('Catalogue') }}</a>
-      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=csv{% if export_query %}&amp;{{ export_query }}{% endif %}">{{ _('↓ CSV') }}</a>
-      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=pdf{% if export_query %}&amp;{{ export_query }}{% endif %}">{{ _('↓ PDF') }}</a>
+    <div class="bp-section-head">
+      <div class="bp-section-head-text">
+        <h2 class="bp-section-title">{{ _('Audit') }}</h2>
+        <p class="bp-section-sub">{{ _('Connexions, refus, hôtes non traités et actions d’administration, signés et chaînés.') }}</p>
+      </div>
+      <div class="bp-section-actions">
+        <a class="btn btn-secondary btn-sm" href="/admin/logs?export=csv{% if export_query %}&amp;{{ export_query }}{% endif %}" data-bastion-download>{{ _('↓ CSV') }}</a>
+        <a class="btn btn-secondary btn-sm" href="/admin/logs?export=pdf{% if export_query %}&amp;{{ export_query }}{% endif %}" data-bastion-download
+           data-bastion-busy-label="{{ _('Génération du PDF…') }}">{{ _('↓ PDF') }}</a>
+      </div>
     </div>
 
-    {% if uncatalogued_count %}
-    <p class="page-sub" id="uncatalogued-banner">{{ uncatalogued_count }} {{ _('type(s) d’événements non catalogués sur la période.') }}</p>
-    {% endif %}
+    <div class="bp-card logs-summary">
+      <div class="bp-stats">
+        <div class="bp-stat">
+          <span class="bp-stat-label">{{ _('Entrées') }}</span>
+          <span class="bp-stat-value">{{ total }}</span>
+          <span class="bp-stat-sub">{{ _('avec les filtres actuels') }}</span>
+        </div>
+        <div class="bp-stat{% if integrity and not integrity.ok %} bp-stat--err{% endif %}">
+          <span class="bp-stat-label">{{ _('Intégrité des logs') }}</span>
+          {% if integrity %}
+          <span class="bp-stat-value">{{ integrity.score }}%
+            <span class="badge badge-{{ 'ok' if integrity.ok else 'err' }}">{{ 'VALIDÉ' if integrity.ok else 'ALTÉRÉ' }}</span></span>
+          <span class="bp-stat-sub logs-hash" title="SHA256 {{ integrity.hash }}">SHA256 <span class="font-mono">{{ integrity.hash[:24] }}…</span></span>
+          {% else %}
+          <span class="bp-stat-value">—</span>
+          <span class="bp-stat-sub">{{ _('Non calculée : stockage chaud injoignable') }}</span>
+          {% endif %}
+        </div>
+        <div class="bp-stat{% if uncatalogued_count %} bp-stat--warn{% endif %}">
+          <span class="bp-stat-label">{{ _('Types non catalogués') }}</span>
+          <span class="bp-stat-value">{{ uncatalogued_count or 0 }}</span>
+          <span class="bp-stat-sub">{% if uncatalogued_count %}{{ _('type(s) d’événements non catalogués sur la période.') }}{% else %}{{ _('Tous les événements de la période sont catalogués.') }}{% endif %}</span>
+        </div>
+      </div>
+    </div>
 
-    <form class="logs-filters" method="get" action="/admin/logs" id="audit-filters" data-live-search data-live-delay="400">
+    <div class="bp-card logs-filters-card">
+      <div class="bp-card-head">
+        <div>
+          <h3 class="bp-card-title">{{ _('Filtres') }}</h3>
+        </div>
+        <div class="logs-views" role="group" aria-label="{{ _('Vues enregistrées') }}">
+          <span class="logs-views-label">{{ _('Vues') }}</span>
+          <a class="btn btn-sm{% if not active_view_id %} btn-secondary{% else %} btn-ghost{% endif %}" href="/admin/logs#audit"{% if not active_view_id %} aria-current="true"{% endif %} data-bastion-busy-target="#audit-table-wrap" data-bastion-busy-label="{{ _('Chargement des journaux…') }}">Tout</a>
+          {% for v in saved_views %}
+          <span class="logs-view">
+            <a class="btn btn-sm{% if active_view_id == v.id %} btn-secondary{% else %} btn-ghost{% endif %}" href="/admin/logs?view={{ v.id }}#audit"{% if active_view_id == v.id %} aria-current="true"{% endif %} data-bastion-busy-target="#audit-table-wrap" data-bastion-busy-label="{{ _('Chargement des journaux…') }}">{{ v.name }}{% if v.is_system %} ★{% endif %}</a>
+            {% if not v.is_system %}
+            <form method="post" action="/admin/logs/views/{{ v.id }}/delete" class="inline-form">
+              <button type="submit" class="btn btn-ghost btn-sm logs-view-delete" title="{{ _('Supprimer la vue') }}" aria-label="{{ _('Supprimer la vue') }} {{ v.name }}">×</button>
+            </form>
+            {% endif %}
+          </span>
+          {% endfor %}
+        </div>
+      </div>
+    <form class="logs-filters bp-card-body" method="get" action="/admin/logs" id="audit-filters" data-live-search data-live-delay="400"
+          data-bastion-busy-target="#audit-table-wrap" data-bastion-busy-label="{{ _('Chargement des journaux…') }}">
       <input type="hidden" name="columns" id="filter-columns" value="{{ visible_columns | join(',') }}">
       <div class="logs-filters-row">
         <div class="logs-filters-grid">
@@ -188,18 +225,28 @@
         </div>
       </div>
     </form>
-
-    {% if active_chips %}
-    <div class="logs-chip-row" id="audit-chips">
-      {% for chip in active_chips %}
-      <span class="logs-chip" data-chip-key="{{ chip.key }}">{{ chip.label }}
-        <button type="button" class="chip-remove" aria-label="Retirer">×</button>
-      </span>
-      {% endfor %}
+      {% if active_chips %}
+      <div class="bp-card-foot logs-chip-row" id="audit-chips">
+        <span class="logs-chip-row-label">{{ _('Filtres actifs') }}</span>
+        {% for chip in active_chips %}
+        <span class="logs-chip" data-chip-key="{{ chip.key }}">{{ chip.label }}
+          <button type="button" class="chip-remove" aria-label="Retirer">×</button>
+        </span>
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
-    {% endif %}
 
-    <div class="card logs-table-wrap">
+    <div class="bp-card logs-table-card" id="audit-table-wrap">
+      <div class="bp-card-head">
+        <div>
+          <h3 class="bp-card-title">{{ _('Événements') }}</h3>
+          <p class="bp-card-sub">{{ _('Les plus récents en premier — cliquez une ligne pour le détail.') }}</p>
+        </div>
+        <span class="bp-card-meta">{{ total }} {{ _('entrée(s)') }}{% if total_pages > 1 %} · {{ _('page') }} {{ page }} / {{ total_pages }}{% endif %}</span>
+      </div>
+      <div class="bp-card-body bp-card-body--flush">
+      <div class="table-wrap logs-table-wrap">
       <table class="data-table" id="audit-table">
         <thead>
           <tr>
@@ -271,32 +318,44 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
+      </div>
     {% if total_pages > 1 %}
+    <div class="bp-card-foot logs-table-foot">
     <nav class="logs-pager" id="audit-pagination" aria-label="{{ _('Pagination des journaux') }}">
       <a class="btn btn-ghost btn-sm logs-pager-btn{% if page <= 1 %} is-disabled{% endif %}"
-         id="page-prev" href="#" aria-label="{{ _('Page précédente') }}"{% if page <= 1 %} aria-disabled="true"{% endif %}>←</a>
+         id="page-prev" href="#" aria-label="{{ _('Page précédente') }}"{% if page <= 1 %} aria-disabled="true"{% endif %} data-bastion-busy-target="#audit-table-wrap" data-bastion-busy-label="{{ _('Chargement des journaux…') }}">←</a>
       <span class="logs-pager-status">{{ page }} / {{ total_pages }}</span>
       <a class="btn btn-ghost btn-sm logs-pager-btn{% if page >= total_pages %} is-disabled{% endif %}"
-         id="page-next" href="#" aria-label="{{ _('Page suivante') }}"{% if page >= total_pages %} aria-disabled="true"{% endif %}>→</a>
+         id="page-next" href="#" aria-label="{{ _('Page suivante') }}"{% if page >= total_pages %} aria-disabled="true"{% endif %} data-bastion-busy-target="#audit-table-wrap" data-bastion-busy-label="{{ _('Chargement des journaux…') }}">→</a>
     </nav>
+    </div>
     {% endif %}
     </div>
   </div>
 
   <div class="logs-panel" id="app-access" role="tabpanel" aria-labelledby="tab-app-access" hidden>
-    {% set app_access_apps = app_access_apps | default([]) %}
+    <div class="bp-section-head">
+      <div class="bp-section-head-text">
+        <h2 class="bp-section-title">{{ _('Accès apps') }}</h2>
+        <p class="bp-section-sub">{{ _('Journal d’accès nginx (') }}<span class="mono">{slug}.access.log</span>{{ _(') — cliquez une ligne pour le détail.') }}</p>
+      </div>
+    </div>
     {% if not app_access_apps %}
-    <div class="card card-body">
-      <p class="page-sub">
-{{ _('Aucune application en proxy (public ou sous-domaine) avec FQDN.') }}
-
-        {{ _("Les access logs nginx apparaîtront ici après configuration d'une app") }}
-        <span class="mono">public_proxy</span> ou <span class="mono">subdomain_proxy</span>.
-      </p>
+    <div class="bp-card">
+      <div class="bp-card-body">
+        <p class="logs-empty-note">
+          {{ _('Aucune application en proxy (public ou sous-domaine) avec FQDN.') }}
+          {{ _("Les access logs nginx apparaîtront ici après configuration d'une app") }}
+          <span class="mono">public_proxy</span> ou <span class="mono">subdomain_proxy</span>.
+        </p>
+      </div>
     </div>
     {% else %}
-    <div class="logs-toolbar audit-toolbar">
-      <label class="form-label" for="app-access-select">{{ _('Application') }}</label>
+    <div class="bp-card logs-table-card" id="app-access-table-wrap">
+    <div class="bp-card-head logs-source-head">
+    <div class="logs-toolbar">
+      <label class="logs-toolbar-label" for="app-access-select">{{ _('Application') }}</label>
       <select class="form-select" id="app-access-select">
         <option value="">{{ _('— Choisir —') }}</option>
         {% for a in app_access_apps %}
@@ -309,16 +368,13 @@
       <button type="button" class="btn btn-secondary btn-sm" id="app-access-copy-btn" disabled>Copier</button>
       <span class="live-status" id="app-access-live-status" hidden>Live</span>
     </div>
-    <p class="form-help mb-2">
-{{ _('Journal d’accès nginx (') }}<span class="mono">{slug}.access.log</span>{{ _(') — cliquez une ligne pour le détail.') }}
-
-    </p>
-    <label class="form-help" style="display:inline-flex;align-items:center;gap:8px;margin-bottom:var(--sp-3);">
+    <label class="logs-inline-check">
       <input type="checkbox" id="app-access-show-internal"> {{ _('Afficher hops internes (:8080)') }}
-
     </label>
-    <p class="form-help dep-filter-empty" id="app-access-message" hidden></p>
-    <div class="table-wrap">
+    </div>
+    <p class="form-help dep-filter-empty logs-card-message" id="app-access-message" hidden></p>
+    <div class="bp-card-body bp-card-body--flush">
+    <div class="table-wrap logs-table-wrap">
       <table class="data-table" id="app-access-table">
         <thead>
           <tr>
@@ -345,21 +401,33 @@
         </tbody>
       </table>
     </div>
+    </div>
     <pre class="container-logs-pre font-mono" id="app-access-pre" hidden aria-hidden="true"></pre>
+    </div>
     {% endif %}
   </div>
 
   <div class="logs-panel" id="containers" role="tabpanel" aria-labelledby="tab-containers" hidden>
+    <div class="bp-section-head">
+      <div class="bp-section-head-text">
+        <h2 class="bp-section-title">Containers</h2>
+        <p class="bp-section-sub">{{ _('Logs des containers autorisés, lus par le proxy Docker en lecture seule.') }}</p>
+      </div>
+    </div>
     {% if not docker_logs_enabled %}
-    <div class="card card-body">
-      <p class="page-sub">
-        {{ _('Logs containers désactivés. Activez et configurez le proxy en lecture seule dans') }}
-        <a href="/admin/security#container-logs">{{ _('Admin → Sécurité → Logs containers') }}</a>.
-      </p>
+    <div class="bp-card">
+      <div class="bp-card-body">
+        <p class="logs-empty-note">
+          {{ _('Logs containers désactivés. Activez et configurez le proxy en lecture seule dans') }}
+          <a href="/admin/security#container-logs">{{ _('Admin → Sécurité → Logs containers') }}</a>.
+        </p>
+      </div>
     </div>
     {% else %}
-    <div class="logs-toolbar audit-toolbar">
-      <label class="form-label" for="container-select">Container</label>
+    <div class="bp-card">
+    <div class="bp-card-head logs-source-head">
+    <div class="logs-toolbar">
+      <label class="logs-toolbar-label" for="container-select">Container</label>
       <select class="form-select" id="container-select">
         <option value="">{{ _('— Choisir —') }}</option>
         {% for c in docker_containers %}
@@ -372,8 +440,11 @@
       <button type="button" class="btn btn-secondary btn-sm" id="container-copy-btn" disabled>Copier</button>
       <span class="live-status" id="container-live-status" hidden>Live</span>
     </div>
-    <div class="card">
+    <span class="bp-card-meta">{{ docker_logs_tail_lines }} {{ _('dernières lignes') }}</span>
+    </div>
+    <div class="bp-card-body bp-card-body--flush">
       <pre class="container-logs-pre font-mono" id="container-logs-pre" aria-live="polite">{{ _('Sélectionnez un container de la liste blanche.') }}</pre>
+    </div>
     </div>
     {% endif %}
   </div>
@@ -400,10 +471,7 @@
 {% endblock %}
 
 {% block head_extra %}
-<style>
-{{ _('.live-status { animation: admin-live-pulse 1.6s ease-in-out infinite; } @keyframes admin-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } } #audit-tbody tr.audit-row-live { animation: admin-audit-row-flash 2s ease-out; } @keyframes admin-audit-row-flash { 0% { background: rgba(16, 185, 129, 0.28); } 100% { background: transparent; } } .container-logs-pre { margin: 0; padding: var(--sp-4); max-height: 28rem; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 0.8em; line-height: 1.45; background: var(--bg-tertiary); } .inline-form { display: inline; }') }}
-
-</style>
+<link rel="stylesheet" href="/static/css/admin-logs.css?v=20261106-logs-stitch">
 {% endblock %}
 
 {% block scripts %}
@@ -413,6 +481,18 @@
   if (!page) return;
   var COLS = (page.getAttribute('data-columns') || 'timestamp,actor,action,ip,result,detail').split(',');
   var VALID = ['audit', 'app-access', 'containers'];
+
+  /* Shared loading indicator (bastion-busy.js) */
+  function T(s) { return window.BastionI18n ? window.BastionI18n.t(s) : s; }
+  var LOGS_LOADING = page.getAttribute('data-label-loading') || T('Chargement des journaux…');
+  function busyStart(opts) {
+    return window.BastionBusy && window.BastionBusy.start ? window.BastionBusy.start(opts) : function () {};
+  }
+  function auditBusy() {
+    if (window.BastionBusy && window.BastionBusy.navigating) {
+      window.BastionBusy.navigating({ target: document.getElementById('audit-table-wrap'), label: LOGS_LOADING });
+    }
+  }
 
   function currentTab() {
     var h = (location.hash || '').replace(/^#/, '');
@@ -536,6 +616,7 @@
         p.delete(key);
       }
       p.delete('page');
+      auditBusy();
       location.href = '/admin/logs?' + p.toString() + '#audit';
     });
   });
@@ -558,6 +639,7 @@
         function (el) { return el.value; }
       );
       document.getElementById('cols-form-value').value = selected.join(',');
+      auditBusy();
       document.getElementById('cols-form').submit();
     });
   }
@@ -579,6 +661,7 @@
       document.getElementById('view-form-name').value = String(name).trim();
       document.getElementById('view-form-filters').value = JSON.stringify(currentFilters());
       document.getElementById('view-form-columns').value = COLS.join(',');
+      auditBusy();
       document.getElementById('view-form').submit();
     });
   }
@@ -839,12 +922,17 @@
   var auditBtn = document.getElementById('audit-live-btn');
   var auditStatus = document.getElementById('audit-live-status');
   var auditEs = null;
+  var auditConnecting = null;
   var seenIds = {};
   document.querySelectorAll('#audit-tbody tr[data-audit-id]').forEach(function (tr) {
     seenIds[tr.getAttribute('data-audit-id')] = true;
   });
 
+  function liveConnecting(btn) {
+    return busyStart({ button: btn, label: T('Connexion au flux…'), disable: false });
+  }
   function stopAuditLive() {
+    if (auditConnecting) { auditConnecting(); auditConnecting = null; }
     if (auditEs) { auditEs.close(); auditEs = null; }
     if (auditBtn) { auditBtn.setAttribute('aria-pressed', 'false'); auditBtn.textContent = '● Live'; }
     if (auditStatus) auditStatus.hidden = true;
@@ -861,6 +949,10 @@
     auditEs = new EventSource('/admin/logs/stream' + (q ? ('?' + q) : ''));
     if (auditBtn) { auditBtn.setAttribute('aria-pressed', 'true'); auditBtn.textContent = '● Live ON'; }
     if (auditStatus) auditStatus.hidden = false;
+    auditConnecting = liveConnecting(auditBtn);
+    auditEs.onopen = auditEs.onerror = function () {
+      if (auditConnecting) { auditConnecting(); auditConnecting = null; }
+    };
     auditEs.onmessage = function (ev) {
       if (!ev.data) return;
       var e;
@@ -889,7 +981,9 @@
   var pre = document.getElementById('container-logs-pre');
   var liveStatus = document.getElementById('container-live-status');
   var containerEs = null;
+  var containerConnecting = null;
   function stopContainerLive() {
+    if (containerConnecting) { containerConnecting(); containerConnecting = null; }
     if (containerEs) { containerEs.close(); containerEs = null; }
     if (liveBtn) { liveBtn.setAttribute('aria-pressed', 'false'); liveBtn.textContent = '● Live'; }
     if (liveStatus) liveStatus.hidden = true;
@@ -901,7 +995,7 @@
   async function loadContainerSnapshot() {
     if (!sel || !sel.value || !pre) return;
     stopContainerLive();
-    pre.textContent = 'Chargement…';
+    var done = busyStart({ target: pre.parentElement, label: LOGS_LOADING });
     try {
       var resp = await fetch('/admin/logs/containers/' + encodeURIComponent(sel.value) + '/logs', {
         headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
@@ -911,6 +1005,7 @@
       pre.textContent = data.text || '(vide)';
       setContainerButtons(true);
     } catch (err) { pre.textContent = 'Erreur réseau.'; setContainerButtons(false); }
+    finally { done(); }
   }
   function startContainerLive() {
     if (!sel || !sel.value || !pre) return;
@@ -918,6 +1013,10 @@
     containerEs = new EventSource('/admin/logs/containers/' + encodeURIComponent(sel.value) + '/stream');
     if (liveBtn) { liveBtn.setAttribute('aria-pressed', 'true'); liveBtn.textContent = '● Live ON'; }
     if (liveStatus) liveStatus.hidden = false;
+    containerConnecting = liveConnecting(liveBtn);
+    containerEs.onopen = containerEs.onerror = function () {
+      if (containerConnecting) { containerConnecting(); containerConnecting = null; }
+    };
     containerEs.onmessage = function (ev) {
       if (!ev.data) return;
       var payload;
@@ -951,11 +1050,13 @@
   var appMsg = document.getElementById('app-access-message');
   var appShowInternal = document.getElementById('app-access-show-internal');
   var appEs = null;
+  var appConnecting = null;
   var appEntries = [];
   var appRawText = '';
   var appSeq = 0;
 
   function stopAppAccessLive() {
+    if (appConnecting) { appConnecting(); appConnecting = null; }
     if (appEs) { appEs.close(); appEs = null; }
     if (appLiveBtn) { appLiveBtn.setAttribute('aria-pressed', 'false'); appLiveBtn.textContent = '● Live'; }
     if (appLiveStatus) appLiveStatus.hidden = true;
@@ -1042,10 +1143,11 @@
   async function loadAppAccessSnapshot() {
     if (!appSel || !appSel.value) return;
     stopAppAccessLive();
-    setAppAccessMessage('Chargement…');
+    setAppAccessMessage('');
     appEntries = [];
     appRawText = '';
     renderAppAccessRows();
+    var done = busyStart({ target: document.getElementById('app-access-table-wrap'), label: LOGS_LOADING });
     try {
       var resp = await fetch('/admin/logs/apps/' + encodeURIComponent(appSel.value) + '/access', {
         headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
@@ -1065,6 +1167,8 @@
     } catch (err) {
       setAppAccessMessage('Erreur réseau');
       setAppAccessButtons(false);
+    } finally {
+      done();
     }
   }
   function startAppAccessLive() {
@@ -1073,6 +1177,10 @@
     appEs = new EventSource('/admin/logs/apps/' + encodeURIComponent(appSel.value) + '/stream');
     if (appLiveBtn) { appLiveBtn.setAttribute('aria-pressed', 'true'); appLiveBtn.textContent = '● Live ON'; }
     if (appLiveStatus) appLiveStatus.hidden = false;
+    appConnecting = liveConnecting(appLiveBtn);
+    appEs.onopen = appEs.onerror = function () {
+      if (appConnecting) { appConnecting(); appConnecting = null; }
+    };
     var first = true;
     appEs.onmessage = function (ev) {
       if (!ev.data) return;
