@@ -207,8 +207,9 @@
     to docker exec "$cid" nginx -t 2>&1 || true
     echo "=== generated crs-setup (head) ==="
     to docker exec "$cid" head -n 80 /etc/nginx/modsecurity/generated/crs-setup-generated.conf || true
-    echo "=== main-portal Include lines ==="
-    to docker exec "$cid" grep -n Include /etc/nginx/modsecurity/main-portal.conf || true
+    echo "=== main-common (http{}, CRS) + main-portal Include lines ==="
+    to docker exec "$cid" grep -n Include /etc/nginx/modsecurity/main-common.conf \
+      /etc/nginx/modsecurity/main-portal.conf || true
     echo "=== error.log (tail) ==="
     to docker exec "$cid" tail -n 40 /var/log/nginx/error.log 2>/dev/null || true
     echo "=== container logs (tail) ==="
