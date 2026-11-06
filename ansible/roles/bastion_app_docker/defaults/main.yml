@@ -115,6 +115,14 @@ hot_store_pg_password_resolved: >-
 # development | production
 portal_environment: production
 
+# nginx container memory cap → BASTION_NGINX_MEM_LIMIT in .env (compose mem_limit).
+# nginx parses the OWASP CRS once per WAF vhost (~830 MB resident with ~25
+# vhosts) and every ``nginx -t`` / reload loads one more full copy: under 2g the
+# kernel OOM-kills nginx when two reloads come close (e.g. bastion-app restart
+# rewriting exports) and the container restarts, cutting every vhost.
+# Docker size syntax (512m, 4g, …). Empty → compose default (deploy/: 2g).
+bastion_nginx_mem_limit: "4g"
+
 # Docker Hardened Images (dhi.io) — pull requires Docker Hub auth (PAT recommended).
 # AWX Vault / Extra Vars:
 #   vault_dhi_registry_username  — Docker ID or org name

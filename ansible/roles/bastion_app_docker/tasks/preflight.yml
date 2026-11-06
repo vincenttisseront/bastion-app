@@ -65,6 +65,18 @@
       Les HMAC (session hop, breakglass JWT) sont initialisés en base
       (portal_settings) par le job migrate — pas via .env.
 
+- name: "PREFLIGHT : limite mémoire nginx"
+  ansible.builtin.assert:
+    that:
+      - (bastion_nginx_mem_limit | default('') | string | trim | length == 0)
+        or (bastion_nginx_mem_limit | string | trim is match('^[0-9]+[kKmMgG]$'))
+    fail_msg: >-
+      bastion_nginx_mem_limit invalide ({{ bastion_nginx_mem_limit }}) : attendu
+      un entier suivi de k, m ou g (ex. 4g), ou vide pour garder la valeur par
+      défaut du compose. nginx garde le CRS en mémoire une fois par vhost WAF et
+      chaque reload en charge une copie de plus : sous 2g, il est tué par le
+      noyau (OOM) dès que deux reloads se suivent.
+
 - name: "PREFLIGHT : stat pgdata (stockage chaud provisionné ?)"
   ansible.builtin.stat:
     path: "{{ bastion_app_docker_data_dir }}/pgdata"
