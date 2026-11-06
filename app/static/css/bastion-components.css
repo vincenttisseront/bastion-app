@@ -339,7 +339,6 @@
 .card-flush{padding:0}
 .card-body.card-flush .table-wrap{border:none;border-radius:0;box-shadow:none}
 .toolbar-date{width:auto}
-.logs-empty-cell{padding:var(--sp-6)}
 .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--sp-3)}
 .form-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3)}
 .check-row{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-sm);cursor:pointer}
@@ -1002,138 +1001,7 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 .login-form-analyze-panel .analyze-form-choice{
   display:block;width:100%;text-align:left;margin:var(--sp-2) 0 0;
 }
-/* /admin/logs Event Viewer-style */
-.logs-chip-row{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;margin:var(--sp-2) 0 var(--sp-3)}
-.logs-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:var(--r-full);font-size:var(--fs-xs);font-weight:700;background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-2)}
-.logs-chip button{border:0;background:transparent;color:var(--text-3);cursor:pointer;font-size:var(--fs-sm);line-height:1;padding:0}
-.logs-chip button:hover{color:var(--err)}
-.logs-toolbar{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
-.logs-toolbar .form-input,.logs-toolbar .form-select{width:auto;min-width:0;max-width:18rem}
-.logs-filters{
-  display:flex;flex-direction:column;gap:var(--sp-2);
-  padding:var(--sp-3);margin-bottom:var(--sp-3);
-  background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-lg);
-}
-.logs-filters-row{
-  display:flex;flex-wrap:wrap;gap:var(--sp-2) var(--sp-3);
-  align-items:flex-end;
-}
-.logs-filters-grid{
-  display:flex;flex-wrap:wrap;gap:var(--sp-2) var(--sp-3);
-  align-items:flex-end;flex:1 1 auto;min-width:0;
-}
-.logs-filter-field{
-  display:flex;flex-direction:column;gap:2px;
-  flex:0 1 auto;min-width:0;
-}
-.logs-filter-field .form-label{
-  margin:0;font-size:10px;letter-spacing:.06em;line-height:1.2;
-}
-.logs-filter-field .form-input,
-.logs-filter-field .form-select{
-  width:auto;max-width:none;min-width:6.5rem;box-sizing:border-box;
-  min-height:1.875rem;padding:3px 8px;font-size:var(--fs-xs);line-height:1.3;
-  border-radius:var(--r-sm);
-}
-.logs-filter-field input[type="date"].form-input{min-width:9.25rem;max-width:10.5rem}
-.logs-filter-field .form-select{min-width:8rem;max-width:14rem}
-.logs-filter-grow{flex:1 1 11rem;min-width:9rem}
-.logs-filter-grow .form-input{width:100%;min-width:0}
-.logs-filters-footer{
-  display:flex;flex-direction:column;gap:var(--sp-3);
-  align-items:stretch;justify-content:flex-start;
-  flex:1 1 100%;width:100%;
-}
-.logs-filters-check-groups{
-  display:flex;flex-direction:column;gap:var(--sp-2);
-  width:100%;
-}
-.logs-filters-check-group{
-  display:flex;flex-wrap:wrap;gap:6px 10px;
-  align-items:center;
-  border:0;margin:0;padding:0;min-inline-size:0;
-}
-.logs-filters-check-label{
-  flex:0 0 4.75rem;
-  font-size:10px;font-weight:700;letter-spacing:.06em;
-  text-transform:uppercase;color:var(--text-3);line-height:1.2;
-  padding:0;float:none;width:auto;
-}
-.logs-filters-actions{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
-.logs-result-checks{
-  display:flex;flex-wrap:wrap;gap:4px 10px;
-  align-items:center;flex:1 1 12rem;min-width:0;
-  font-size:var(--fs-xs);color:var(--text-2);
-}
-.logs-domain-checks{flex-basis:100%}
-.logs-result-checks label{
-  display:inline-flex;gap:5px;align-items:center;cursor:pointer;user-select:none;
-  padding:2px 8px;border:1px solid var(--border);border-radius:var(--r-full);
-  background:var(--bg-tertiary);line-height:1.4;
-}
-.logs-result-checks label:has(input:checked){
-  border-color:var(--accent);color:var(--text-1);background:var(--bg-card);
-}
-@media (max-width:720px){
-  .logs-filter-grow{flex-basis:100%;min-width:0}
-  .logs-filters-check-label{flex-basis:100%}
-}
-.logs-table-wrap{padding:0;overflow-x:auto}
-.logs-pager{
-  display:flex;align-items:center;justify-content:flex-end;gap:var(--sp-1);
-  padding:var(--sp-2) var(--sp-3);
-  border-top:1px solid var(--border-muted);
-  background:var(--bg-card);
-}
-.logs-pager-status{
-  min-width:3.5rem;text-align:center;
-  font-size:var(--fs-xs);font-weight:600;color:var(--text-3);
-  font-variant-numeric:tabular-nums;letter-spacing:.04em;
-}
-.logs-pager-btn.is-disabled,.logs-pager-btn[aria-disabled="true"]{
-  opacity:.35;pointer-events:none;
-}
-.logs-table-wrap .data-table{table-layout:auto;width:max-content;min-width:100%}
-.logs-table-wrap .data-table tbody tr{cursor:pointer}
-.logs-table-wrap .data-table tbody tr.is-selected{background:var(--accent-muted)}
-.logs-table-wrap .data-table th,
-.logs-table-wrap .data-table td{
-  text-align:left;padding:0.45rem 0.65rem;vertical-align:middle;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  max-width:18rem;
-}
-.logs-table-wrap .data-table td.font-mono{max-width:13.5rem}
-.logs-table-wrap .data-table .audit-action-cell{
-  display:inline-flex;align-items:baseline;gap:0.4rem;max-width:18rem;
-  overflow:hidden;
-}
-.logs-table-wrap .data-table .audit-action-cell code{
-  flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;
-}
-.logs-table-wrap .data-table .audit-result-cell{
-  display:inline-flex;align-items:center;gap:0.35rem;white-space:nowrap;
-}
-.logs-table-wrap .data-table .audit-code-cell{
-  display:inline-flex;align-items:center;gap:0.35rem;white-space:nowrap;
-}
-.logs-table-wrap .data-table .audit-cell-text{
-  display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;
-}
-.logs-table-wrap .data-table td.audit-col-actor{max-width:14rem}
-.logs-table-wrap .data-table td.audit-col-action{max-width:16rem}
-.logs-table-wrap .data-table td.audit-col-target{max-width:11rem}
-.logs-table-wrap .data-table td.audit-col-detail{max-width:14rem}
-.logs-table-wrap .data-table td.audit-col-detail .audit-detail-summary{
-  display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;
-}
-.logs-table-wrap .data-table td.audit-col-result,
-.logs-table-wrap .data-table td.audit-col-code{max-width:none;overflow:visible}
-.logs-col-menu{position:relative}
-.logs-col-panel{position:absolute;right:0;top:calc(100% + 4px);z-index:20;min-width:14rem;padding:var(--sp-3);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow-md,0 4px 16px rgba(0,0,0,.12))}
-.logs-col-panel label{display:flex;gap:var(--sp-2);align-items:center;padding:4px 0;font-size:var(--fs-sm)}
-.logs-views{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;margin-bottom:var(--sp-3)}
-/* Tab panels: explicit [hidden] so author display rules cannot leave nested panels visible/invisible wrongly. */
-.logs-panel[hidden]{display:none!important}
+/* /admin/logs drawer (also used by pending devices); the rest lives in admin-logs.css */
 /* Must sit on body (see logs.html) — fixed inside .main-content is clipped by overflow. */
 .logs-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:9000;opacity:0;pointer-events:none;transition:opacity .2s ease}
 .logs-drawer-backdrop.is-open{opacity:1;pointer-events:auto}
@@ -1145,17 +1013,6 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 .logs-drawer-meta dt{color:var(--text-3);font-weight:700}
 .logs-drawer-json{margin:0;padding:var(--sp-3);background:var(--bg-tertiary);border:1px solid var(--border-muted);border-radius:var(--r-md);white-space:pre-wrap;word-break:break-word;font-size:0.8em;max-height:50vh;overflow:auto}
 .logs-drawer-actions{display:flex;gap:var(--sp-2);margin-top:var(--sp-3)}
-.audit-detail-open{
-  display:inline-flex;align-items:center;gap:6px;max-width:100%;
-  padding:4px 8px;font-weight:600;white-space:nowrap;
-  border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-tertiary);
-}
-.audit-detail-open:hover{border-color:var(--accent-border);background:var(--accent-muted)}
-.audit-detail-summary{overflow:hidden;text-overflow:ellipsis;max-width:12rem;color:var(--text-2)}
-.audit-detail-hint{color:var(--accent);font-size:var(--fs-xs);flex-shrink:0}
-.audit-detail-open:hover .audit-detail-summary{color:var(--text)}
-.live-btn[aria-pressed="true"]{border-color:var(--err);color:var(--err)}
-.live-status{font-size:var(--fs-xs);font-weight:700;color:var(--err)}
 
 /* —— RBAC users page (compact) —— */
 .page-users-compact .page-header{margin-bottom:var(--sp-3);gap:var(--sp-3)}

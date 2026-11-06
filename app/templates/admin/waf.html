@@ -3,7 +3,7 @@
 {% block title %}WAF{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20261106-waf-stitch">
+<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20261106-stitch-kit">
 {% endblock %}
 
 {% block breadcrumb %}Admin / {{ _('Sécurité') }} / WAF{% endblock %}
@@ -39,14 +39,14 @@
 {% set bans = security_bans_all %}
 {% set allow_entries = allowlist or [] %}
 
-<div class="page" id="waf-page">
+<div class="page bp-stitch" id="waf-page">
 
   {% set waf_ok = v.level in ('active',) and not v.action_label %}
   {% set show_pending = export_pending and pending_diffs %}
 
-  <header class="page-header waf-head">
-    <div class="waf-head-text">
-      <div class="waf-title-row">
+  <header class="page-header bp-page-head">
+    <div class="bp-page-head-text">
+      <div class="bp-title-row">
         <h1 class="page-title">WAF</h1>
         {% if waf_ok %}
         <span class="waf-status-chip waf-status-chip--ok" role="status" title="{{ v.message }}">
@@ -57,7 +57,7 @@
       <p class="page-sub">{{ _('Analyse des menaces (Bilan) et configuration ModSecurity/CRS.') }}{% if waf_ok and v.message %} <span class="waf-head-hint">· {{ v.message }}</span>{% endif %}</p>
     </div>
 
-    <div class="page-header-actions waf-head-actions waf-header-actions waf-config-actions" id="waf-config-actions">
+    <div class="page-header-actions bp-page-head-actions waf-header-actions waf-config-actions" id="waf-config-actions">
       {% if export_pending %}
       <span class="badge badge-warn" id="waf-apply-badge">{{ _('En attente') }}</span>
       {% elif reactivation and reactivation.blocked and not reactivation.armed %}
@@ -115,7 +115,7 @@
   </div>
   {% endif %}
 
-  <nav class="waf-nav" id="waf-tabs" aria-label="{{ _('Sections WAF') }}">
+  <nav class="waf-nav bp-tabbar" id="waf-tabs" aria-label="{{ _('Sections WAF') }}">
     <div class="waf-nav-group" data-waf-nav="analyse">
       <span class="waf-nav-group-label">Analyse</span>
       <div class="tabs" role="tablist" aria-label="Analyse WAF">
@@ -142,15 +142,15 @@
 
   {# Bilan #}
 
-  <div class="waf-panel waf-panel-bilan waf-panel--tab" id="bilan" role="tabpanel" aria-labelledby="tab-bilan">
-    <div class="waf-dashboard waf-sentinel waf-panel-stack">
+  <div class="waf-panel bp-panel waf-panel-bilan waf-panel--tab" id="bilan" role="tabpanel" aria-labelledby="tab-bilan">
+    <div class="waf-dashboard waf-sentinel bp-stack">
 
-      <div class="waf-section-head">
-        <div class="waf-section-head-text">
-          <h2 class="waf-section-title">{{ _('Bilan') }}</h2>
-          <p class="waf-section-sub">{{ _('Synthèse menaces, santé WAF et export de conformité.') }}</p>
+      <div class="bp-section-head">
+        <div class="bp-section-head-text">
+          <h2 class="bp-section-title">{{ _('Bilan') }}</h2>
+          <p class="bp-section-sub">{{ _('Synthèse menaces, santé WAF et export de conformité.') }}</p>
         </div>
-        <div class="waf-section-actions waf-bilan-export">
+        <div class="bp-section-actions waf-bilan-export">
           <form method="post" action="/admin/security/reporting/export?period=weekly" class="waf-bilan-export-form"
                 data-bastion-download data-bastion-busy-label="{{ _('Génération du rapport PDF…') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -173,15 +173,15 @@
       {% else %}
 
       {# ── Menaces · 24 h ── #}
-      <section class="waf-card" aria-labelledby="waf-bilan-threats-h">
-        <header class="waf-card-head">
-          <h3 class="waf-card-title" id="waf-bilan-threats-h">{{ _('Menaces') }}</h3>
-          <span class="waf-card-meta">{{ _('ModSecurity · 24 h') }}</span>
+      <section class="bp-card" aria-labelledby="waf-bilan-threats-h">
+        <header class="bp-card-head">
+          <h3 class="bp-card-title" id="waf-bilan-threats-h">{{ _('Menaces') }}</h3>
+          <span class="bp-card-meta">{{ _('ModSecurity · 24 h') }}</span>
         </header>
-        <div class="waf-stats" aria-label="Executive summary">
-          <div class="waf-stat">
-            <span class="waf-stat-label">{{ _('Blocages CRS') }}</span>
-            <span class="waf-stat-value">
+        <div class="bp-stats" aria-label="Executive summary">
+          <div class="bp-stat">
+            <span class="bp-stat-label">{{ _('Blocages CRS') }}</span>
+            <span class="bp-stat-value">
               {{ exec.blocks_display }}
               {% if exec.blocks_trend_pct is not none %}
               <span class="sentinel-trend {% if exec.blocks_trend_pct > 0 %}sentinel-trend--up{% elif exec.blocks_trend_pct < 0 %}sentinel-trend--down{% endif %}"
@@ -190,17 +190,17 @@
               </span>
               {% endif %}
             </span>
-            <span class="waf-stat-sub">{{ _('ModSecurity · 24 h') }}</span>
+            <span class="bp-stat-sub">{{ _('ModSecurity · 24 h') }}</span>
           </div>
-          <div class="waf-stat">
-            <span class="waf-stat-label">{{ _('Événements d’audit (RelevantOnly)') }}</span>
-            <span class="waf-stat-value" title="{{ _('Événements consignés par ModSecurity en RelevantOnly — pas le trafic nginx total') }}">{{ exec.detections_display }}</span>
-            <span class="waf-stat-sub">{{ _('Audit · 24 h') }}</span>
+          <div class="bp-stat">
+            <span class="bp-stat-label">{{ _('Événements d’audit (RelevantOnly)') }}</span>
+            <span class="bp-stat-value" title="{{ _('Événements consignés par ModSecurity en RelevantOnly — pas le trafic nginx total') }}">{{ exec.detections_display }}</span>
+            <span class="bp-stat-sub">{{ _('Audit · 24 h') }}</span>
           </div>
-          <div class="waf-stat{% if wa_kpis.detection_gap %} waf-stat--warn{% endif %}">
-            <span class="waf-stat-label">{{ _('Intentions de blocage') }}</span>
-            <span class="waf-stat-value" title="{{ _('Événements qui auraient rejeté en On (actions disruptives + seuil d’anomalie)') }}">{{ wa_kpis.blocked_intents_display or '0' }}</span>
-            <span class="waf-stat-sub">
+          <div class="bp-stat{% if wa_kpis.detection_gap %} bp-stat--warn{% endif %}">
+            <span class="bp-stat-label">{{ _('Intentions de blocage') }}</span>
+            <span class="bp-stat-value" title="{{ _('Événements qui auraient rejeté en On (actions disruptives + seuil d’anomalie)') }}">{{ wa_kpis.blocked_intents_display or '0' }}</span>
+            <span class="bp-stat-sub">
               {% if wa_kpis.efficiency_pct is not none %}
                 {{ _('Efficacité active') }} {{ wa_kpis.efficiency_pct }} %
                 · {{ wa_kpis.blocks_executed_display or '0' }} {{ _('exécutés') }}
@@ -209,14 +209,14 @@
               {% endif %}
             </span>
           </div>
-          <div class="waf-stat{% if exec.host_refusals %} waf-stat--warn{% endif %}">
-            <span class="waf-stat-label">{{ _('Refus hôtes inconnus') }}</span>
-            <span class="waf-stat-value" title="{{ _('Somme des hit_count PendingHost sur 24 h (filtrage applicatif, hors CRS)') }}">{{ exec.host_refusals_display }}</span>
-            <span class="waf-stat-sub">{{ _('Filtrage · 24 h') }}</span>
+          <div class="bp-stat{% if exec.host_refusals %} bp-stat--warn{% endif %}">
+            <span class="bp-stat-label">{{ _('Refus hôtes inconnus') }}</span>
+            <span class="bp-stat-value" title="{{ _('Somme des hit_count PendingHost sur 24 h (filtrage applicatif, hors CRS)') }}">{{ exec.host_refusals_display }}</span>
+            <span class="bp-stat-sub">{{ _('Filtrage · 24 h') }}</span>
           </div>
         </div>
         {% if exec.coverage_note or exec.activity_hint or efficiency.status == 'measured_zero' %}
-        <footer class="waf-card-foot">
+        <footer class="bp-card-foot">
           {% if exec.activity_hint %}
           <p class="waf-kpi-quiet" title="{{ efficiency.zero_explanation or '' }}">{{ exec.activity_hint }}</p>
           {% elif efficiency.status == 'measured_zero' %}
@@ -230,14 +230,14 @@
       </section>
 
       {# ── Posture : santé, télémétrie, packs ── #}
-      <section class="waf-card" aria-labelledby="waf-bilan-posture-h">
-        <header class="waf-card-head">
-          <h3 class="waf-card-title" id="waf-bilan-posture-h">{{ _('Posture WAF') }}</h3>
-          <a class="waf-card-meta" href="#modsecurity">{{ _('Packs virtual-patch') }} →</a>
+      <section class="bp-card" aria-labelledby="waf-bilan-posture-h">
+        <header class="bp-card-head">
+          <h3 class="bp-card-title" id="waf-bilan-posture-h">{{ _('Posture WAF') }}</h3>
+          <a class="bp-card-meta" href="#modsecurity">{{ _('Packs virtual-patch') }} →</a>
         </header>
-        <div class="waf-stats" aria-label="{{ _('Bilan KPIs v1.1') }}">
-          <div class="waf-stat waf-stat--gauge">
-            <span class="waf-stat-label">{{ _('Score de santé WAF') }}</span>
+        <div class="bp-stats" aria-label="{{ _('Bilan KPIs v1.1') }}">
+          <div class="bp-stat waf-stat--gauge">
+            <span class="bp-stat-label">{{ _('Score de santé WAF') }}</span>
             <div class="waf-stat-gauge">
               {{ exec.health_gauge_svg | safe }}
               {% if exec.health_breakdown %}
@@ -261,10 +261,10 @@
               {% endif %}
             </div>
           </div>
-          <div class="waf-stat{% if wa_tele.health_status == 'orange' %} waf-stat--warn{% elif wa_tele.health_status != 'green' %} waf-stat--err{% endif %}">
-            <span class="waf-stat-label">{{ _('Santé télémétrie') }}</span>
-            <span class="waf-stat-value"><span class="badge {{ wa_tele.health_css or 'badge-err' }}">{{ wa_tele.health_label or '—' }}</span></span>
-            <span class="waf-stat-sub" title="{{ wa_tele.health_detail or '' }}">
+          <div class="bp-stat{% if wa_tele.health_status == 'orange' %} bp-stat--warn{% elif wa_tele.health_status != 'green' %} bp-stat--err{% endif %}">
+            <span class="bp-stat-label">{{ _('Santé télémétrie') }}</span>
+            <span class="bp-stat-value"><span class="badge {{ wa_tele.health_css or 'badge-err' }}">{{ wa_tele.health_label or '—' }}</span></span>
+            <span class="bp-stat-sub" title="{{ wa_tele.health_detail or '' }}">
               {% if wa_tele.last_write_ago_mins is not none %}
                 {{ _('Fraîcheur') }} {{ wa_tele.last_write_ago_mins }} min
               {% else %}
@@ -272,15 +272,15 @@
               {% endif %}
             </span>
           </div>
-          <div class="waf-stat{% if (wa_packs.detection_vs_on or {}).detection %} waf-stat--warn{% endif %}">
-            <span class="waf-stat-label">{{ _('Armement packs') }}</span>
-            <span class="waf-stat-value">{{ wa_packs.armed_label or '0/0' }}</span>
-            <span class="waf-stat-sub">{{ wa_packs.on or 0 }} On · {{ wa_packs.detection or 0 }} {{ _('Détection') }} · {{ wa_packs.off or 0 }} Off</span>
+          <div class="bp-stat{% if (wa_packs.detection_vs_on or {}).detection %} bp-stat--warn{% endif %}">
+            <span class="bp-stat-label">{{ _('Armement packs') }}</span>
+            <span class="bp-stat-value">{{ wa_packs.armed_label or '0/0' }}</span>
+            <span class="bp-stat-sub">{{ wa_packs.on or 0 }} On · {{ wa_packs.detection or 0 }} {{ _('Détection') }} · {{ wa_packs.off or 0 }} Off</span>
           </div>
-          <div class="waf-stat{% if wa_packs.suggested_pending %} waf-stat--warn{% endif %}">
-            <span class="waf-stat-label">{{ _('Couverture catalogue') }}</span>
-            <span class="waf-stat-value">{{ wa_packs.armed or 0 }}/{{ wa_packs.total or 0 }}</span>
-            <span class="waf-stat-sub">
+          <div class="bp-stat{% if wa_packs.suggested_pending %} bp-stat--warn{% endif %}">
+            <span class="bp-stat-label">{{ _('Couverture catalogue') }}</span>
+            <span class="bp-stat-value">{{ wa_packs.armed or 0 }}/{{ wa_packs.total or 0 }}</span>
+            <span class="bp-stat-sub">
               {% if wa_packs.suggested_pending %}
                 <span class="badge badge-warn">{{ wa_packs.suggested_pending }} {{ _('suggestion(s) en attente') }}</span>
               {% else %}
@@ -292,84 +292,84 @@
       </section>
 
       {# ── Contrôle réseau ── #}
-      <section class="waf-card" aria-labelledby="waf-bilan-net-h">
-        <header class="waf-card-head">
-          <h3 class="waf-card-title" id="waf-bilan-net-h">{{ _('Contrôle réseau') }}</h3>
-          <a class="waf-card-meta" href="#network-control">{{ _('Allowlist et bans') }} →</a>
+      <section class="bp-card" aria-labelledby="waf-bilan-net-h">
+        <header class="bp-card-head">
+          <h3 class="bp-card-title" id="waf-bilan-net-h">{{ _('Contrôle réseau') }}</h3>
+          <a class="bp-card-meta" href="#network-control">{{ _('Allowlist et bans') }} →</a>
         </header>
-        <div class="waf-stats" aria-label="{{ _('KPIs réseau ACL') }}">
-          <div class="waf-stat{% if wa_net.banned_ips_active %} waf-stat--warn{% endif %}">
-            <span class="waf-stat-label">{{ _('IPs actuellement bannies') }}</span>
-            <span class="waf-stat-value">{{ wa_net.banned_ips_display or '0' }}</span>
-            <span class="waf-stat-sub">{{ _('SecurityBan actifs · non expirés') }}</span>
+        <div class="bp-stats" aria-label="{{ _('KPIs réseau ACL') }}">
+          <div class="bp-stat{% if wa_net.banned_ips_active %} bp-stat--warn{% endif %}">
+            <span class="bp-stat-label">{{ _('IPs actuellement bannies') }}</span>
+            <span class="bp-stat-value">{{ wa_net.banned_ips_display or '0' }}</span>
+            <span class="bp-stat-sub">{{ _('SecurityBan actifs · non expirés') }}</span>
           </div>
-          <div class="waf-stat">
-            <span class="waf-stat-label">{{ _('Deny nginx (amont ModSec)') }}</span>
-            <span class="waf-stat-value" title="{{ wa_net.acl_rejections_note or '' }}">{{ wa_net.promoted_deny_display or '0' }}</span>
-            <span class="waf-stat-sub">{{ _('IPs dans waf-ip-deny.conf') }}</span>
+          <div class="bp-stat">
+            <span class="bp-stat-label">{{ _('Deny nginx (amont ModSec)') }}</span>
+            <span class="bp-stat-value" title="{{ wa_net.acl_rejections_note or '' }}">{{ wa_net.promoted_deny_display or '0' }}</span>
+            <span class="bp-stat-sub">{{ _('IPs dans waf-ip-deny.conf') }}</span>
           </div>
-          <div class="waf-stat">
-            <span class="waf-stat-label">{{ _('Allowlist trust') }}</span>
-            <span class="waf-stat-value">{{ wa_net.allowlist_ips_display or '0' }}</span>
-            <span class="waf-stat-sub">{{ _('CIDR / IP · waf-ip-allow.conf') }}</span>
+          <div class="bp-stat">
+            <span class="bp-stat-label">{{ _('Allowlist trust') }}</span>
+            <span class="bp-stat-value">{{ wa_net.allowlist_ips_display or '0' }}</span>
+            <span class="bp-stat-sub">{{ _('CIDR / IP · waf-ip-allow.conf') }}</span>
           </div>
-          <div class="waf-stat">
-            <span class="waf-stat-label">{{ _('Rejets réseau (403 ACL)') }}</span>
-            <span class="waf-stat-value">—</span>
-            <span class="waf-stat-sub" title="{{ wa_net.acl_rejections_note or '' }}">{{ _('Compteur access.log · v1.3') }}</span>
+          <div class="bp-stat">
+            <span class="bp-stat-label">{{ _('Rejets réseau (403 ACL)') }}</span>
+            <span class="bp-stat-value">—</span>
+            <span class="bp-stat-sub" title="{{ wa_net.acl_rejections_note or '' }}">{{ _('Compteur access.log · v1.3') }}</span>
           </div>
-          <div class="waf-stat{% if wa_net.rate_limit_429_24h %} waf-stat--warn{% endif %}">
-            <span class="waf-stat-label">{{ _('Rejets rate-limit (429)') }}</span>
-            <span class="waf-stat-value">{{ wa_net.rate_limit_429_display or '0' }}</span>
-            <span class="waf-stat-sub">{{ _('24 h · capteur Nginx limit_req') }}</span>
+          <div class="bp-stat{% if wa_net.rate_limit_429_24h %} bp-stat--warn{% endif %}">
+            <span class="bp-stat-label">{{ _('Rejets rate-limit (429)') }}</span>
+            <span class="bp-stat-value">{{ wa_net.rate_limit_429_display or '0' }}</span>
+            <span class="bp-stat-sub">{{ _('24 h · capteur Nginx limit_req') }}</span>
           </div>
-          <div class="waf-stat{% if wa_net.auto_bans_active %} waf-stat--warn{% endif %}">
-            <span class="waf-stat-label">{{ _('Bans automatiques comportementaux') }}</span>
-            <span class="waf-stat-value">{{ wa_net.auto_bans_active_display or '0' }}</span>
-            <span class="waf-stat-sub">{{ _('Actifs nginx_limit_req') }}{% if wa_net.auto_bans_24h is not none %} · +{{ wa_net.auto_bans_24h }} /24h{% endif %}</span>
+          <div class="bp-stat{% if wa_net.auto_bans_active %} bp-stat--warn{% endif %}">
+            <span class="bp-stat-label">{{ _('Bans automatiques comportementaux') }}</span>
+            <span class="bp-stat-value">{{ wa_net.auto_bans_active_display or '0' }}</span>
+            <span class="bp-stat-sub">{{ _('Actifs nginx_limit_req') }}{% if wa_net.auto_bans_24h is not none %} · +{{ wa_net.auto_bans_24h }} /24h{% endif %}</span>
           </div>
         </div>
       </section>
 
       {# ── Graphiques ── #}
       <section class="sentinel-threat-stack waf-dash-grid" aria-label="Threat intelligence">
-        <div class="waf-card">
-          <header class="waf-card-head">
-            <h3 class="waf-card-title">{{ _('Flux trafic vs intrusions') }}</h3>
-            <span class="waf-card-meta">24 h</span>
+        <div class="bp-card">
+          <header class="bp-card-head">
+            <h3 class="bp-card-title">{{ _('Flux trafic vs intrusions') }}</h3>
+            <span class="bp-card-meta">24 h</span>
           </header>
           <div class="sentinel-chart-slot">{{ ti.traffic_area_svg | safe }}</div>
         </div>
 
-        <div class="waf-grid waf-grid--stretch">
-          <div class="waf-card">
-            <header class="waf-card-head">
-              <h3 class="waf-card-title">Blocages CRS</h3>
-              <span class="waf-card-meta">{{ _('par heure · 24 h') }}</span>
+        <div class="bp-grid bp-grid--stretch">
+          <div class="bp-card">
+            <header class="bp-card-head">
+              <h3 class="bp-card-title">Blocages CRS</h3>
+              <span class="bp-card-meta">{{ _('par heure · 24 h') }}</span>
             </header>
             <div class="sentinel-chart-slot">{{ ti.blocks_hourly_svg | safe }}</div>
           </div>
-          <div class="waf-card">
-            <header class="waf-card-head">
-              <h3 class="waf-card-title">{{ _('Familles de menaces') }}</h3>
-              <span class="waf-card-meta">24 h</span>
+          <div class="bp-card">
+            <header class="bp-card-head">
+              <h3 class="bp-card-title">{{ _('Familles de menaces') }}</h3>
+              <span class="bp-card-meta">24 h</span>
             </header>
             <div class="sentinel-chart-slot">{{ ti.families_svg | safe }}</div>
           </div>
         </div>
 
-        <div class="waf-grid waf-grid--stretch">
-          <div class="waf-card">
-            <header class="waf-card-head">
-              <h3 class="waf-card-title">{{ _('Origine des attaques') }}</h3>
-              <span class="waf-card-meta">{% if ip_geolocation.enabled %}{{ _('pays × heure ·') }} {{ ip_geolocation.provider }}{% elif ip_geolocation.env_locked %}{{ _('verrouillée (serveur)') }}{% else %}{{ _('désactivée') }}{% endif %}</span>
+        <div class="bp-grid bp-grid--stretch">
+          <div class="bp-card">
+            <header class="bp-card-head">
+              <h3 class="bp-card-title">{{ _('Origine des attaques') }}</h3>
+              <span class="bp-card-meta">{% if ip_geolocation.enabled %}{{ _('pays × heure ·') }} {{ ip_geolocation.provider }}{% elif ip_geolocation.env_locked %}{{ _('verrouillée (serveur)') }}{% else %}{{ _('désactivée') }}{% endif %}</span>
             </header>
             <div class="sentinel-chart-slot">{{ ti.origin_heatmap_svg | safe }}</div>
           </div>
-          <div class="waf-card">
-            <header class="waf-card-head">
-              <h3 class="waf-card-title">Top IP attaquantes</h3>
-              <span class="waf-card-meta">24 h</span>
+          <div class="bp-card">
+            <header class="bp-card-head">
+              <h3 class="bp-card-title">Top IP attaquantes</h3>
+              <span class="bp-card-meta">24 h</span>
             </header>
             <div class="sentinel-chart-slot">{{ ti.top_attackers_svg | safe }}</div>
           </div>
@@ -377,13 +377,13 @@
       </section>
 
       {# ── Top règles · surfaces · triage ── #}
-      <div class="waf-grid waf-grid--stretch">
-        <section class="waf-card sentinel-panel--rules" aria-labelledby="waf-bilan-rules-h">
-          <header class="waf-card-head">
-            <h3 class="waf-card-title" id="waf-bilan-rules-h">{{ _('Top règles actives') }}</h3>
-            <span class="waf-card-meta">{{ _('CRS vs packs Bastion · 24 h') }}</span>
+      <div class="bp-grid bp-grid--stretch">
+        <section class="bp-card sentinel-panel--rules" aria-labelledby="waf-bilan-rules-h">
+          <header class="bp-card-head">
+            <h3 class="bp-card-title" id="waf-bilan-rules-h">{{ _('Top règles actives') }}</h3>
+            <span class="bp-card-meta">{{ _('CRS vs packs Bastion · 24 h') }}</span>
           </header>
-          <div class="waf-card-body waf-card-body--flush">
+          <div class="bp-card-body bp-card-body--flush">
             <p class="waf-list-caption">OWASP CRS</p>
             {% if wa_rules.crs %}
             <ul class="sentinel-owasp-list" aria-label="{{ _('Top règles CRS') }}">
@@ -418,10 +418,10 @@
             {% endif %}
           </div>
           {% if ti.top_rules %}
-          <footer class="waf-card-foot">
+          <footer class="bp-card-foot">
             <details>
               <summary>{{ _('Vue interactive (logs associés)') }}</summary>
-              <ul class="sentinel-owasp-list" aria-label="{{ _('Top 5 règles déclenchées') }}" style="margin:.5rem calc(-1 * var(--waf-pad-x)) -.7rem">
+              <ul class="sentinel-owasp-list" aria-label="{{ _('Top 5 règles déclenchées') }}" style="margin:.5rem calc(-1 * var(--bp-pad-x)) -.7rem">
                 {% for r in ti.top_rules %}
                 <li>
                   <button type="button"
@@ -448,13 +448,13 @@
           {% endif %}
         </section>
 
-        <div class="waf-panel-stack">
-          <section class="waf-card" aria-labelledby="waf-bilan-surfaces-h">
-            <header class="waf-card-head">
-              <h3 class="waf-card-title" id="waf-bilan-surfaces-h">{{ _('Surfaces d’attaque') }}</h3>
-              <span class="waf-card-meta">24 h</span>
+        <div class="bp-stack">
+          <section class="bp-card" aria-labelledby="waf-bilan-surfaces-h">
+            <header class="bp-card-head">
+              <h3 class="bp-card-title" id="waf-bilan-surfaces-h">{{ _('Surfaces d’attaque') }}</h3>
+              <span class="bp-card-meta">24 h</span>
             </header>
-            <div class="waf-card-body waf-card-body--flush">
+            <div class="bp-card-body bp-card-body--flush">
               {% if wa.attack_surfaces %}
               <ul class="sentinel-owasp-list">
                 {% for s in wa.attack_surfaces %}
@@ -481,23 +481,23 @@
             </div>
           </section>
 
-          <section class="waf-card" aria-labelledby="waf-bilan-triage-h">
-            <header class="waf-card-head">
-              <h3 class="waf-card-title" id="waf-bilan-triage-h">{{ _('Flux de triage') }}</h3>
-              <span class="waf-card-meta">{{ wa_triage.month_label or '' }}</span>
+          <section class="bp-card" aria-labelledby="waf-bilan-triage-h">
+            <header class="bp-card-head">
+              <h3 class="bp-card-title" id="waf-bilan-triage-h">{{ _('Flux de triage') }}</h3>
+              <span class="bp-card-meta">{{ wa_triage.month_label or '' }}</span>
             </header>
             <div class="waf-triage">
-              <div class="waf-stat">
-                <span class="waf-stat-label">{{ _('simulations sandbox') }}</span>
-                <span class="waf-stat-value">{{ wa_triage.sandbox_probes_month or 0 }}</span>
+              <div class="bp-stat">
+                <span class="bp-stat-label">{{ _('simulations sandbox') }}</span>
+                <span class="bp-stat-value">{{ wa_triage.sandbox_probes_month or 0 }}</span>
               </div>
-              <div class="waf-stat">
-                <span class="waf-stat-label">{{ _('exclusions ajoutées') }}</span>
-                <span class="waf-stat-value">{{ wa_triage.exclusions_added_month or 0 }}</span>
+              <div class="bp-stat">
+                <span class="bp-stat-label">{{ _('exclusions ajoutées') }}</span>
+                <span class="bp-stat-value">{{ wa_triage.exclusions_added_month or 0 }}</span>
               </div>
-              <div class="waf-stat">
-                <span class="waf-stat-label">{{ _('exclusions actives') }}</span>
-                <span class="waf-stat-value">{{ wa_triage.exclusions_active or 0 }}</span>
+              <div class="bp-stat">
+                <span class="bp-stat-label">{{ _('exclusions actives') }}</span>
+                <span class="bp-stat-value">{{ wa_triage.exclusions_active or 0 }}</span>
               </div>
             </div>
           </section>
@@ -505,12 +505,12 @@
       </div>
 
       {# ── Bans actifs ── #}
-      <section class="waf-card sentinel-panel--quarantine" aria-labelledby="waf-bilan-bans-h">
-        <header class="waf-card-head">
-          <h3 class="waf-card-title" id="waf-bilan-bans-h">{{ _('Bans actifs (unifiés)') }}</h3>
-          <span class="waf-card-meta">{{ bans|length }} ban(s)</span>
+      <section class="bp-card sentinel-panel--quarantine" aria-labelledby="waf-bilan-bans-h">
+        <header class="bp-card-head">
+          <h3 class="bp-card-title" id="waf-bilan-bans-h">{{ _('Bans actifs (unifiés)') }}</h3>
+          <span class="bp-card-meta">{{ bans|length }} ban(s)</span>
         </header>
-        <div class="waf-card-body{% if bans %} waf-card-body--flush{% endif %}" id="bans-unified">
+        <div class="bp-card-body{% if bans %} bp-card-body--flush{% endif %}" id="bans-unified">
           {% if bans %}
           <div class="table-wrap">
             <table class="data-table">
@@ -531,7 +531,7 @@
                     —
                     {% endif %}
                   </td>
-                  <td class="waf-row-actions">
+                  <td class="bp-row-actions">
                     <form method="post" action="/admin/security/waf/actions/lift-ban/{{ ban.id }}" class="inline-form">
                       <button type="submit" class="btn btn-secondary btn-sm">Lever</button>
                     </form>
@@ -552,10 +552,10 @@
 
       {# ── Flux live ── #}
       {% if ac.present %}
-      <section class="waf-card sentinel-panel--feed" aria-label="Live security feed">
-        <header class="waf-card-head">
-          <h3 class="waf-card-title">Derniers blocages</h3>
-          <span class="waf-card-meta">{{ _('CRS + filtrage hôtes · agrégé') }}{% if exec.generated_at %} {{ exec.generated_at[:16] }}{% endif %}</span>
+      <section class="bp-card sentinel-panel--feed" aria-label="Live security feed">
+        <header class="bp-card-head">
+          <h3 class="bp-card-title">Derniers blocages</h3>
+          <span class="bp-card-meta">{{ _('CRS + filtrage hôtes · agrégé') }}{% if exec.generated_at %} {{ exec.generated_at[:16] }}{% endif %}</span>
         </header>
         <div class="sentinel-feed-wrap">
           <table class="sentinel-feed-table">
@@ -755,25 +755,25 @@
 
   {# Profil #}
 
-  <div class="waf-panel waf-panel--tab" id="profile" role="tabpanel" aria-labelledby="tab-profile" hidden>
+  <div class="waf-panel bp-panel waf-panel--tab" id="profile" role="tabpanel" aria-labelledby="tab-profile" hidden>
 
-    <div class="waf-section-head">
-      <div class="waf-section-head-text">
-        <h2 class="waf-section-title">{{ _('Profil actif') }}</h2>
-        <p class="waf-section-sub">{{ _('Enregistrement puis') }} <strong>{{ _('Appliquer') }}</strong> {{ _('pour pousser vers nginx.') }}</p>
+    <div class="bp-section-head">
+      <div class="bp-section-head-text">
+        <h2 class="bp-section-title">{{ _('Profil actif') }}</h2>
+        <p class="bp-section-sub">{{ _('Enregistrement puis') }} <strong>{{ _('Appliquer') }}</strong> {{ _('pour pousser vers nginx.') }}</p>
       </div>
     </div>
 
-    <div class="waf-grid waf-grid--3-2">
+    <div class="bp-grid bp-grid--3-2">
 
-      <form method="post" action="/admin/security/waf/profile" class="waf-card waf-form" id="waf-profile-form">
-        <header class="waf-card-head">
+      <form method="post" action="/admin/security/waf/profile" class="bp-card waf-form" id="waf-profile-form">
+        <header class="bp-card-head">
           <div>
-            <h3 class="waf-card-title">{{ _('Moteur CRS') }}</h3>
-            <p class="waf-card-sub">{{ _('Packs virtual-patch et état moteur : onglet') }} <a href="#modsecurity">ModSecurity</a>.</p>
+            <h3 class="bp-card-title">{{ _('Moteur CRS') }}</h3>
+            <p class="bp-card-sub">{{ _('Packs virtual-patch et état moteur : onglet') }} <a href="#modsecurity">ModSecurity</a>.</p>
           </div>
         </header>
-        <div class="waf-card-body waf-form-body">
+        <div class="bp-card-body waf-form-body">
 
           <div class="form-row">
             <div class="form-group">
@@ -847,10 +847,10 @@
         <div class="waf-form-foot"><button type="submit" class="btn btn-secondary">{{ _('Enregistrer le profil') }}</button></div>
       </form>
 
-      <div class="waf-panel-stack">
-        <section class="waf-card sentinel-panel--config-controls waf-config-only" aria-label="{{ _('Contrôles rapides') }}">
-          <header class="waf-card-head">
-            <h3 class="waf-card-title">{{ _('Contrôles rapides') }}</h3>
+      <div class="bp-stack">
+        <section class="bp-card sentinel-panel--config-controls waf-config-only" aria-label="{{ _('Contrôles rapides') }}">
+          <header class="bp-card-head">
+            <h3 class="bp-card-title">{{ _('Contrôles rapides') }}</h3>
           </header>
           <div class="sentinel-controls">
             {% for ctrl in quick_controls %}
@@ -889,14 +889,14 @@
         </section>
 
         {% if reactivation and reactivation.can_disarm %}
-        <section class="waf-card waf-disarm-block" aria-labelledby="waf-disarm-h">
-          <header class="waf-card-head">
+        <section class="bp-card waf-disarm-block" aria-labelledby="waf-disarm-h">
+          <header class="bp-card-head">
             <div>
-              <h3 class="waf-card-title" id="waf-disarm-h">{{ _('Moteur portail armé') }}</h3>
-              <p class="waf-card-sub">{{ _('Pour couper immédiatement ModSecurity (Off) :') }}</p>
+              <h3 class="bp-card-title" id="waf-disarm-h">{{ _('Moteur portail armé') }}</h3>
+              <p class="bp-card-sub">{{ _('Pour couper immédiatement ModSecurity (Off) :') }}</p>
             </div>
           </header>
-          <form method="post" action="/admin/security/waf/actions/disarm" class="waf-card-body stack"
+          <form method="post" action="/admin/security/waf/actions/disarm" class="bp-card-body stack"
                 data-confirm-title="{{ _('Couper le moteur ModSecurity ?') }}"
                 data-confirm="{{ _('Coupe le connecteur portail (modsecurity off) et SecRuleEngine Off, puis contrôles HTTP.') }}"
                 data-confirm-label="Couper le moteur"
@@ -918,7 +918,7 @@
 
   {# ModSecurity #}
 
-  <div class="waf-panel waf-panel--modsecurity" id="modsecurity" role="tabpanel" aria-labelledby="tab-modsecurity" hidden
+  <div class="waf-panel bp-panel waf-panel--modsecurity" id="modsecurity" role="tabpanel" aria-labelledby="tab-modsecurity" hidden
        data-ms-poll-url="/admin/security/waf/modsecurity.json"
        data-ms-poll-ms="20000"
        data-label-yes="{{ _('oui') }}"
@@ -936,30 +936,30 @@
     {% set ms = modsecurity or {} %}
     {% set ah = ms.audit_health or {} %}
 
-    <div class="waf-section-head">
-      <div class="waf-section-head-text">
-        <h2 class="waf-section-title">
+    <div class="bp-section-head">
+      <div class="bp-section-head-text">
+        <h2 class="bp-section-title">
           ModSecurity
           <span class="waf-ms-health-dot {{ ah.css or 'badge-err' }}" id="waf-ms-health-dot"
                 title="{{ ah.detail or ah.label or '' }}"
                 aria-label="{{ ah.label or 'Audit' }}">{{ ah.label or 'Audit' }}</span>
         </h2>
-        <p class="waf-section-sub">{{ _('Moteur CRS, packs virtual-patch pre-CRS, chaîne d’Include. Puis Appliquer.') }}
+        <p class="bp-section-sub">{{ _('Moteur CRS, packs virtual-patch pre-CRS, chaîne d’Include. Puis Appliquer.') }}
           <span class="muted" id="waf-ms-updated" hidden></span>
         </p>
       </div>
-      <div class="waf-section-actions waf-ms-footer">
+      <div class="bp-section-actions waf-ms-footer">
         <a class="btn btn-ghost" href="#exclusions">{{ _('Gérer les exclusions CRS') }}</a>
         <a class="btn btn-secondary" href="#reactivation">{{ _('Réactivation moteur') }}</a>
       </div>
     </div>
 
-    <section class="waf-card" aria-labelledby="waf-ms-engine-h">
-      <header class="waf-card-head">
-        <h3 class="waf-card-title" id="waf-ms-engine-h">{{ _('État du moteur (par famille)') }}</h3>
-        <span id="waf-ms-health-detail" class="waf-card-meta" title="{{ ah.detail or '' }}">{{ _('Santé audit') }} : {{ ah.label or '—' }}</span>
+    <section class="bp-card" aria-labelledby="waf-ms-engine-h">
+      <header class="bp-card-head">
+        <h3 class="bp-card-title" id="waf-ms-engine-h">{{ _('État du moteur (par famille)') }}</h3>
+        <span id="waf-ms-health-detail" class="bp-card-meta" title="{{ ah.detail or '' }}">{{ _('Santé audit') }} : {{ ah.label or '—' }}</span>
       </header>
-      <div class="waf-card-body waf-card-body--flush">
+      <div class="bp-card-body bp-card-body--flush">
         <div class="data-table-wrapper waf-ms-table">
           <table class="data-table">
             <thead>
@@ -985,19 +985,19 @@
           </table>
         </div>
       </div>
-      <footer class="waf-card-foot waf-ms-links">
+      <footer class="bp-card-foot waf-ms-links">
         <a href="#reactivation">{{ _('Réactivation / promotion On') }}</a>
-        <span class="waf-sep" aria-hidden="true">·</span>
+        <span class="bp-sep" aria-hidden="true">·</span>
         <a href="#profile">{{ _('Profil CRS (mode / seuil)') }}</a>
       </footer>
     </section>
 
-    <div class="waf-grid waf-grid--stretch">
-      <section class="waf-card" aria-labelledby="waf-ms-rules-h">
-        <header class="waf-card-head">
-          <h3 class="waf-card-title" id="waf-ms-rules-h">{{ _('Règles les plus actives') }}</h3>
+    <div class="bp-grid bp-grid--stretch">
+      <section class="bp-card" aria-labelledby="waf-ms-rules-h">
+        <header class="bp-card-head">
+          <h3 class="bp-card-title" id="waf-ms-rules-h">{{ _('Règles les plus actives') }}</h3>
         </header>
-        <div class="waf-card-body waf-card-body--flush">
+        <div class="bp-card-body bp-card-body--flush">
           <div class="data-table-wrapper waf-ms-table" id="waf-ms-top-rules-wrap">
             <table class="data-table">
               <thead>
@@ -1025,27 +1025,27 @@
         </div>
       </section>
 
-      <section class="waf-card" aria-labelledby="waf-ms-crs-h">
-        <header class="waf-card-head">
-          <h3 class="waf-card-title" id="waf-ms-crs-h">{{ _('OWASP CRS') }}</h3>
+      <section class="bp-card" aria-labelledby="waf-ms-crs-h">
+        <header class="bp-card-head">
+          <h3 class="bp-card-title" id="waf-ms-crs-h">{{ _('OWASP CRS') }}</h3>
         </header>
-        <div class="waf-card-body waf-card-body--flush">
+        <div class="bp-card-body bp-card-body--flush">
           {% if ms.crs %}
-          <dl class="waf-kv waf-ms-crs-list" id="waf-ms-crs">
-            <div class="waf-kv-row"><dt>{{ _('Version setup') }}</dt><dd><code>OWASP_CRS/<span data-ms-crs-version>{{ ms.crs.setup_version }}</span></code></dd></div>
-            <div class="waf-kv-row"><dt>{{ _('Paranoia') }}</dt><dd>PL<span data-ms-crs-paranoia>{{ ms.crs.paranoia }}</span>
+          <dl class="bp-kv waf-ms-crs-list" id="waf-ms-crs">
+            <div class="bp-kv-row"><dt>{{ _('Version setup') }}</dt><dd><code>OWASP_CRS/<span data-ms-crs-version>{{ ms.crs.setup_version }}</span></code></dd></div>
+            <div class="bp-kv-row"><dt>{{ _('Paranoia') }}</dt><dd>PL<span data-ms-crs-paranoia>{{ ms.crs.paranoia }}</span>
               <span class="badge badge-warn" data-ms-pl-on-warn{% if not (ms.crs.paranoia and ms.crs.paranoia >= 2 and ms.crs.profile_mode == 'on') %} hidden{% endif %}>{{ _('recommandé DetectionOnly') }}</span>
               <a href="#reactivation" data-ms-pl-on-link{% if not (ms.crs.paranoia and ms.crs.paranoia >= 2 and ms.crs.profile_mode == 'on') %} hidden{% endif %}>{{ _('corriger') }}</a></dd></div>
-            <div class="waf-kv-row"><dt>{{ _("Seuil d'anomalie (profil)") }}</dt><dd><code data-ms-crs-threshold>{{ ms.crs.anomaly_threshold }}</code></dd></div>
-            <div class="waf-kv-row"><dt>{{ _('mode profil') }}</dt><dd><code data-ms-crs-mode>{{ ms.crs.profile_mode }}</code></dd></div>
-            <div class="waf-kv-row"><dt>{{ _('Audit') }}</dt><dd><code>{{ ms.crs.audit_engine }}</code> · SecRequestBodyAccess {% if ms.crs.body_access %}On{% else %}Off{% endif %}</dd></div>
+            <div class="bp-kv-row"><dt>{{ _("Seuil d'anomalie (profil)") }}</dt><dd><code data-ms-crs-threshold>{{ ms.crs.anomaly_threshold }}</code></dd></div>
+            <div class="bp-kv-row"><dt>{{ _('mode profil') }}</dt><dd><code data-ms-crs-mode>{{ ms.crs.profile_mode }}</code></dd></div>
+            <div class="bp-kv-row"><dt>{{ _('Audit') }}</dt><dd><code>{{ ms.crs.audit_engine }}</code> · SecRequestBodyAccess {% if ms.crs.body_access %}On{% else %}Off{% endif %}</dd></div>
           </dl>
           {% else %}
           <p class="waf-list-empty">{{ _('Snapshot nginx indisponible') }}</p>
           {% endif %}
         </div>
         {% if ms.crs %}
-        <footer class="waf-card-foot">
+        <footer class="bp-card-foot">
           <details class="waf-ms-include-chain">
             <summary>{{ _("Chaîne d'Include ModSecurity") }}</summary>
             <ol>
@@ -1059,13 +1059,13 @@
       </section>
     </div>
 
-    <section class="waf-ms-block--packs waf-panel-stack" aria-labelledby="waf-ms-packs-h">
-      <div class="waf-group-head waf-ms-packs-head">
+    <section class="waf-ms-block--packs bp-stack" aria-labelledby="waf-ms-packs-h">
+      <div class="bp-group-head waf-ms-packs-head">
         <div>
-          <h3 class="waf-group-title" id="waf-ms-packs-h">{{ _('Packs virtual-patch') }}
+          <h3 class="bp-group-title" id="waf-ms-packs-h">{{ _('Packs virtual-patch') }}
             <span class="badge badge-muted" id="waf-ms-packs-count"{% if not ms.packs_total %} hidden{% endif %}><span data-ms-packs-enabled>{{ ms.packs_enabled_count }}</span>/<span data-ms-packs-total>{{ ms.packs_total }}</span> {{ _('chargés') }}</span>
           </h3>
-          <p class="waf-group-sub waf-ms-packs-intro">{{ _('Trois états : désactivé, détection (sans blocage pack), actif. Puis Appliquer.') }} {{ _('Enregistre le profil — cliquer Appliquer pour nginx.') }}</p>
+          <p class="bp-group-sub waf-ms-packs-intro">{{ _('Trois états : désactivé, détection (sans blocage pack), actif. Puis Appliquer.') }} {{ _('Enregistre le profil — cliquer Appliquer pour nginx.') }}</p>
         </div>
       </div>
       <div class="waf-ms-suggest" id="waf-ms-suggest-global"{% if not ms.any_suggest_enable %} hidden{% endif %}>
@@ -1075,7 +1075,7 @@
 
       <div class="waf-pack-stack">
       {% for pack in ms.packs or [] %}
-      <article class="waf-card waf-pack-card" id="waf-pack-{{ pack.id }}"
+      <article class="bp-card waf-pack-card" id="waf-pack-{{ pack.id }}"
                data-pack-id="{{ pack.id }}"
                data-pack-mode="{{ pack.mode }}"
                data-pack-enabled="{{ '1' if pack.enabled else '0' }}"
@@ -1164,15 +1164,15 @@
       </div>
     </section>
 
-    <section class="waf-card waf-sandbox-block" aria-labelledby="waf-sandbox-h">
+    <section class="bp-card waf-sandbox-block" aria-labelledby="waf-sandbox-h">
       {% set sb = ms.sandbox or {} %}
-      <header class="waf-card-head">
+      <header class="bp-card-head">
         <div>
-          <h3 class="waf-card-title" id="waf-sandbox-h">{{ _('Simulateur (sandbox)') }}</h3>
-          <p class="waf-card-sub">{{ _('Chemin testé (préfixe /__waf_sandbox/ retiré pour le CRS).') }}</p>
+          <h3 class="bp-card-title" id="waf-sandbox-h">{{ _('Simulateur (sandbox)') }}</h3>
+          <p class="bp-card-sub">{{ _('Chemin testé (préfixe /__waf_sandbox/ retiré pour le CRS).') }}</p>
         </div>
       </header>
-      <div class="waf-card-body waf-card-body--stack">
+      <div class="bp-card-body bp-card-body--stack">
         {% if sb.warnings %}
         <div class="alert alert-warn" id="waf-sandbox-warn">
           <strong>{{ _('Limitations du dry-run') }}</strong>
@@ -1231,23 +1231,23 @@
 
   {# Exclusions #}
 
-  <div class="waf-panel waf-panel--tab" id="exclusions" role="tabpanel" aria-labelledby="tab-exclusions" hidden>
+  <div class="waf-panel bp-panel waf-panel--tab" id="exclusions" role="tabpanel" aria-labelledby="tab-exclusions" hidden>
 
-    <div class="waf-section-head">
-      <div class="waf-section-head-text">
-        <h2 class="waf-section-title">{{ _('Exclusions CRS') }}</h2>
-        <p class="waf-section-sub">{{ _('Préférer une exclusion d’argument (ARGS) à une désactivation de règle entière. Puis') }} <strong>{{ _('Appliquer') }}</strong>.</p>
+    <div class="bp-section-head">
+      <div class="bp-section-head-text">
+        <h2 class="bp-section-title">{{ _('Exclusions CRS') }}</h2>
+        <p class="bp-section-sub">{{ _('Préférer une exclusion d’argument (ARGS) à une désactivation de règle entière. Puis') }} <strong>{{ _('Appliquer') }}</strong>.</p>
       </div>
-      <div class="waf-section-actions">
+      <div class="bp-section-actions">
         <button type="button" class="btn btn-secondary" id="waf-ex-import-btn">{{ _('Importer depuis un blocage récent') }}</button>
       </div>
     </div>
 
-    <form method="post" action="/admin/security/waf/exclusions/add" class="waf-card waf-form" id="waf-exclusion-add-form">
-      <header class="waf-card-head">
-        <h3 class="waf-card-title">{{ _('Nouvelle exclusion') }}</h3>
+    <form method="post" action="/admin/security/waf/exclusions/add" class="bp-card waf-form" id="waf-exclusion-add-form">
+      <header class="bp-card-head">
+        <h3 class="bp-card-title">{{ _('Nouvelle exclusion') }}</h3>
       </header>
-      <div class="waf-card-body waf-form-body">
+      <div class="bp-card-body waf-form-body">
 
         <div class="form-group">
           <label class="form-label" for="waf_ex_reason">{{ _('Raison') }}</label>
@@ -1337,12 +1337,12 @@
       </div>
     </form>
 
-    <section class="waf-card" aria-labelledby="waf-ex-active-h">
-      <header class="waf-card-head">
-        <h3 class="waf-card-title" id="waf-ex-active-h">{{ _('Exclusions actives') }}</h3>
-        <span class="waf-card-meta">{{ exclusions|length }}</span>
+    <section class="bp-card" aria-labelledby="waf-ex-active-h">
+      <header class="bp-card-head">
+        <h3 class="bp-card-title" id="waf-ex-active-h">{{ _('Exclusions actives') }}</h3>
+        <span class="bp-card-meta">{{ exclusions|length }}</span>
       </header>
-      <div class="waf-card-body waf-card-body--flush">
+      <div class="bp-card-body bp-card-body--flush">
         <div class="data-table-wrapper waf-ms-table">
           <table class="data-table">
             <thead><tr><th>ID</th><th>{{ _('Règle') }}</th><th>Scope</th><th>{{ _('Raison') }}</th><th>Actif</th><th></th></tr></thead>
@@ -1367,7 +1367,7 @@
                 </td>
                 <td>{{ ex.reason }}</td>
                 <td>{% if ex.active %}<span class="badge badge-ok">oui</span>{% else %}<span class="badge badge-muted">non</span>{% endif %}</td>
-                <td class="waf-exclusion-actions waf-row-actions">
+                <td class="waf-exclusion-actions bp-row-actions">
                   {% if ex.active %}
                   <form method="post" action="/admin/security/waf/exclusions/{{ ex.id }}/disable" class="inline-form waf-disable-form">
                     <button type="submit" class="btn btn-ghost btn-sm">{{ _('Désactiver') }}</button>
@@ -1387,20 +1387,20 @@
   </div>
 
   {# Contrôle réseau — allowlist + denylist #}
-  <div class="waf-panel waf-panel--tab" id="network-control" role="tabpanel" aria-labelledby="tab-network-control" hidden>
+  <div class="waf-panel bp-panel waf-panel--tab" id="network-control" role="tabpanel" aria-labelledby="tab-network-control" hidden>
 
-    <div class="waf-section-head">
-      <div class="waf-section-head-text">
-        <h2 class="waf-section-title">{{ _('Contrôle réseau') }}</h2>
-        <p class="waf-section-sub">{{ _('Allowlist trust et bans IP — export nginx avant ModSecurity. Puis') }} <strong>{{ _('Appliquer') }}</strong>.</p>
+    <div class="bp-section-head">
+      <div class="bp-section-head-text">
+        <h2 class="bp-section-title">{{ _('Contrôle réseau') }}</h2>
+        <p class="bp-section-sub">{{ _('Allowlist trust et bans IP — export nginx avant ModSecurity. Puis') }} <strong>{{ _('Appliquer') }}</strong>.</p>
       </div>
     </div>
 
-    <div class="waf-grid waf-grid--3-2">
-      <section class="waf-card" aria-labelledby="waf-allowlist-h">
-        <header class="waf-card-head">
-          <h3 class="waf-card-title" id="waf-allowlist-h">{{ _('Allowlist (périmètre de confiance)') }}</h3>
-          <span class="waf-card-meta">waf-ip-allow.conf</span>
+    <div class="bp-grid bp-grid--3-2">
+      <section class="bp-card" aria-labelledby="waf-allowlist-h">
+        <header class="bp-card-head">
+          <h3 class="bp-card-title" id="waf-allowlist-h">{{ _('Allowlist (périmètre de confiance)') }}</h3>
+          <span class="bp-card-meta">waf-ip-allow.conf</span>
         </header>
         <form method="post" action="/admin/security/waf/allowlist/add" class="waf-inline-form">
           <input type="hidden" name="entry_type" value="ip">
@@ -1416,7 +1416,7 @@
           </div>
           <button type="submit" class="btn btn-primary">{{ _('Ajouter à l’allowlist') }}</button>
         </form>
-        <div class="waf-card-body waf-card-body--flush">
+        <div class="bp-card-body bp-card-body--flush">
         <div class="data-table-wrapper waf-ms-table">
           <table class="data-table">
             <thead>
@@ -1435,7 +1435,7 @@
                 <td>{{ e.comment or '—' }}</td>
                 <td class="muted">{{ e.created_by or '—' }}</td>
                 <td class="mono">{% if e.created_at %}{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
-                <td class="waf-row-actions">
+                <td class="bp-row-actions">
                   <form method="post" action="/admin/security/waf/allowlist/{{ e.id }}/remove" class="inline-form"
                         onsubmit="return confirm('Retirer cette entrée allowlist ?');">
                     <button type="submit" class="btn btn-ghost btn-sm">{{ _('Retirer') }}</button>
@@ -1451,15 +1451,15 @@
         </div>
       </section>
 
-      <form method="post" action="/admin/security/waf/rate-limit/escalation" class="waf-card waf-form" aria-labelledby="waf-autoban-h">
+      <form method="post" action="/admin/security/waf/rate-limit/escalation" class="bp-card waf-form" aria-labelledby="waf-autoban-h">
         {% set nrl = nginx_limit_req_rule %}
-        <header class="waf-card-head">
+        <header class="bp-card-head">
           <div>
-            <h3 class="waf-card-title" id="waf-autoban-h">{{ _('Auto-ban comportemental (Nginx 429)') }}</h3>
-            <p class="waf-card-sub">{{ _('Si une IP accumule N rejets HTTP 429 (limit_req) en T secondes → SecurityBan progressif : 15 min → 2 h → permanent.') }}</p>
+            <h3 class="bp-card-title" id="waf-autoban-h">{{ _('Auto-ban comportemental (Nginx 429)') }}</h3>
+            <p class="bp-card-sub">{{ _('Si une IP accumule N rejets HTTP 429 (limit_req) en T secondes → SecurityBan progressif : 15 min → 2 h → permanent.') }}</p>
           </div>
         </header>
-        <div class="waf-card-body waf-form-body">
+        <div class="bp-card-body waf-form-body">
           <label class="form-check">
             <input type="checkbox" name="enabled" value="on" {% if nrl is none or nrl.enabled %}checked{% endif %}>
             {{ _('Activer l’escalade auto-ban') }}
@@ -1483,12 +1483,12 @@
       </form>
     </div>
 
-    <section class="waf-card" aria-labelledby="waf-bans-h">
-      <header class="waf-card-head">
-        <h3 class="waf-card-title" id="waf-bans-h">{{ _('Bannissements actifs (denylist)') }}</h3>
-        <span class="waf-card-meta">{{ bans|length }}</span>
+    <section class="bp-card" aria-labelledby="waf-bans-h">
+      <header class="bp-card-head">
+        <h3 class="bp-card-title" id="waf-bans-h">{{ _('Bannissements actifs (denylist)') }}</h3>
+        <span class="bp-card-meta">{{ bans|length }}</span>
       </header>
-      <div class="waf-card-body waf-card-body--flush">
+      <div class="bp-card-body bp-card-body--flush">
         <div class="data-table-wrapper waf-ms-table" id="network-bans">
           <table class="data-table">
             <thead>
@@ -1515,7 +1515,7 @@
                   —
                   {% endif %}
                 </td>
-                <td class="waf-row-actions">
+                <td class="bp-row-actions">
                   <form method="post" action="/admin/security/waf/actions/lift-ban/{{ ban.id }}" class="inline-form">
                     <button type="submit" class="btn btn-secondary btn-sm">{{ _('Lever') }}</button>
                   </form>
@@ -1533,22 +1533,22 @@
 
 {# En-têtes #}
 
-  <div class="waf-panel waf-panel--tab" id="headers" role="tabpanel" aria-labelledby="tab-headers" hidden>
+  <div class="waf-panel bp-panel waf-panel--tab" id="headers" role="tabpanel" aria-labelledby="tab-headers" hidden>
 
-    <div class="waf-section-head">
-      <div class="waf-section-head-text">
-        <h2 class="waf-section-title">{{ _('En-têtes de sécurité') }}</h2>
-        <p class="waf-section-sub">{{ headers_panel.source_note or 'Lecture snapshot nginx.' }}</p>
+    <div class="bp-section-head">
+      <div class="bp-section-head-text">
+        <h2 class="bp-section-title">{{ _('En-têtes de sécurité') }}</h2>
+        <p class="bp-section-sub">{{ headers_panel.source_note or 'Lecture snapshot nginx.' }}</p>
       </div>
     </div>
 
     {% if headers_panel.present %}
-    <section class="waf-card">
-      <header class="waf-card-head">
-        <h3 class="waf-card-title">{{ _('En-têtes servis') }}</h3>
-        <span class="waf-card-meta">{{ headers_panel.headers|length }}</span>
+    <section class="bp-card">
+      <header class="bp-card-head">
+        <h3 class="bp-card-title">{{ _('En-têtes servis') }}</h3>
+        <span class="bp-card-meta">{{ headers_panel.headers|length }}</span>
       </header>
-      <div class="waf-card-body waf-card-body--flush">
+      <div class="bp-card-body bp-card-body--flush">
         <div class="data-table-wrapper waf-ms-table">
           <table class="data-table">
             <thead><tr><th>{{ _('En-tête') }}</th><th>{{ _('Valeur') }}</th></tr></thead>
@@ -1561,12 +1561,12 @@
   </div>
 
 {# Détails techniques #}
-  <div class="waf-panel waf-panel--tab" id="technical" role="tabpanel" aria-labelledby="tab-technical" hidden>
+  <div class="waf-panel bp-panel waf-panel--tab" id="technical" role="tabpanel" aria-labelledby="tab-technical" hidden>
 
-    <div class="waf-section-head">
-      <div class="waf-section-head-text">
-        <h2 class="waf-section-title">{{ _('Détails techniques & diagnostic') }}</h2>
-        <p class="waf-section-sub">{{ _('Sources de vérité, chemins, agrégateur, dernier Appliquer.') }}</p>
+    <div class="bp-section-head">
+      <div class="bp-section-head-text">
+        <h2 class="bp-section-title">{{ _('Détails techniques & diagnostic') }}</h2>
+        <p class="bp-section-sub">{{ _('Sources de vérité, chemins, agrégateur, dernier Appliquer.') }}</p>
       </div>
     </div>
 
@@ -1583,9 +1583,9 @@
     </div>
     {% endif %}
 
-    <section class="waf-card" aria-labelledby="waf-status-triad-h">
-      <header class="waf-card-head">
-        <h3 class="waf-card-title" id="waf-status-triad-h">{{ _('Souhaité · généré · réel') }}</h3>
+    <section class="bp-card" aria-labelledby="waf-status-triad-h">
+      <header class="bp-card-head">
+        <h3 class="bp-card-title" id="waf-status-triad-h">{{ _('Souhaité · généré · réel') }}</h3>
       </header>
       <div class="waf-status-columns">
         <div class="waf-status-col">
@@ -1618,11 +1618,11 @@
       </div>
     </section>
 
-    <section class="waf-card" aria-labelledby="waf-sources-h">
-      <header class="waf-card-head">
-        <h3 class="waf-card-title" id="waf-sources-h">{{ _('État des sources') }}</h3>
+    <section class="bp-card" aria-labelledby="waf-sources-h">
+      <header class="bp-card-head">
+        <h3 class="bp-card-title" id="waf-sources-h">{{ _('État des sources') }}</h3>
       </header>
-      <div class="waf-card-body waf-card-body--flush">
+      <div class="bp-card-body bp-card-body--flush">
         <div class="data-table-wrapper waf-sources-wrap waf-ms-table">
           <table class="data-table waf-sources-table">
             <thead><tr><th>Composant</th><th>{{ _('État') }}</th><th>{{ _('Détail') }}</th><th>{{ _('Chemin / action') }}</th></tr></thead>
@@ -1640,16 +1640,16 @@
           </table>
         </div>
       </div>
-      <footer class="waf-card-foot">{{ _('Agrégateur — offset') }} {{ diagnostic.aggregator_offset or '—' }} {{ _('· état') }} {{ diagnostic.aggregator_state_path }}</footer>
+      <footer class="bp-card-foot">{{ _('Agrégateur — offset') }} {{ diagnostic.aggregator_offset or '—' }} {{ _('· état') }} {{ diagnostic.aggregator_state_path }}</footer>
     </section>
 
-    <div class="waf-grid waf-grid--stretch">
-      <section class="waf-card" aria-labelledby="waf-runtime-h">
+    <div class="bp-grid bp-grid--stretch">
+      <section class="bp-card" aria-labelledby="waf-runtime-h">
         {% set rh = runtime_hardening | default({}) %}
-        <header class="waf-card-head">
-          <h3 class="waf-card-title" id="waf-runtime-h">{{ _('Durcissement Runtime') }}</h3>
+        <header class="bp-card-head">
+          <h3 class="bp-card-title" id="waf-runtime-h">{{ _('Durcissement Runtime') }}</h3>
         </header>
-        <div class="waf-card-body waf-card-body--flush">
+        <div class="bp-card-body bp-card-body--flush">
           <div class="data-table-wrapper waf-ms-table">
             <table class="data-table">
               <thead><tr><th>{{ _('Signal') }}</th><th>{{ _('Valeur') }}</th><th>{{ _('Attendu') }}</th></tr></thead>
@@ -1674,18 +1674,18 @@
             </table>
           </div>
         </div>
-        <footer class="waf-card-foot">{{ _('Probe locale du processus FastAPI (compose read_only / cap_drop / no-new-privileges). Nginx : user nginx + tmpfs conf.d.') }}</footer>
+        <footer class="bp-card-foot">{{ _('Probe locale du processus FastAPI (compose read_only / cap_drop / no-new-privileges). Nginx : user nginx + tmpfs conf.d.') }}</footer>
       </section>
 
-      <section class="waf-card waf-diagnostic-export" id="waf-diagnostic-export" aria-labelledby="waf-diag-export-h">
-        <header class="waf-card-head">
+      <section class="bp-card waf-diagnostic-export" id="waf-diagnostic-export" aria-labelledby="waf-diag-export-h">
+        <header class="bp-card-head">
           <div>
-            <h3 class="waf-card-title" id="waf-diag-export-h">{{ _('Export JSON diagnostic') }}</h3>
-            <p class="waf-card-sub">{{ _('Modes, seuils, chemins, écarts — aucun secret.') }}</p>
+            <h3 class="bp-card-title" id="waf-diag-export-h">{{ _('Export JSON diagnostic') }}</h3>
+            <p class="bp-card-sub">{{ _('Modes, seuils, chemins, écarts — aucun secret.') }}</p>
           </div>
-          <span class="waf-card-meta">{{ _('Attendu (DB) · généré · réel nginx') }}</span>
+          <span class="bp-card-meta">{{ _('Attendu (DB) · généré · réel nginx') }}</span>
         </header>
-        <div class="waf-card-body waf-card-body--stack waf-diagnostic-export-body">
+        <div class="bp-card-body bp-card-body--stack waf-diagnostic-export-body">
           <div class="waf-diagnostic-export-actions">
             <button type="button" class="btn btn-secondary btn-sm" id="waf-diag-copy-btn">{{ _('Copier le JSON') }}</button>
             <a class="btn btn-secondary btn-sm" href="/admin/security/waf/diagnostic.json" download data-bastion-download>{{ _('Télécharger .json') }}</a>
@@ -1697,11 +1697,11 @@
       </section>
     </div>
 
-    <section class="waf-card" aria-labelledby="waf-drift-h">
-      <header class="waf-card-head">
-        <h3 class="waf-card-title" id="waf-drift-h">{{ _('Drift configuration (UI ↔ exports)') }}</h3>
+    <section class="bp-card" aria-labelledby="waf-drift-h">
+      <header class="bp-card-head">
+        <h3 class="bp-card-title" id="waf-drift-h">{{ _('Drift configuration (UI ↔ exports)') }}</h3>
       </header>
-      <div class="waf-card-body waf-card-body--stack" id="waf-drift-panel"
+      <div class="bp-card-body bp-card-body--stack" id="waf-drift-panel"
            data-drift-url="/admin/security/waf/drift.json"
            data-label-synced="{{ _('Configuration Nginx synchronisée') }}"
            data-label-drift="{{ _('Drift détecté') }}"
@@ -1721,29 +1721,29 @@
           <pre class="waf-drift-diff mono" id="waf-drift-diff" tabindex="0" aria-live="polite">{{ _('Ouvrez cet onglet ou cliquez Actualiser pour comparer.') }}</pre>
         </div>
       </div>
-      <footer class="waf-card-foot">{{ _('Cible UI (vert +) vs fichiers sous exports/ (rouge −). Hors conf live du container nginx.') }}</footer>
+      <footer class="bp-card-foot">{{ _('Cible UI (vert +) vs fichiers sous exports/ (rouge −). Hors conf live du container nginx.') }}</footer>
     </section>
   </div>
 
   {% if reactivation and reactivation.show %}
-  <div class="waf-panel waf-panel--tab waf-reactivation" id="reactivation" role="tabpanel" aria-labelledby="tab-reactivation" hidden>
+  <div class="waf-panel bp-panel waf-panel--tab waf-reactivation" id="reactivation" role="tabpanel" aria-labelledby="tab-reactivation" hidden>
 
-    <div class="waf-section-head">
-      <div class="waf-section-head-text">
-        <h2 class="waf-section-title">{{ reactivation.title }}</h2>
-        <p class="waf-section-sub">{{ _("DetectionOnly, contrôles HTTP, retour automatique à Off en cas d'échec") }}</p>
+    <div class="bp-section-head">
+      <div class="bp-section-head-text">
+        <h2 class="bp-section-title">{{ reactivation.title }}</h2>
+        <p class="bp-section-sub">{{ _("DetectionOnly, contrôles HTTP, retour automatique à Off en cas d'échec") }}</p>
       </div>
     </div>
 
-    <div class="waf-grid waf-grid--3-2">
-      <div class="waf-panel-stack">
+    <div class="bp-grid bp-grid--3-2">
+      <div class="bp-stack">
 
-        <section class="waf-card" aria-labelledby="waf-react-portal-h">
-          <header class="waf-card-head">
-            <h3 class="waf-card-title" id="waf-react-portal-h">{{ _('Portail') }}</h3>
-            <span class="waf-card-meta">{{ _('Réel (nginx) portal :') }} <code>{{ reactivation.real_mode or '—' }}</code></span>
+        <section class="bp-card" aria-labelledby="waf-react-portal-h">
+          <header class="bp-card-head">
+            <h3 class="bp-card-title" id="waf-react-portal-h">{{ _('Portail') }}</h3>
+            <span class="bp-card-meta">{{ _('Réel (nginx) portal :') }} <code>{{ reactivation.real_mode or '—' }}</code></span>
           </header>
-          <div class="waf-card-body waf-card-body--stack">
+          <div class="bp-card-body bp-card-body--stack">
             {% if reactivation.can_reactivate_portal %}
             <div class="alert alert-err">
               <strong>{{ _('Moteur portal désarmé') }}</strong>
@@ -1794,18 +1794,18 @@
             </div>
             {% endif %}
             {% else %}
-            <p class="waf-muted-note">{{ reactivation.summary }}</p>
+            <p class="bp-muted-note">{{ reactivation.summary }}</p>
             {% endif %}
           </div>
         </section>
 
         {% if reactivation.can_reactivate_subdomain or reactivation.subdomain_armed %}
-        <section class="waf-card" aria-labelledby="waf-react-sub-h">
-          <header class="waf-card-head">
-            <h3 class="waf-card-title" id="waf-react-sub-h">{{ _('Sous-domaines (subdomain_proxy)') }}</h3>
-            <span class="waf-card-meta">{{ _('Mode nginx :') }} <code>{{ reactivation.subdomain_real_mode or '—' }}</code></span>
+        <section class="bp-card" aria-labelledby="waf-react-sub-h">
+          <header class="bp-card-head">
+            <h3 class="bp-card-title" id="waf-react-sub-h">{{ _('Sous-domaines (subdomain_proxy)') }}</h3>
+            <span class="bp-card-meta">{{ _('Mode nginx :') }} <code>{{ reactivation.subdomain_real_mode or '—' }}</code></span>
           </header>
-          <div class="waf-card-body waf-card-body--stack">
+          <div class="bp-card-body bp-card-body--stack">
             {% if reactivation.can_reactivate_subdomain %}
             <div class="alert alert-warn">
               <p>{{ reactivation.subdomain_summary }}</p>
@@ -1840,7 +1840,7 @@
             {% endif %}
             {% if reactivation.can_promote_subdomain_to_on %}
             <div class="waf-reactivation-actions">
-              <p class="waf-muted-note"><strong>{{ _('Promouvoir les sous-domaines en On (blocage)') }}</strong> — {{ reactivation.subdomain_promote_summary }}
+              <p class="bp-muted-note"><strong>{{ _('Promouvoir les sous-domaines en On (blocage)') }}</strong> — {{ reactivation.subdomain_promote_summary }}
                 {{ _("Prérequis : profil WAF en mode On. Le portail n'est pas modifié par cette action.") }}</p>
               <form method="post" action="/admin/security/waf/actions/promote-subdomain-on" class="stack waf-reactivate-form"
                     id="waf-promote-subdomain-on-form">
@@ -1860,12 +1860,12 @@
         {% endif %}
       </div>
 
-      <div class="waf-panel-stack">
-        <section class="waf-card" aria-labelledby="waf-react-steps-h">
-          <header class="waf-card-head">
+      <div class="bp-stack">
+        <section class="bp-card" aria-labelledby="waf-react-steps-h">
+          <header class="bp-card-head">
             <div>
-              <h3 class="waf-card-title" id="waf-react-steps-h">{{ _('Procédure') }}</h3>
-              <p class="waf-card-sub">{{ _("Ordre : portail, puis sous-domaines. Le proxy public n'est pas activé ici.") }}</p>
+              <h3 class="bp-card-title" id="waf-react-steps-h">{{ _('Procédure') }}</h3>
+              <p class="bp-card-sub">{{ _("Ordre : portail, puis sous-domaines. Le proxy public n'est pas activé ici.") }}</p>
             </div>
           </header>
           <ol class="waf-reactivation-steps">
@@ -1878,18 +1878,18 @@
           </ol>
         </section>
 
-        <section class="waf-card" aria-labelledby="waf-react-checks-h">
-          <header class="waf-card-head">
-            <h3 class="waf-card-title" id="waf-react-checks-h">{{ _('Contrôles après activation') }}</h3>
+        <section class="bp-card" aria-labelledby="waf-react-checks-h">
+          <header class="bp-card-head">
+            <h3 class="bp-card-title" id="waf-react-checks-h">{{ _('Contrôles après activation') }}</h3>
           </header>
-          <div class="waf-card-body">
+          <div class="bp-card-body">
             <ul class="waf-pending-list" style="margin:0">
               <li><code>nginx -t</code> {{ _('puis reload des exports') }}</li>
               <li>{{ _('Portail :') }} <code>/_portal_nginx_ok</code>, <code>/api/health</code>, <code>/auth/login</code> {{ _('— pas de 5xx') }}</li>
               <li>{{ _('Sous-domaines : GET') }} <code>/auth/login</code> {{ _('(Host = FQDN) — pas de 5xx (302 OK)') }}</li>
             </ul>
           </div>
-          <footer class="waf-card-foot">{{ _('Si une sonde échoue, le moteur de la famille concernée revient à Off. nginx -t seul ne suffit pas.') }}</footer>
+          <footer class="bp-card-foot">{{ _('Si une sonde échoue, le moteur de la famille concernée revient à Off. nginx -t seul ne suffit pas.') }}</footer>
         </section>
       </div>
     </div>
