@@ -28,11 +28,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app import re_safe
-from app.models import SecurityAllowlistEntry, SecurityBan, WafExclusion, WafProfile
+from app.ip_cidrs import canonical_ip_or_network, waf_acl_entry_problem
+from app.models import (
+    SecurityAllowlistEntry,
+    SecurityBan,
+    WafExclusion,
+    WafProfile,
+    utcnow,
+)
 from app.pathutil import atomic_write_text_under, write_text_under
 from app.sso_settings import Settings
 
@@ -190,11 +197,19 @@ def list_promoted_deny_ips(
     """Active IP bans eligible for nginx deny (permanent or repeated)."""
     min_n = max(1, int(min_occurrences or DEFAULT_IP_DENY_MIN))
     counts = ip_ban_occurrence_counts(db)
+    # Expired temporary bans may not be lifted yet (lift_expired_bans only runs
+    # on some read paths) — they must not keep an nginx deny alive.
+    now = utcnow()
     active = (
         db.query(SecurityBan)
         .filter(
             SecurityBan.target_type == "ip",
             SecurityBan.lifted_at.is_(None),
+            or_(
+                SecurityBan.permanent.is_(True),
+                SecurityBan.expires_at.is_(None),
+                SecurityBan.expires_at > now,
+            ),
         )
         .order_by(SecurityBan.banned_at.desc())
         .all()
@@ -285,6 +300,56 @@ VALID_URI_MATCH = frozenset({URI_MATCH_EXACT, URI_MATCH_PREFIX, URI_MATCH_REGEX}
 # Bastion-owned SecRule id band for generated exclusion wrappers (stable per row).
 EXCLUSION_SECRULE_ID_BASE = 1_500_000
 
+# Rule ids an exclusion may target: CRS detection families (911–944 inbound,
+# 950–958 outbound) and Bastion virtual-patch packs (100096xxx). Everything else
+# is refused on purpose — CRS setup/init (900000–910999), anomaly blocking and
+# correlation (949xxx / 959xxx / 980xxx), ModSecurity core body-parsing rules
+# (2000xx) or Bastion overlays (1000900xxx): removing those does not fix a false
+# positive, it silently turns blocking or body inspection off.
+EXCLUDABLE_RULE_ID_RANGES: tuple[tuple[int, int], ...] = (
+    (911_000, 948_999),
+    (950_000, 958_999),
+    (100_096_000, 100_096_999),
+)
+
+_HOSTNAME_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+_EXCLUSION_HOST_PATTERN = (
+    rf"^{_HOSTNAME_LABEL}(?:\.{_HOSTNAME_LABEL})*(?::[0-9]{{1,5}})?$"
+)
+_EXCLUSION_HOST_MAX_LEN = 253 + 6  # FQDN + ":65535"
+
+
+def is_excludable_rule_id(rule_id: Any) -> bool:
+    """True when ``rule_id`` is a detection rule an exclusion may remove."""
+    try:
+        n = int(rule_id)
+    except (TypeError, ValueError):
+        return False
+    return any(lo <= n <= hi for lo, hi in EXCLUDABLE_RULE_ID_RANGES)
+
+
+def is_single_line_ascii(value: str | None) -> bool:
+    """Printable ASCII only (0x20–0x7e).
+
+    Exclusion values are spliced into ONE ModSecurity rule line: CR/LF, NEL,
+    U+2028/U+2029 or any other line separator would end the rule and let the
+    remainder be parsed as new directives (``Include``, ``SecRuleRemoveById``…).
+    """
+    return all(0x20 <= ord(c) <= 0x7E for c in (value or ""))
+
+
+def is_valid_exclusion_host(host: str | None) -> bool:
+    """Lower-case DNS name with optional ``:port`` (matched against Host header)."""
+    value = host or ""
+    if not value or len(value) > _EXCLUSION_HOST_MAX_LEN:
+        return False
+    return bool(
+        re_safe.fullmatch(
+            _EXCLUSION_HOST_PATTERN, value, max_input_len=_EXCLUSION_HOST_MAX_LEN
+        )
+    )
+
+
 _SCOPE_CTL_COLLECTION = {
     SCOPE_ARGS: "ARGS",
     SCOPE_ARGS_NAMES: "ARGS_NAMES",
@@ -359,7 +424,8 @@ def sanitize_exclusion_target_name(name: str | None) -> str | None:
     raw = (name or "").strip()
     if not raw:
         return None
-    safe = "".join(c for c in raw if c.isalnum() or c in "._-")
+    # ASCII only: str.isalnum() is Unicode-aware and would let non-ASCII through.
+    safe = "".join(c for c in raw if c.isascii() and (c.isalnum() or c in "._-"))
     return safe or None
 
 
@@ -496,6 +562,13 @@ def _append_exclusion_lines(lines: list[str], ex: WafExclusion) -> None:
     if rule_id is None:
         lines.append(_skip_exclusion_comment(ex))
         return
+    # Fail closed on rows stored before validation existed (or written directly
+    # in the DB): never splice them into the shared rules file.
+    unsafe = _unsafe_exclusion_reason(ex)
+    if unsafe:
+        lines.append(f"# skip exclusion id={ex.id}: {unsafe}")
+        lines.append("")
+        return
     meta = _exclusion_line_meta(ex, int(rule_id))
     lines.append(
         f"# exclusion id={ex.id} reason={meta['reason']} "
@@ -515,6 +588,19 @@ def _append_exclusion_lines(lines: list[str], ex: WafExclusion) -> None:
         rule_id_i=meta["rule_id_i"],
         ctl=ctl,
     )
+
+
+def _unsafe_exclusion_reason(ex: WafExclusion) -> str | None:
+    """Why this exclusion must not be rendered, or None when it is safe."""
+    if not is_excludable_rule_id(ex.crs_rule_id):
+        return "rule id outside excludable detection ranges"
+    host = _str_or_empty(ex.host).strip().lower()
+    if host and not is_valid_exclusion_host(host):
+        return "host is not a valid DNS name"
+    uri = _str_or_empty(ex.uri_pattern).strip()
+    if not is_single_line_ascii(uri):
+        return "uri contains control or non-ASCII characters"
+    return None
 
 
 def _skip_exclusion_comment(ex: WafExclusion) -> str:
@@ -622,13 +708,16 @@ def _append_exclusion_secrules(
     lines.append("")
 
 
-def _sanitize_nginx_ip_or_cidr(raw: str) -> str | None:
-    """Return a safe nginx allow/deny target (IPv4/IPv6/CIDR) or None."""
-    value = (raw or "").strip()
-    safe = "".join(c for c in value if c.isalnum() or c in ".:/")
-    if not safe or safe != value:
+def _nginx_acl_operand(raw: str | None, *, deny: bool) -> str | None:
+    """Canonical nginx ``allow``/``deny`` operand, or None when it must be skipped.
+
+    Parsed with ``ipaddress`` (never a character filter: ``all``/``unknown``
+    are alphanumeric and would become ``deny all;``). Policy lives in
+    ``app.ip_cidrs.waf_acl_entry_problem`` and is shared with the Admin forms.
+    """
+    if waf_acl_entry_problem(raw, deny=deny) is not None:
         return None
-    return safe
+    return canonical_ip_or_network(raw)
 
 
 def list_allowlist_ips(db: Session) -> list[str]:
@@ -642,8 +731,15 @@ def list_allowlist_ips(db: Session) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     for row in rows:
-        safe = _sanitize_nginx_ip_or_cidr(row.value or "")
-        if not safe or safe in seen:
+        safe = _nginx_acl_operand(row.value, deny=False)
+        if not safe:
+            logger.warning(
+                "waf export: allowlist entry %s skipped (%s)",
+                row.id,
+                waf_acl_entry_problem(row.value, deny=False),
+            )
+            continue
+        if safe in seen:
             continue
         seen.add(safe)
         out.append(safe)
@@ -659,9 +755,12 @@ def render_ip_deny_conf(ips: list[str], *, min_occurrences: int) -> str:
         "",
     ]
     for ip in ips:
-        safe = _sanitize_nginx_ip_or_cidr(ip)
+        safe = _nginx_acl_operand(ip, deny=True)
         if not safe:
-            lines.append(f"# skipped unsafe target: {ip!r}")
+            problem = waf_acl_entry_problem(ip, deny=True) or "invalid"
+            lines.append(
+                f"# skipped unsafe target: {_modsec_comment(ip)} ({_modsec_comment(problem)})"
+            )
             continue
         lines.append(f"deny {safe};")
     if not ips:
@@ -679,9 +778,12 @@ def render_ip_allow_conf(ips: list[str]) -> str:
         "",
     ]
     for ip in ips:
-        safe = _sanitize_nginx_ip_or_cidr(ip)
+        safe = _nginx_acl_operand(ip, deny=False)
         if not safe:
-            lines.append(f"# skipped unsafe target: {ip!r}")
+            problem = waf_acl_entry_problem(ip, deny=False) or "invalid"
+            lines.append(
+                f"# skipped unsafe target: {_modsec_comment(ip)} ({_modsec_comment(problem)})"
+            )
             continue
         lines.append(f"allow {safe};")
     if not ips:

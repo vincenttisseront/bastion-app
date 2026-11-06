@@ -50,3 +50,59 @@ INFRA_HOP_NETWORKS: tuple[ipaddress.IPv4Network, ...] = (
     v4_network(0xAC110000, 16),  # docker bridge
     v4_network(0x7F000000, 8),  # loopback
 )
+
+# --- nginx allow / deny entries (WAF network ACLs, promoted bans) -------------
+# Broadest prefix accepted per IP version. Anything wider is an outage (deny)
+# or a bypass of every ban (allow) waiting to happen: 0.0.0.0/0, ::/0, /1…
+WAF_ACL_MIN_PREFIX: dict[int, int] = {4: 8, 6: 32}
+
+_INFRA_HOP_NETWORKS_ALL: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
+    *INFRA_HOP_NETWORKS,
+    ipaddress.IPv6Network((1, 128)),  # ::1 loopback
+)
+
+IpNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
+
+
+def parse_ip_network(raw: str | None) -> IpNetwork | None:
+    """Single IP or CIDR (host bits allowed) → network, else None."""
+    value = (raw or "").strip()
+    if not value or not value.isascii():
+        return None
+    try:
+        return ipaddress.ip_network(value, strict=False)
+    except ValueError:
+        return None
+
+
+def waf_acl_entry_problem(raw: str | None, *, deny: bool) -> str | None:
+    """Why ``raw`` must not become an nginx ``allow``/``deny`` operand, or None.
+
+    ``deny`` additionally refuses networks overlapping the infrastructure hops
+    nginx trusts for real_ip (loopback, Docker vpcbr / bridge): denying them at
+    http{} level cuts the :443 → :8080 hop and container-to-nginx traffic.
+    """
+    net = parse_ip_network(raw)
+    if net is None:
+        return "adresse IP ou CIDR invalide"
+    min_prefix = WAF_ACL_MIN_PREFIX[net.version]
+    if net.prefixlen < min_prefix:
+        return f"plage trop large (/{net.prefixlen}, minimum /{min_prefix})"
+    if net.is_unspecified or net.is_multicast:
+        return "adresse non spécifiée ou multicast"
+    if deny and any(
+        net.version == infra.version and net.overlaps(infra)
+        for infra in _INFRA_HOP_NETWORKS_ALL
+    ):
+        return "chevauche le réseau d'infrastructure (loopback / Docker)"
+    return None
+
+
+def canonical_ip_or_network(raw: str | None) -> str | None:
+    """Canonical text form: bare address for /32 or /128, else ``net/prefix``."""
+    net = parse_ip_network(raw)
+    if net is None:
+        return None
+    if net.prefixlen == net.max_prefixlen:
+        return str(net.network_address)
+    return str(net)

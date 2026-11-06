@@ -465,17 +465,21 @@ def admin_waf_ban_ip(
         return response
 
     permanent = ban_mode == "permanent"
-    ban = apply_manual_ban(
-        db,
-        target_type="ip",
-        target=target,
-        reason=(reason or "").strip() or f"WAF — ban depuis bilan ({target})",
-        permanent=permanent,
-        ban_minutes=max(1, int(ban_minutes)),
-        confirm_permanent=confirm_permanent == "on",
-        actor=admin_actor(user),
-        ip_address=client_ip_from_request(request) or None,
-    )
+    try:
+        ban = apply_manual_ban(
+            db,
+            target_type="ip",
+            target=target,
+            reason=(reason or "").strip() or f"WAF — ban depuis bilan ({target})",
+            permanent=permanent,
+            ban_minutes=max(1, int(ban_minutes)),
+            confirm_permanent=confirm_permanent == "on",
+            actor=admin_actor(user),
+            ip_address=client_ip_from_request(request) or None,
+        )
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", _flash_secret(settings))
+        return response
     if ban is None and permanent and confirm_permanent != "on":
         flash_redirect(
             response,

@@ -121,6 +121,10 @@ server {
         # Edge → :8080: peer becomes 127.0.0.1; map only trusts X-Portal-Client-IP
         # from infra peers (see nginx-portal-client-ip.map.conf). Escape \$ in this
         # heredoc — set -u treats bare \$vars as unbound (broke sync after #115).
+        # :8080 trusts 127.0.0.0/8 for real_ip_header CF-Connecting-IP: always
+        # overwrite it with the client resolved HERE (CF ranges only), else a
+        # direct-to-origin client picks its own IP at :8080 (ACL / ban / limit_req bypass).
+        proxy_set_header CF-Connecting-IP \$remote_addr;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Portal-Client-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$remote_addr;
@@ -237,6 +241,8 @@ EOF
         proxy_set_header Host $host;
         # Edge → :8080: peer becomes 127.0.0.1; map only trusts X-Portal-Client-IP
         # from infra peers (see nginx-portal-client-ip.map.conf).
+        # Overwrite CF-Connecting-IP: :8080 trusts it from 127.0.0.0/8 (real_ip).
+        proxy_set_header CF-Connecting-IP $remote_addr;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Portal-Client-IP $remote_addr;
         proxy_set_header X-Forwarded-For $remote_addr;

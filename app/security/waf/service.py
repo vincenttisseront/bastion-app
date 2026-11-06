@@ -27,6 +27,9 @@ from app.bastion.nginx_waf_export import (
     clamp_paranoia_level,
     ensure_active_profile,
     get_active_profile,
+    is_excludable_rule_id,
+    is_single_line_ascii,
+    is_valid_exclusion_host,
     read_effective_status,
     record_waf_apply_metadata,
     restore_waf_exports_previous,
@@ -406,6 +409,15 @@ def _validate_exclusion_fields(
     reason_s = _require_exclusion_reason(reason)
     uri = (uri_pattern or "").strip() or None
     host_s = (host or "").strip().lower() or None
+    # host / URI are spliced into a single generated SecRule line: any line
+    # separator (CR, LF, NEL, U+2028…) would inject arbitrary directives.
+    if uri and not is_single_line_ascii(uri):
+        raise ValueError(
+            "URI refusée : caractères de contrôle ou non ASCII "
+            "(utiliser le chemin ASCII décodé)"
+        )
+    if host_s and not is_valid_exclusion_host(host_s):
+        raise ValueError("host invalide : nom DNS attendu (ex. app.example.com)")
     kind, target, match = _parse_exclusion_scope(
         scope_kind=scope_kind,
         target_name=target_name,
@@ -416,6 +428,13 @@ def _validate_exclusion_fields(
         _validate_uri_regex(uri)
     if crs_rule_id is None:
         raise ValueError("crs_rule_id requis")
+    if not is_excludable_rule_id(crs_rule_id):
+        raise ValueError(
+            f"règle {crs_rule_id} non excluable : seules les règles de détection CRS "
+            "(911000–948999, 950000–958999) et les packs Bastion (100096xxx) "
+            "peuvent être exclues — pas le blocage par score (949xxx/959xxx), "
+            "la corrélation (980xxx) ni l'initialisation"
+        )
     return reason_s, uri, host_s, kind, target, match
 
 
