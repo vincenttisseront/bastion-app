@@ -14,6 +14,7 @@ from app.models import (
     BastionAccount,
     BastionAccountProvisioning,
     GroupAppCredential,
+    IdentityPasswordCache,
     PendingHost,
     UserAppCredential,
     UserAppFavorite,
@@ -62,6 +63,11 @@ def purge_application(
     summary["activesync_devices"] = (
         db.query(ActiveSyncDevice)
         .filter(ActiveSyncDevice.application_id == app_id)
+        .delete(synchronize_session=False)
+    )
+    summary["identity_password_cache"] = (
+        db.query(IdentityPasswordCache)
+        .filter(IdentityPasswordCache.application_id == app_id)
         .delete(synchronize_session=False)
     )
     summary["user_app_favorites"] = (

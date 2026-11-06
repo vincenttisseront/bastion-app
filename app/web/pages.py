@@ -229,6 +229,7 @@ def _apply_auth_config(
     credential_mode: str = "shared",
     identity_format: str = "email",
     injected_cookie_scope: str = "host_only",
+    identity_password_session_cache: bool | None = None,
 ) -> None:
     mode = normalize_auth_mode(auth_mode)
     app.auth_mode = mode
@@ -244,6 +245,11 @@ def _apply_auth_config(
     app.credential_mode = normalize_credential_mode(credential_mode)
     app.identity_format = normalize_identity_format(identity_format)
     app.injected_cookie_scope = normalize_injected_cookie_scope(injected_cookie_scope)
+    if identity_password_session_cache is not None:
+        # Only meaningful for password-on-demand apps; never left armed elsewhere.
+        app.identity_password_session_cache = bool(identity_password_session_cache) and (
+            app.credential_mode == "identite_utilisateur"
+        )
 
 
 def _m2m_bypass_paths_text(app: App | None = None, raw: str | None = None) -> str:
@@ -371,6 +377,7 @@ def _apps_edit_error_response(
     credential_mode: str,
     identity_format: str,
     injected_cookie_scope: str,
+    identity_password_session_cache: bool | None = None,
 ):
     _apply_auth_config(
         app,
@@ -384,6 +391,7 @@ def _apps_edit_error_response(
         credential_mode=credential_mode,
         identity_format=identity_format,
         injected_cookie_scope=injected_cookie_scope,
+        identity_password_session_cache=identity_password_session_cache,
     )
     rbac_grant_count = (
         db.query(AccessGrant)
@@ -1147,6 +1155,7 @@ def logout(
     ``rd`` returns to ``/auth/login``.
     """
     from app.auth.oidc_bff import revoke_oidc_session_from_request
+    from app.robotic.identity_password_cache import forget_request_cache
     from app.session_cookies import (
         clear_browser_auth_cookies,
         oauth2_sign_out_path,
@@ -1162,6 +1171,7 @@ def logout(
         status_code=302,
     )
     clear_browser_auth_cookies(response, settings, include_oauth2=False)
+    forget_request_cache(db, request, response)
     actor = oidc_actor if oidc_actor and oidc_actor != "unknown" else bg_actor
     if actor and actor != "unknown":
         log_action(
@@ -2578,6 +2588,7 @@ def admin_apps_edit_post(
     login_extra_fields: str = Form(""),
     credential_mode: str = Form("shared"),
     identity_format: str = Form("email"),
+    identity_password_session_cache: str | None = Form(None),
     injected_cookie_scope: str = Form("host_only"),
     provisioning_driver: str = Form(""),
     crushftp_admin_base_url: str = Form(""),
@@ -2655,6 +2666,7 @@ def admin_apps_edit_post(
             credential_mode=credential_mode,
             identity_format=identity_format,
             injected_cookie_scope=injected_cookie_scope,
+            identity_password_session_cache=identity_password_session_cache == "on",
         )
     provision_driver = normalize_provisioning_driver(provisioning_driver)
     crush_errors: dict[str, str] = {}
@@ -2698,6 +2710,7 @@ def admin_apps_edit_post(
             credential_mode=credential_mode,
             identity_format=identity_format,
             injected_cookie_scope=injected_cookie_scope,
+            identity_password_session_cache=identity_password_session_cache == "on",
         )
     app.label = label
     app.upstream_url = upstream_url
@@ -2721,7 +2734,11 @@ def admin_apps_edit_post(
         credential_mode=credential_mode,
         identity_format=identity_format,
         injected_cookie_scope=injected_cookie_scope,
+        identity_password_session_cache=identity_password_session_cache == "on",
     )
+    from app.robotic.identity_password_cache import forget_if_disabled
+
+    forget_if_disabled(db, app)
     db.commit()
     _warn_if_fqdn_cookie_domain_incompatible(
         access_mode=mode,

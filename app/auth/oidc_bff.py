@@ -307,6 +307,11 @@ def revoke_oidc_sessions_for_identity(
     """
     names = _clean_set(emails, lower=True) | _clean_set(usernames, lower=True)
     subs = _clean_set(keycloak_subs, lower=False)
+    # Admin disconnect also drops identite_utilisateur passwords kept for the
+    # session, in every browser of that identity.
+    from app.robotic.identity_password_cache import forget_for_identity
+
+    forget_for_identity(db, keycloak_subs=subs, emails=names)
     matches = []
     if subs:
         matches.append(func.trim(OidcSession.sub).in_(subs))
@@ -1043,6 +1048,7 @@ def oidc_logout(
     oauth2-proxy sign_out hop (IdP end-session) like ``GET /logout``.
     """
     from app.auth.breakglass import revoke_breakglass_session_from_request
+    from app.robotic.identity_password_cache import forget_request_cache
     from app.session_cookies import (
         clear_browser_auth_cookies,
         oauth2_sign_out_path,
@@ -1055,6 +1061,7 @@ def oidc_logout(
     # API responses cannot chain browser IdP logout; clear oauth2 cookies here
     # and expose the sign_out URL for clients that can navigate.
     clear_browser_auth_cookies(response, settings, include_oauth2=True)
+    forget_request_cache(db, request, response)
     if (not actor or actor == "unknown") and bg_actor and bg_actor != "unknown":
         actor = bg_actor
     log_action(

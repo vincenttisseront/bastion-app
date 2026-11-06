@@ -3053,5 +3053,14 @@
   "à planifier": "to schedule",
   "dernière version installée": "latest version installed",
   "Non applicables": "Not applicable",
-  "dernière version inconnue": "latest version unknown"
+  "dernière version inconnue": "latest version unknown",
+  "Mémoriser le mot de passe pendant la session portail": "Remember the password for the portal session",
+  "Saisi une fois, puis reconnexion silencieuse. Chiffré, clé partagée avec le cookie du navigateur ; effacé à la déconnexion ou au refus du mot de passe.": "Typed once, then silent sign-in. Encrypted, with the key split with the browser cookie; erased at logout or when the password is rejected.",
+  "Identité utilisateur : login IdP + mot de passe à chaque ouverture, ou une fois par session si mémorisé.": "User identity: IdP login + password on each open, or once per session when remembered.",
+  "Identifiant IdP (email/UPN) + mot de passe à chaque ouverture — jamais en coffre.": "IdP username (email/UPN) + password on each open — never stored in the vault.",
+  "Mot de passe mémorisé pour la session": "Password remembered for the session",
+  "Mot de passe refusé : il a peut-être changé. Saisissez-le à nouveau.": "Password rejected: it may have changed. Please enter it again.",
+  "Le mot de passe mémorisé a expiré. Saisissez-le à nouveau.": "The remembered password has expired. Please enter it again.",
+  "Mémoriser pendant ma session portail": "Remember for my portal session",
+  "Conservé chiffré, effacé à la déconnexion du portail.": "Kept encrypted, erased when you log out of the portal."
 }

@@ -695,6 +695,6 @@ def test_portal_identity_tile_has_no_impersonate_href(
     assert "bastionPasswordPrompt" in html
     assert "submitOpenWithIdentityForm" in html
     assert "window.open('about:blank', tabName)" in html
-    assert "onConfirm: function (password)" in html
+    assert "onConfirm: function (password, remember)" in html
     assert "JSON.stringify({ password:" not in html
     assert "fetch(endpoint" not in html

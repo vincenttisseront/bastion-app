@@ -820,7 +820,9 @@ async def impersonate(
     otherwise group shared credential (OIDC group_names), then app-wide shared.
 
     For credential_mode=identite_utilisateur, pass ephemeral_username/password
-    from the OIDC session + user-typed password (never from vault, never stored).
+    from the OIDC session + user-typed password (never from vault). The
+    open-with-identity route may keep it for the portal session when the app
+    opts in — see ``app.robotic.identity_password_cache``.
 
     client_headers: optional browser User-Agent / Accept-Language forwarded to the
     upstream login so session fingerprints (e.g. grommunio-web) match the user.

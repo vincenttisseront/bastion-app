@@ -43,7 +43,7 @@
         <div class="app-tile-menu-facts">
           <span>{{ app.protocol_label or 'Application' }}</span>
           {% if app.access_status %}<span>{{ app.access_status }}</span>{% endif %}
-          {% if show_password %}<span>{{ _('Mot de passe requis') }}</span>{% endif %}
+          {% if show_password %}<span>{% if app.identity_cached %}{{ _('Mot de passe mémorisé pour la session') }}{% else %}{{ _('Mot de passe requis') }}{% endif %}</span>{% endif %}
         </div>
         {% if app.description %}
         <p class="app-tile-menu-desc">{{ app.description }}</p>
@@ -110,6 +110,8 @@
       data-identity-username="{{ app.identity_login }}"
       data-open-with-identity
       data-open-identity-url="/api/apps/{{ app.slug }}/open-with-identity"
+      {% if app.identity_cache_enabled %}data-identity-cache="1"{% endif %}
+      {% if app.identity_cached %}data-identity-cached="1"{% endif %}
     >
       {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="{{ _('Accès rapide') }}">★</span>{% endif %}
       {{ app_tile_icon(app) }}
@@ -323,7 +325,16 @@
     } catch (_) { /* fire-and-forget */ }
   }
 
-  function submitOpenWithIdentityForm(endpoint, password, targetName) {
+  function appendHidden(form, name, value) {
+    var input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  }
+
+  // fields: { password, remember, useCached } — only the ones set are posted.
+  function submitOpenWithIdentityForm(endpoint, fields, targetName) {
     var form = document.createElement('form');
     form.method = 'POST';
     form.action = endpoint;
@@ -333,20 +344,33 @@
     form.acceptCharset = 'UTF-8';
     form.style.display = 'none';
 
-    var pw = document.createElement('input');
-    pw.type = 'hidden';
-    pw.name = 'password';
-    pw.value = password;
-    form.appendChild(pw);
-
-    var csrf = document.createElement('input');
-    csrf.type = 'hidden';
-    csrf.name = 'csrf_token';
-    csrf.value = csrfToken();
-    form.appendChild(csrf);
+    if (fields.password) appendHidden(form, 'password', fields.password);
+    if (fields.remember) appendHidden(form, 'remember', '1');
+    if (fields.useCached) appendHidden(form, 'use_cached', '1');
+    appendHidden(form, 'csrf_token', csrfToken());
 
     document.body.appendChild(form);
     form.submit();
+  }
+
+  // Must run inside a user gesture (tile click / modal confirm) for window.open.
+  function openAppTab(slug, preferNewTab) {
+    if (!preferNewTab) return null;
+    var tabName = 'bastion_app_' + slug;
+    var appTab = null;
+    try {
+      appTab = window.open('about:blank', tabName);
+    } catch (_) {
+      appTab = null;
+    }
+    return appTab && !appTab.closed ? tabName : null;
+  }
+
+  function identityEndpoint(tile) {
+    return (
+      tile.dataset.openIdentityUrl ||
+      ('/api/apps/' + encodeURIComponent(tile.dataset.appSlug) + '/open-with-identity')
+    );
   }
 
   function openWithIdentity(tile, options) {
@@ -355,15 +379,26 @@
     var slug = tile.dataset.appSlug;
     var label = tile.dataset.appLabel || slug;
     var identityUsername = tile.dataset.identityUsername || '';
-    var endpoint =
-      tile.dataset.openIdentityUrl ||
-      ('/api/apps/' + encodeURIComponent(slug) + '/open-with-identity');
-    if (!slug || !window.bastionPasswordPrompt) return;
+    var endpoint = identityEndpoint(tile);
+    if (!slug) return;
+
+    // Password kept for this portal session: no modal. On a server-side miss
+    // (expired, logged out elsewhere, password changed) the new tab lands back
+    // on /apps?identity_prompt=… with the prompt open.
+    if (tile.dataset.identityCached === '1' && !options.forcePrompt) {
+      submitOpenWithIdentityForm(
+        endpoint,
+        { useCached: true },
+        openAppTab(slug, preferNewTab)
+      );
+      return;
+    }
+    if (!window.bastionPasswordPrompt) return;
+
+    var canRemember = tile.dataset.identityCache === '1';
 
     // Open the named tab inside the modal confirm click (user gesture), not on tile
     // click — pre-opening about:blank alongside the password modal is confusing UX.
-    var tabName = 'bastion_app_' + slug;
-
     window.bastionPasswordPrompt({
       title: 'Ouvrir ' + label,
       message: preferNewTab
@@ -371,23 +406,48 @@
         : 'Saisissez votre mot de passe applicatif. Vous quitterez le catalogue le temps d’ouvrir l’application.',
       username: identityUsername,
       confirmLabel: 'Ouvrir',
-      onConfirm: function (password) {
-        var targetName = null;
-        if (preferNewTab) {
-          var appTab = null;
-          try {
-            appTab = window.open('about:blank', tabName);
-          } catch (_) {
-            appTab = null;
-          }
-          if (appTab && !appTab.closed) {
-            targetName = tabName;
-          }
-        }
-        submitOpenWithIdentityForm(endpoint, password, targetName);
+      error: options.error || '',
+      remember: canRemember ? true : undefined,
+      onConfirm: function (password, remember) {
+        submitOpenWithIdentityForm(
+          endpoint,
+          { password: password, remember: canRemember && remember },
+          openAppTab(slug, preferNewTab)
+        );
         return true;
       },
     });
+  }
+
+  // Back from a cached open that could not complete: prompt in this tab.
+  function resumeIdentityPrompt() {
+    var params;
+    try {
+      params = new URLSearchParams(window.location.search);
+    } catch (_) {
+      return;
+    }
+    var slug = params.get('identity_prompt');
+    if (!slug) return;
+    var reason = params.get('identity_reason') || '';
+    params.delete('identity_prompt');
+    params.delete('identity_reason');
+    try {
+      var qs = params.toString();
+      window.history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+    } catch (_) { /* cosmetic only */ }
+    var tile = null;
+    document.querySelectorAll('.app-tile[data-open-with-identity]').forEach(function (el) {
+      if (!tile && el.dataset.appSlug === slug) tile = el;
+    });
+    if (!tile) return;
+    var error = '';
+    if (reason === 'rejected') {
+      error = BastionI18n.t('Mot de passe refusé : il a peut-être changé. Saisissez-le à nouveau.');
+    } else if (reason === 'expired') {
+      error = BastionI18n.t('Le mot de passe mémorisé a expiré. Saisissez-le à nouveau.');
+    }
+    openWithIdentity(tile, { preferNewTab: false, forcePrompt: true, error: error });
   }
 
   function launchTile(tile) {
@@ -574,6 +634,7 @@
     });
   }
   syncSectionVisibility();
+  resumeIdentityPrompt();
 })();
 </script>
 {% endblock %}
