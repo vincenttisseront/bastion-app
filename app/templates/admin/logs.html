@@ -42,7 +42,8 @@
      data-docker-enabled="{{ '1' if docker_logs_enabled else '0' }}"
      data-tail-lines="{{ docker_logs_tail_lines }}"
      data-columns="{{ visible_columns | join(',') }}"
-     data-focus-audit-id="{{ focus_audit_id or '' }}">
+     data-focus-audit-id="{{ focus_audit_id or '' }}"
+     data-label-loading="{{ _('Chargement des journaux…') }}">
   <div class="page-header">
     <div>
       <h1 class="page-title">{{ _("Journaux d'administration") }}</h1>
@@ -67,9 +68,9 @@
     </div>
     {% endif %}
     <div class="logs-views">
-      <a class="btn btn-sm{% if not active_view_id %} btn-secondary{% else %} btn-ghost{% endif %}" href="/admin/logs#audit"{% if not active_view_id %} aria-current="true"{% endif %}>Tout</a>
+      <a class="btn btn-sm{% if not active_view_id %} btn-secondary{% else %} btn-ghost{% endif %}" href="/admin/logs#audit"{% if not active_view_id %} aria-current="true"{% endif %} data-bastion-busy-target="#audit-table-wrap" data-bastion-busy-label="{{ _('Chargement des journaux…') }}">Tout</a>
       {% for v in saved_views %}
-      <a class="btn btn-sm{% if active_view_id == v.id %} btn-secondary{% else %} btn-ghost{% endif %}" href="/admin/logs?view={{ v.id }}#audit"{% if active_view_id == v.id %} aria-current="true"{% endif %}>{{ v.name }}{% if v.is_system %} ★{% endif %}</a>
+      <a class="btn btn-sm{% if active_view_id == v.id %} btn-secondary{% else %} btn-ghost{% endif %}" href="/admin/logs?view={{ v.id }}#audit"{% if active_view_id == v.id %} aria-current="true"{% endif %} data-bastion-busy-target="#audit-table-wrap" data-bastion-busy-label="{{ _('Chargement des journaux…') }}">{{ v.name }}{% if v.is_system %} ★{% endif %}</a>
       {% if not v.is_system %}
       <form method="post" action="/admin/logs/views/{{ v.id }}/delete" class="inline-form">
         <button type="submit" class="btn btn-ghost btn-sm" title="{{ _('Supprimer la vue') }}">×</button>
@@ -78,15 +79,17 @@
       {% endfor %}
       <span style="flex:1;"></span>
       <a class="btn btn-ghost btn-sm" href="/admin/logs/catalogue">{{ _('Catalogue') }}</a>
-      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=csv{% if export_query %}&amp;{{ export_query }}{% endif %}">{{ _('↓ CSV') }}</a>
-      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=pdf{% if export_query %}&amp;{{ export_query }}{% endif %}">{{ _('↓ PDF') }}</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=csv{% if export_query %}&amp;{{ export_query }}{% endif %}" data-bastion-download>{{ _('↓ CSV') }}</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=pdf{% if export_query %}&amp;{{ export_query }}{% endif %}" data-bastion-download
+         data-bastion-busy-label="{{ _('Génération du PDF…') }}">{{ _('↓ PDF') }}</a>
     </div>
 
     {% if uncatalogued_count %}
     <p class="page-sub" id="uncatalogued-banner">{{ uncatalogued_count }} {{ _('type(s) d’événements non catalogués sur la période.') }}</p>
     {% endif %}
 
-    <form class="logs-filters" method="get" action="/admin/logs" id="audit-filters" data-live-search data-live-delay="400">
+    <form class="logs-filters" method="get" action="/admin/logs" id="audit-filters" data-live-search data-live-delay="400"
+          data-bastion-busy-target="#audit-table-wrap" data-bastion-busy-label="{{ _('Chargement des journaux…') }}">
       <input type="hidden" name="columns" id="filter-columns" value="{{ visible_columns | join(',') }}">
       <div class="logs-filters-row">
         <div class="logs-filters-grid">
@@ -199,7 +202,7 @@
     </div>
     {% endif %}
 
-    <div class="card logs-table-wrap">
+    <div class="card logs-table-wrap" id="audit-table-wrap">
       <table class="data-table" id="audit-table">
         <thead>
           <tr>
@@ -274,10 +277,10 @@
     {% if total_pages > 1 %}
     <nav class="logs-pager" id="audit-pagination" aria-label="{{ _('Pagination des journaux') }}">
       <a class="btn btn-ghost btn-sm logs-pager-btn{% if page <= 1 %} is-disabled{% endif %}"
-         id="page-prev" href="#" aria-label="{{ _('Page précédente') }}"{% if page <= 1 %} aria-disabled="true"{% endif %}>←</a>
+         id="page-prev" href="#" aria-label="{{ _('Page précédente') }}"{% if page <= 1 %} aria-disabled="true"{% endif %} data-bastion-busy-target="#audit-table-wrap" data-bastion-busy-label="{{ _('Chargement des journaux…') }}">←</a>
       <span class="logs-pager-status">{{ page }} / {{ total_pages }}</span>
       <a class="btn btn-ghost btn-sm logs-pager-btn{% if page >= total_pages %} is-disabled{% endif %}"
-         id="page-next" href="#" aria-label="{{ _('Page suivante') }}"{% if page >= total_pages %} aria-disabled="true"{% endif %}>→</a>
+         id="page-next" href="#" aria-label="{{ _('Page suivante') }}"{% if page >= total_pages %} aria-disabled="true"{% endif %} data-bastion-busy-target="#audit-table-wrap" data-bastion-busy-label="{{ _('Chargement des journaux…') }}">→</a>
     </nav>
     {% endif %}
     </div>
@@ -318,7 +321,7 @@
 
     </label>
     <p class="form-help dep-filter-empty" id="app-access-message" hidden></p>
-    <div class="table-wrap">
+    <div class="table-wrap" id="app-access-table-wrap">
       <table class="data-table" id="app-access-table">
         <thead>
           <tr>
@@ -413,6 +416,18 @@
   if (!page) return;
   var COLS = (page.getAttribute('data-columns') || 'timestamp,actor,action,ip,result,detail').split(',');
   var VALID = ['audit', 'app-access', 'containers'];
+
+  /* Shared loading indicator (bastion-busy.js) */
+  function T(s) { return window.BastionI18n ? window.BastionI18n.t(s) : s; }
+  var LOGS_LOADING = page.getAttribute('data-label-loading') || T('Chargement des journaux…');
+  function busyStart(opts) {
+    return window.BastionBusy && window.BastionBusy.start ? window.BastionBusy.start(opts) : function () {};
+  }
+  function auditBusy() {
+    if (window.BastionBusy && window.BastionBusy.navigating) {
+      window.BastionBusy.navigating({ target: document.getElementById('audit-table-wrap'), label: LOGS_LOADING });
+    }
+  }
 
   function currentTab() {
     var h = (location.hash || '').replace(/^#/, '');
@@ -536,6 +551,7 @@
         p.delete(key);
       }
       p.delete('page');
+      auditBusy();
       location.href = '/admin/logs?' + p.toString() + '#audit';
     });
   });
@@ -558,6 +574,7 @@
         function (el) { return el.value; }
       );
       document.getElementById('cols-form-value').value = selected.join(',');
+      auditBusy();
       document.getElementById('cols-form').submit();
     });
   }
@@ -579,6 +596,7 @@
       document.getElementById('view-form-name').value = String(name).trim();
       document.getElementById('view-form-filters').value = JSON.stringify(currentFilters());
       document.getElementById('view-form-columns').value = COLS.join(',');
+      auditBusy();
       document.getElementById('view-form').submit();
     });
   }
@@ -839,12 +857,17 @@
   var auditBtn = document.getElementById('audit-live-btn');
   var auditStatus = document.getElementById('audit-live-status');
   var auditEs = null;
+  var auditConnecting = null;
   var seenIds = {};
   document.querySelectorAll('#audit-tbody tr[data-audit-id]').forEach(function (tr) {
     seenIds[tr.getAttribute('data-audit-id')] = true;
   });
 
+  function liveConnecting(btn) {
+    return busyStart({ button: btn, label: T('Connexion au flux…'), disable: false });
+  }
   function stopAuditLive() {
+    if (auditConnecting) { auditConnecting(); auditConnecting = null; }
     if (auditEs) { auditEs.close(); auditEs = null; }
     if (auditBtn) { auditBtn.setAttribute('aria-pressed', 'false'); auditBtn.textContent = '● Live'; }
     if (auditStatus) auditStatus.hidden = true;
@@ -861,6 +884,10 @@
     auditEs = new EventSource('/admin/logs/stream' + (q ? ('?' + q) : ''));
     if (auditBtn) { auditBtn.setAttribute('aria-pressed', 'true'); auditBtn.textContent = '● Live ON'; }
     if (auditStatus) auditStatus.hidden = false;
+    auditConnecting = liveConnecting(auditBtn);
+    auditEs.onopen = auditEs.onerror = function () {
+      if (auditConnecting) { auditConnecting(); auditConnecting = null; }
+    };
     auditEs.onmessage = function (ev) {
       if (!ev.data) return;
       var e;
@@ -889,7 +916,9 @@
   var pre = document.getElementById('container-logs-pre');
   var liveStatus = document.getElementById('container-live-status');
   var containerEs = null;
+  var containerConnecting = null;
   function stopContainerLive() {
+    if (containerConnecting) { containerConnecting(); containerConnecting = null; }
     if (containerEs) { containerEs.close(); containerEs = null; }
     if (liveBtn) { liveBtn.setAttribute('aria-pressed', 'false'); liveBtn.textContent = '● Live'; }
     if (liveStatus) liveStatus.hidden = true;
@@ -901,7 +930,7 @@
   async function loadContainerSnapshot() {
     if (!sel || !sel.value || !pre) return;
     stopContainerLive();
-    pre.textContent = 'Chargement…';
+    var done = busyStart({ target: pre.parentElement, label: LOGS_LOADING });
     try {
       var resp = await fetch('/admin/logs/containers/' + encodeURIComponent(sel.value) + '/logs', {
         headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
@@ -911,6 +940,7 @@
       pre.textContent = data.text || '(vide)';
       setContainerButtons(true);
     } catch (err) { pre.textContent = 'Erreur réseau.'; setContainerButtons(false); }
+    finally { done(); }
   }
   function startContainerLive() {
     if (!sel || !sel.value || !pre) return;
@@ -918,6 +948,10 @@
     containerEs = new EventSource('/admin/logs/containers/' + encodeURIComponent(sel.value) + '/stream');
     if (liveBtn) { liveBtn.setAttribute('aria-pressed', 'true'); liveBtn.textContent = '● Live ON'; }
     if (liveStatus) liveStatus.hidden = false;
+    containerConnecting = liveConnecting(liveBtn);
+    containerEs.onopen = containerEs.onerror = function () {
+      if (containerConnecting) { containerConnecting(); containerConnecting = null; }
+    };
     containerEs.onmessage = function (ev) {
       if (!ev.data) return;
       var payload;
@@ -951,11 +985,13 @@
   var appMsg = document.getElementById('app-access-message');
   var appShowInternal = document.getElementById('app-access-show-internal');
   var appEs = null;
+  var appConnecting = null;
   var appEntries = [];
   var appRawText = '';
   var appSeq = 0;
 
   function stopAppAccessLive() {
+    if (appConnecting) { appConnecting(); appConnecting = null; }
     if (appEs) { appEs.close(); appEs = null; }
     if (appLiveBtn) { appLiveBtn.setAttribute('aria-pressed', 'false'); appLiveBtn.textContent = '● Live'; }
     if (appLiveStatus) appLiveStatus.hidden = true;
@@ -1042,10 +1078,11 @@
   async function loadAppAccessSnapshot() {
     if (!appSel || !appSel.value) return;
     stopAppAccessLive();
-    setAppAccessMessage('Chargement…');
+    setAppAccessMessage('');
     appEntries = [];
     appRawText = '';
     renderAppAccessRows();
+    var done = busyStart({ target: document.getElementById('app-access-table-wrap'), label: LOGS_LOADING });
     try {
       var resp = await fetch('/admin/logs/apps/' + encodeURIComponent(appSel.value) + '/access', {
         headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
@@ -1065,6 +1102,8 @@
     } catch (err) {
       setAppAccessMessage('Erreur réseau');
       setAppAccessButtons(false);
+    } finally {
+      done();
     }
   }
   function startAppAccessLive() {
@@ -1073,6 +1112,10 @@
     appEs = new EventSource('/admin/logs/apps/' + encodeURIComponent(appSel.value) + '/stream');
     if (appLiveBtn) { appLiveBtn.setAttribute('aria-pressed', 'true'); appLiveBtn.textContent = '● Live ON'; }
     if (appLiveStatus) appLiveStatus.hidden = false;
+    appConnecting = liveConnecting(appLiveBtn);
+    appEs.onopen = appEs.onerror = function () {
+      if (appConnecting) { appConnecting(); appConnecting = null; }
+    };
     var first = true;
     appEs.onmessage = function (ev) {
       if (!ev.data) return;

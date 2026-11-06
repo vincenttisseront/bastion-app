@@ -15,12 +15,13 @@
     </div>
     <div class="page-actions">
       <a class="btn btn-ghost btn-sm" href="/admin/logs#audit">{{ _('← Logs') }}</a>
-      <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue?export=csv{% if filters.domain %}&amp;domain={{ filters.domain }}{% endif %}{% if filters.severity %}&amp;severity={{ filters.severity }}{% endif %}{% if filters.q %}&amp;q={{ filters.q }}{% endif %}">{{ _('↓ CSV') }}</a>
+      <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue?export=csv{% if filters.domain %}&amp;domain={{ filters.domain }}{% endif %}{% if filters.severity %}&amp;severity={{ filters.severity }}{% endif %}{% if filters.q %}&amp;q={{ filters.q }}{% endif %}" data-bastion-download>{{ _('↓ CSV') }}</a>
       <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue?export=json{% if filters.domain %}&amp;domain={{ filters.domain }}{% endif %}{% if filters.severity %}&amp;severity={{ filters.severity }}{% endif %}{% if filters.q %}&amp;q={{ filters.q }}{% endif %}">{{ _('↓ JSON') }}</a>
     </div>
   </div>
 
-  <form class="logs-filters" method="get" action="/admin/logs/catalogue">
+  <form class="logs-filters" method="get" action="/admin/logs/catalogue"
+        data-bastion-busy-target="#catalogue-table-wrap" data-bastion-busy-label="{{ _('Chargement du catalogue…') }}">
     <div class="logs-filters-row">
       <div class="logs-filters-grid">
         <label class="logs-filter-field logs-filter-grow">
@@ -54,7 +55,7 @@
     </div>
   </form>
 
-  <div class="card logs-table-wrap">
+  <div class="card logs-table-wrap" id="catalogue-table-wrap">
     <table class="data-table">
       <thead>
         <tr>

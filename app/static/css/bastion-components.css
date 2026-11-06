@@ -560,36 +560,109 @@
 .mta-sts-dns-row .btn{flex:0 0 auto;margin-left:auto}
 
 
-/* Global action busy overlay */
+/* ── Loading indicator (one spinner for the whole UI) ──
+   Driven by bastion-busy.js (window.BastionBusy). Markup:
+     <span class="bastion-spinner" aria-hidden="true"></span>       ring (--sm 14px, default 20px, --lg 28px)
+     <span class="bastion-loading" role="status">ring + label</span>  inline status
+     .bastion-loading-veil                                          dims a region while it reloads
+     .btn.is-busy                                                   spinner inside a button
+   Track and arc come from the theme tokens, so light, dark and branded accents all work. */
+.bastion-spinner{
+  --spinner-size:20px;--spinner-stroke:2px;
+  display:inline-block;flex-shrink:0;box-sizing:border-box;
+  width:var(--spinner-size);height:var(--spinner-size);
+  border:var(--spinner-stroke) solid var(--border-bright);
+  border-top-color:var(--accent);
+  border-radius:50%;
+  vertical-align:middle;
+  animation:bastion-spin .7s linear infinite;
+}
+.bastion-spinner--sm{--spinner-size:14px}
+.bastion-spinner--lg{--spinner-size:28px;--spinner-stroke:3px}
+/* On a filled button (accent background) the accent arc would vanish: follow the text colour. */
+.btn .bastion-spinner,.bastion-spinner--current{
+  border-color:color-mix(in srgb,currentColor 28%,transparent);
+  border-top-color:currentColor;
+}
+@keyframes bastion-spin{to{transform:rotate(360deg)}}
+@keyframes bastion-loading-in{from{opacity:0}to{opacity:1}}
+
+.bastion-loading{
+  display:inline-flex;align-items:center;gap:var(--sp-2);
+  font-size:var(--fs-sm);font-weight:500;color:var(--text-2);
+  animation:bastion-loading-in var(--t-base, .2s) ease-out both;
+}
+.bastion-loading--block{
+  display:flex;justify-content:center;width:100%;
+  padding:var(--sp-6) var(--sp-4);text-align:center;
+}
+
+/* Region veil: content stays in place, dimmed, with the status pill near the top. */
+.bastion-loading-host{position:relative}
+.bastion-loading-host.is-loading{min-height:4.5rem}
+.bastion-loading-veil{
+  position:absolute;inset:0;z-index:5;
+  display:flex;align-items:flex-start;justify-content:center;
+  padding:var(--sp-6) var(--sp-4);
+  background:color-mix(in srgb,var(--bg-card) 62%,transparent);
+  border-radius:inherit;
+  cursor:progress;
+  animation:bastion-loading-in var(--t-base, .2s) ease-out both;
+}
+.bastion-loading-veil .bastion-loading{
+  position:sticky;top:var(--sp-6);
+  padding:var(--sp-2) var(--sp-4);
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--r-full);
+  box-shadow:var(--sh-md);
+  color:var(--text);
+}
+
+/* Button busy state: keeps the label, adds the ring, blocks repeat clicks. */
+.btn.is-busy{cursor:progress}
+a.btn.is-busy{pointer-events:none}
+.btn.is-busy:disabled{opacity:.85}
+
+.bastion-sr-only{
+  position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;
+  overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;
+}
+
+/* Global action busy overlay (form submits, mutating fetch calls) */
 body.bastion-busy{cursor:progress}
 .bastion-busy-overlay{
   position:fixed;inset:0;z-index:10050;
   display:flex;align-items:center;justify-content:center;
-  background:rgba(8,12,18,.45);
+  background:var(--overlay-scrim);
   backdrop-filter:blur(2px);
   -webkit-backdrop-filter:blur(2px);
+  animation:bastion-loading-in var(--t-base, .2s) ease-out both;
 }
 .bastion-busy-overlay[hidden]{display:none !important}
 .bastion-busy-card{
   display:flex;flex-direction:column;align-items:center;gap:var(--sp-3);
   min-width:180px;padding:var(--sp-5) var(--sp-6);
   border-radius:var(--r-md);
-  background:var(--bg-elevated, var(--bg-secondary));
+  background:var(--bg-card);
   border:1px solid var(--border);
-  box-shadow:0 12px 40px rgba(0,0,0,.35);
-}
-.bastion-busy-spinner{
-  width:28px;height:28px;
-  border:3px solid var(--border-bright);
-  border-top-color:var(--accent);
-  border-radius:50%;
-  animation:bastion-busy-spin .7s linear infinite;
+  box-shadow:var(--sh-lg);
 }
 .bastion-busy-label{
   font-size:var(--fs-sm);font-weight:600;color:var(--text-2);
   text-align:center;
 }
-@keyframes bastion-busy-spin{to{transform:rotate(360deg)}}
+
+/* No spinning for users who ask for less motion: the ring breathes instead. */
+@keyframes bastion-spin-calm{0%,100%{opacity:1}50%{opacity:.4}}
+@media (prefers-reduced-motion:reduce){
+  .bastion-spinner{
+    animation:bastion-spin-calm 1.6s ease-in-out infinite;
+    border-color:var(--accent);
+  }
+  .btn .bastion-spinner,.bastion-spinner--current{border-color:currentColor}
+  .bastion-loading,.bastion-loading-veil,.bastion-busy-overlay{animation:none}
+}
 
 /* ?? Bastion modal (confirm / alert) ?? */
 body.bastion-modal-open{overflow:hidden}
@@ -686,12 +759,6 @@ body.bastion-modal-open{overflow:hidden}
 .global-search-loading-label{
   display:inline-flex;align-items:center;gap:var(--sp-2);margin-top:var(--sp-3);
 }
-.global-search-spinner{
-  width:14px;height:14px;border:2px solid var(--border-bright);
-  border-top-color:var(--accent);border-radius:50%;
-  animation:global-search-spin .7s linear infinite;
-}
-@keyframes global-search-spin{to{transform:rotate(360deg)}}
 .global-search-skeleton{
   width:100%;max-width:420px;display:flex;flex-direction:column;gap:10px;
 }

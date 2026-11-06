@@ -65,7 +65,8 @@
       {% else %}
       <span class="badge badge-ok" id="waf-apply-badge">{{ _('Appliqué') }}</span>
       {% endif %}
-      <form method="post" action="/admin/security/waf/apply" id="waf-apply-form" style="display:inline">
+      <form method="post" action="/admin/security/waf/apply" id="waf-apply-form" style="display:inline"
+            data-bastion-busy-label="{{ _('Application de la configuration WAF…') }}">
         <button type="submit" class="btn {% if apply_enabled %}btn-primary{% else %}btn-secondary{% endif %} waf-apply-btn{% if modsecurity and modsecurity.any_deploy_pending %} waf-apply-btn--pulse{% endif %}"
                 id="waf-apply-btn" data-export-pending="{{ 'true' if export_pending else 'false' }}"
                 data-apply-enabled="{{ 'true' if apply_enabled else 'false' }}"
@@ -150,11 +151,13 @@
           <p class="waf-section-sub">{{ _('Synthèse menaces, santé WAF et export de conformité.') }}</p>
         </div>
         <div class="waf-section-actions waf-bilan-export">
-          <form method="post" action="/admin/security/reporting/export?period=weekly" class="waf-bilan-export-form">
+          <form method="post" action="/admin/security/reporting/export?period=weekly" class="waf-bilan-export-form"
+                data-bastion-download data-bastion-busy-label="{{ _('Génération du rapport PDF…') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="btn btn-ghost">{{ _('Export hebdo') }}</button>
           </form>
-          <form method="post" action="/admin/security/reporting/export?period=monthly" class="waf-bilan-export-form">
+          <form method="post" action="/admin/security/reporting/export?period=monthly" class="waf-bilan-export-form"
+                data-bastion-download data-bastion-busy-label="{{ _('Génération du rapport PDF…') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="btn btn-secondary">{{ _('Exporter le rapport de conformité (PDF)') }}</button>
           </form>
@@ -1177,7 +1180,8 @@
         </div>
         {% endif %}
         <form id="waf-sandbox-form" class="waf-sandbox-form waf-form-body"
-              data-sandbox-url="/admin/security/waf/sandbox">
+              data-sandbox-url="/admin/security/waf/sandbox"
+              data-label-running="{{ _('Simulation en cours…') }}">
           <div class="waf-sandbox-grid">
             <div class="form-group">
               <label class="form-label" for="waf_sb_method">{{ _('Méthode') }}</label>
@@ -1684,7 +1688,7 @@
         <div class="waf-card-body waf-card-body--stack waf-diagnostic-export-body">
           <div class="waf-diagnostic-export-actions">
             <button type="button" class="btn btn-secondary btn-sm" id="waf-diag-copy-btn">{{ _('Copier le JSON') }}</button>
-            <a class="btn btn-secondary btn-sm" href="/admin/security/waf/diagnostic.json" download>{{ _('Télécharger .json') }}</a>
+            <a class="btn btn-secondary btn-sm" href="/admin/security/waf/diagnostic.json" download data-bastion-download>{{ _('Télécharger .json') }}</a>
             <span class="form-help muted" id="waf-diag-copy-status" aria-live="polite"></span>
           </div>
           <label class="sr-only" for="waf-diagnostic-json">{{ _('Export JSON diagnostic') }}</label>
@@ -1750,7 +1754,7 @@
             </div>
             <div class="waf-reactivation-actions">
               <form method="post" action="/admin/security/waf/actions/reactivate" class="stack waf-reactivate-form"
-                    id="waf-reactivate-form">
+                    id="waf-reactivate-form" data-bastion-busy-label="{{ _('Réactivation de ModSecurity…') }}">
                 <label class="form-check">
                   <input type="checkbox" name="confirm_reactivate" value="on" required>
                   {{ _("Je confirme l'activation portail (DetectionOnly) et les contrôles HTTP") }}
@@ -2449,7 +2453,12 @@
     }
 
     function loadDrift() {
-      if (diffPre) diffPre.textContent = label('loading', 'Calcul du diff…');
+      var done = window.BastionBusy
+        ? window.BastionBusy.start({
+            target: panel.querySelector('.waf-drift-layout') || diffPre,
+            label: label('loading', 'Calcul du diff…'),
+          })
+        : function () {};
       fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
         .then(function (r) {
           if (!r.ok) throw new Error('drift ' + r.status);
@@ -2462,7 +2471,8 @@
             badge.textContent = label('error', 'Impossible de charger le drift');
           }
           if (diffPre) diffPre.textContent = label('error', 'Impossible de charger le drift');
-        });
+        })
+        .finally(done);
     }
 
     if (refreshBtn) refreshBtn.addEventListener('click', loadDrift);
@@ -2507,13 +2517,17 @@
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-      if (status) status.textContent = '…';
+      if (status) status.textContent = '';
+      var done = window.BastionBusy
+        ? window.BastionBusy.start({ button: submitBtn, label: form.getAttribute('data-label-running') || 'Simulation en cours…' })
+        : function () {};
       if (submitBtn) submitBtn.disabled = true;
       var fd = new FormData(form);
       var tok = csrfToken();
       if (tok) fd.set('csrf_token', tok);
       fetch(url, {
         method: 'POST',
+        bastionBusy: false,
         credentials: 'same-origin',
         headers: { Accept: 'application/json', 'X-CSRF-Token': tok || '' },
         body: fd,
@@ -2565,6 +2579,7 @@
           if (status) status.textContent = 'erreur réseau';
         })
         .finally(function () {
+          done();
           if (submitBtn) submitBtn.disabled = false;
         });
     });

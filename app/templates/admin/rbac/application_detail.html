@@ -218,6 +218,12 @@
       var q = userQuery.value.trim();
       if (q.length < 2) { suggestions.textContent = ''; return; }
       timer = setTimeout(async function () {
+        var done = window.BastionBusy
+          ? window.BastionBusy.start({
+              inline: suggestions,
+              label: window.BastionI18n ? window.BastionI18n.t('Recherche en cours…') : 'Recherche en cours…',
+            })
+          : function () {};
         try {
           var url = '/admin/rbac/users/search?realm_id=' + encodeURIComponent(realmSelect.value) + '&q=' + encodeURIComponent(q);
           var resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
@@ -239,6 +245,8 @@
           });
         } catch (e) {
           suggestions.textContent = 'Erreur réseau';
+        } finally {
+          done();
         }
       }, 300);
     });

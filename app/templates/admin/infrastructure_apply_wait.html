@@ -21,7 +21,10 @@
   <div class="card">
     <div class="card-header">
       <span class="card-title">{{ _('Statut') }}</span>
-      <span class="badge badge-{{ host_apply.badge }}">{{ host_apply.status_label }}</span>
+      <span class="bastion-loading" role="status">
+        <span class="bastion-spinner bastion-spinner--sm" aria-hidden="true"></span>
+        <span class="badge badge-{{ host_apply.badge }}">{{ host_apply.status_label }}</span>
+      </span>
     </div>
     <div class="card-body">
       <p class="form-help" style="margin-top:0;">
