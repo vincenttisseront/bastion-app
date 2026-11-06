@@ -3062,5 +3062,12 @@
   "Mot de passe refusé : il a peut-être changé. Saisissez-le à nouveau.": "Password rejected: it may have changed. Please enter it again.",
   "Le mot de passe mémorisé a expiré. Saisissez-le à nouveau.": "The remembered password has expired. Please enter it again.",
   "Mémoriser pendant ma session portail": "Remember for my portal session",
-  "Conservé chiffré, effacé à la déconnexion du portail.": "Kept encrypted, erased when you log out of the portal."
+  "Conservé chiffré, effacé à la déconnexion du portail.": "Kept encrypted, erased when you log out of the portal.",
+  "Allowlist et bans": "Allowlist and bans",
+  "En-têtes servis": "Served headers",
+  "Nouvelle exclusion": "New exclusion",
+  "Posture WAF": "WAF posture",
+  "Procédure": "Procedure",
+  "Règles du pack": "Pack rules",
+  "Sections WAF": "WAF sections"
 }
