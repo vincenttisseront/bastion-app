@@ -98,15 +98,18 @@ def test_docker_nginx_loads_modsecurity_module_after_real_ip_order():
     conf = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
     assert "load_module /usr/lib/nginx/modules/ngx_http_modsecurity_module.so;" in conf
     # Activation must not be a live directive in http{} — only per-server in conf.d.
+    # The rules (CRS) are parsed once in http{} and inherited (OOM on reload otherwise).
     http_body = conf.split("http {", 1)[1]
     live = [
-        ln
+        ln.strip()
         for ln in http_body.splitlines()
         if ln.strip() and not ln.strip().startswith("#")
     ]
     live_blob = "\n".join(live)
     assert "modsecurity on;" not in live_blob
-    assert "modsecurity_rules_file" not in live_blob
+    assert [ln for ln in live if ln.startswith("modsecurity_rules_file")] == [
+        "modsecurity_rules_file /etc/nginx/modsecurity/main-common.conf;"
+    ]
     assert "set_real_ip_from" in conf
     assert conf.index("set_real_ip_from") < conf.index("include /etc/nginx/conf.d/*.conf;")
 
@@ -151,41 +154,46 @@ def test_crs_setup_declares_crs_setup_version_for_blocking_mode():
 
 
 def test_modsecurity_main_includes_generated_overlays_not_replacing_static():
+    # Shared chain (http{}, parsed once) keeps the overlay order around the CRS.
+    text = (ROOT / "docker/nginx/modsecurity/main-common.conf").read_text(
+        encoding="utf-8"
+    )
+    assert "Include /etc/nginx/modsecurity/crs-setup.conf" in text
+    assert "Include /etc/nginx/modsecurity/generated/crs-setup-generated.conf" in text
+    assert (
+        "Include /etc/nginx/modsecurity/generated/bastion-virtual-patches-enabled.conf"
+        in text
+    )
+    core_idx = text.index("Include /etc/nginx/modsecurity/modsecurity.conf")
+    setup_idx = text.index("Include /etc/nginx/modsecurity/crs-setup.conf")
+    gen_idx = text.index(
+        "Include /etc/nginx/modsecurity/generated/crs-setup-generated.conf"
+    )
+    vp_idx = text.index(
+        "Include /etc/nginx/modsecurity/generated/bastion-virtual-patches-enabled.conf"
+    )
+    rules_idx = text.index("Include /etc/modsecurity.d/owasp-crs/rules/*.conf")
+    basic_idx = text.index("Include /etc/nginx/includes/waf-basic.conf")
+    excl_idx = text.index(
+        "Include /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf"
+    )
+    assert core_idx < setup_idx < gen_idx < vp_idx < rules_idx < basic_idx < excl_idx
+    assert "engine-mode-generated" not in text
     for name in ("main-portal.conf", "main-subdomain.conf", "main-public.conf"):
-        text = (ROOT / "docker/nginx/modsecurity" / name).read_text(encoding="utf-8")
-        assert "Include /etc/nginx/modsecurity/crs-setup.conf" in text
-        assert (
-            "Include /etc/nginx/modsecurity/generated/crs-setup-generated.conf"
-            in text
-        )
-        assert (
-            "Include /etc/nginx/modsecurity/generated/bastion-virtual-patches-enabled.conf"
-            in text
-        )
-        setup_idx = text.index("Include /etc/nginx/modsecurity/crs-setup.conf")
-        gen_idx = text.index(
-            "Include /etc/nginx/modsecurity/generated/crs-setup-generated.conf"
-        )
-        vp_idx = text.index(
-            "Include /etc/nginx/modsecurity/generated/bastion-virtual-patches-enabled.conf"
-        )
-        rules_idx = text.index("Include /etc/modsecurity.d/owasp-crs/rules/*.conf")
-        assert setup_idx < gen_idx < vp_idx < rules_idx
-        assert "Include /etc/nginx/includes/waf-basic.conf" in text
-        assert (
-            "Include /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf"
-            in text
-        )
+        fam = (ROOT / "docker/nginx/modsecurity" / name).read_text(encoding="utf-8")
+        # Family overlays only carry SecRuleEngine — the CRS lives in main-common.conf.
+        assert "owasp-crs" not in fam
+        assert "Include /etc/nginx/modsecurity/crs-setup.conf" not in fam
         # Portal only: engine-mode-generated Included (gated by waf-engine-arm.json in sync).
         if name == "main-portal.conf":
             assert (
                 "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf"
-                in text
+                in fam
             )
         else:
             assert (
                 "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf"
-                not in text
+                not in fam
             )
 
 

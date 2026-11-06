@@ -666,8 +666,10 @@ def build_modsecurity_page(
             "profile_mode": profile.mode,
             "body_access": True,
             "audit_engine": "RelevantOnly",
+            # nginx load order: main-common.conf once in http{}, then the
+            # per-server family overlay (main-<family>.conf, SecRuleEngine only).
             "include_chain": [
-                "engine-*.conf",
+                "main-common.conf (http{}, chargé une fois)",
                 "modsecurity.conf",
                 "crs-setup.conf",
                 "crs-setup-generated.conf",
@@ -675,6 +677,7 @@ def build_modsecurity_page(
                 "owasp-crs/rules/*.conf",
                 "waf-basic.conf",
                 "bastion-exclusions-generated.conf",
+                "main-<famille>.conf (server{}) : engine-*.conf",
                 "engine-*-mode-generated.conf (dernier)",
             ],
         },

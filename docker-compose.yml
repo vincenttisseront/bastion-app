@@ -212,6 +212,11 @@ services:
       - FOWNER
       # chown nginx-logs volume to 101:65532 so access_log open() works for uid 101.
       - CHOWN
+    # The CRS is parsed once (nginx.conf http{}), not per vhost: one config
+    # generation ≈ 60 MB with 25 vhosts (was ≈ 900 MB). Budget ≈ 3 generations
+    # (old workers ≤ worker_shutdown_timeout 30s + current + next nginx -t /
+    # reload; measured peak ≈ 200 MB) + in-flight request bodies buffered by
+    # ModSecurity (SecRequestBodyLimit 13 MB each). Production uses 2g.
     mem_limit: ${BASTION_NGINX_MEM_LIMIT:-1g}
     cpus: ${BASTION_NGINX_CPUS:-1.0}
     # Match worker_rlimit_nofile in docker/nginx/nginx.conf (default Docker soft=1024 → EMFILE).

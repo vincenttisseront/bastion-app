@@ -57,6 +57,8 @@ server {
     # ModSecurity CRS — switch serveur (défaut off). Réactiver écrit
     # exports/modsecurity-portal-switch.conf (on) ; Couper / rollback → off.
     # Les « modsecurity off » ci-dessous restent pour health / auth / erreurs.
+    # main-portal.conf ne fixe que SecRuleEngine : le CRS est chargé une seule
+    # fois dans nginx.conf http{} (modsecurity/main-common.conf) et hérité ici.
     include /etc/nginx/includes/modsecurity-portal-switch.conf;
     modsecurity_rules_file /etc/nginx/modsecurity/main-portal.conf;
 
@@ -206,8 +208,9 @@ server {
         }
 
         # Connector on even when server switch is off; engine DetectionOnly for this location.
-        # Inherit server-level modsecurity_rules_file — do NOT reload main-portal.conf here
+        # Inherit the CRS from http{} — do NOT load main-common.conf here
         # (duplicate SecRule id:200000 → nginx -t emerg, workers never bind :8080).
+        # The location SecRuleEngine wins over the server/http one at merge time.
         modsecurity on;
         modsecurity_rules 'SecRuleEngine DetectionOnly';
 
