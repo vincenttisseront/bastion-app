@@ -2,94 +2,136 @@
 {% block title %}{{ _('Catalogue des événements') }}{% endblock %}
 {% block breadcrumb %}{{ _('Admin / Logs / Catalogue') }}{% endblock %}
 
+{% block head_extra %}
+<link rel="stylesheet" href="/static/css/admin-logs.css?v=20261106-logs-stitch">
+{% endblock %}
+
 {% block content %}
 {% set filters = filters | default({}) %}
 {% set events = events | default([]) %}
 {% set domains = domains | default([]) %}
 {% set severities = severities | default([]) %}
-<div class="page">
-  <div class="page-header">
-    <div>
+{% set export_qs %}{% if filters.domain %}&amp;domain={{ filters.domain }}{% endif %}{% if filters.severity %}&amp;severity={{ filters.severity }}{% endif %}{% if filters.q %}&amp;q={{ filters.q }}{% endif %}{% endset %}
+<div class="page bp-stitch" id="logs-catalogue-page">
+  <header class="bp-page-head">
+    <div class="bp-page-head-text">
       <h1 class="page-title">{{ _('Catalogue des événements') }}</h1>
       <p class="page-sub">{{ events | length }} {{ _('code(s) — référentiel des événements d’audit') }}</p>
     </div>
-    <div class="page-actions">
+    <div class="bp-page-head-actions">
       <a class="btn btn-ghost btn-sm" href="/admin/logs#audit">{{ _('← Logs') }}</a>
-      <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue?export=csv{% if filters.domain %}&amp;domain={{ filters.domain }}{% endif %}{% if filters.severity %}&amp;severity={{ filters.severity }}{% endif %}{% if filters.q %}&amp;q={{ filters.q }}{% endif %}">{{ _('↓ CSV') }}</a>
-      <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue?export=json{% if filters.domain %}&amp;domain={{ filters.domain }}{% endif %}{% if filters.severity %}&amp;severity={{ filters.severity }}{% endif %}{% if filters.q %}&amp;q={{ filters.q }}{% endif %}">{{ _('↓ JSON') }}</a>
+      <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue?export=csv{{ export_qs }}" data-bastion-download>{{ _('↓ CSV') }}</a>
+      <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue?export=json{{ export_qs }}">{{ _('↓ JSON') }}</a>
+    </div>
+  </header>
+
+  <div class="bp-card logs-summary">
+    <div class="bp-stats">
+      <div class="bp-stat">
+        <span class="bp-stat-label">{{ _('Codes') }}</span>
+        <span class="bp-stat-value">{{ events | length }}</span>
+        <span class="bp-stat-sub">{{ _('avec les filtres actuels') }}</span>
+      </div>
+      {% for sev, mod in [('CRITICAL', ' bp-stat--err'), ('ERROR', ' bp-stat--err'), ('WARNING', ' bp-stat--warn')] %}
+      {% set n = events | selectattr('severity', 'equalto', sev) | list | length %}
+      <div class="bp-stat{% if n %}{{ mod }}{% endif %}">
+        <span class="bp-stat-label">{{ sev }}</span>
+        <span class="bp-stat-value">{{ n }}</span>
+        <span class="bp-stat-sub">{{ _('code(s)') }}</span>
+      </div>
+      {% endfor %}
     </div>
   </div>
 
-  <form class="logs-filters" method="get" action="/admin/logs/catalogue">
-    <div class="logs-filters-row">
-      <div class="logs-filters-grid">
-        <label class="logs-filter-field logs-filter-grow">
-          <span class="form-label">{{ _('Recherche') }}</span>
-          <input type="search" class="form-input" name="q" value="{{ filters.q or '' }}" placeholder="{{ _('code, label, action…') }}">
-        </label>
-        <label class="logs-filter-field">
-          <span class="form-label">{{ _('Domaine') }}</span>
-          <select class="form-select" name="domain">
-            <option value="">Tous</option>
-            {% for d in domains %}
-            <option value="{{ d }}"{% if filters.domain == d %} selected{% endif %}>{{ d }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label class="logs-filter-field">
-          <span class="form-label">{{ _('Criticité') }}</span>
-          <select class="form-select" name="severity">
-            <option value="">{{ _('Toutes') }}</option>
-            {% for s in severities %}
-            <option value="{{ s }}"{% if filters.severity == s %} selected{% endif %}>{{ s }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </div>
-      <div class="logs-filters-footer">
-        <div class="logs-filters-actions">
-          <button type="submit" class="btn btn-primary btn-sm">{{ _('Filtrer') }}</button>
-        </div>
+  <div class="bp-card logs-filters-card">
+    <div class="bp-card-head">
+      <div>
+        <h2 class="bp-card-title">{{ _('Filtres') }}</h2>
       </div>
     </div>
-  </form>
+    <form class="logs-filters bp-card-body" method="get" action="/admin/logs/catalogue"
+          data-bastion-busy-target="#catalogue-table-wrap" data-bastion-busy-label="{{ _('Chargement du catalogue…') }}">
+      <div class="logs-filters-row">
+        <div class="logs-filters-grid">
+          <label class="logs-filter-field logs-filter-grow">
+            <span class="form-label">{{ _('Recherche') }}</span>
+            <input type="search" class="form-input" name="q" value="{{ filters.q or '' }}" placeholder="{{ _('code, label, action…') }}">
+          </label>
+          <label class="logs-filter-field">
+            <span class="form-label">{{ _('Domaine') }}</span>
+            <select class="form-select" name="domain">
+              <option value="">Tous</option>
+              {% for d in domains %}
+              <option value="{{ d }}"{% if filters.domain == d %} selected{% endif %}>{{ d }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="logs-filter-field">
+            <span class="form-label">{{ _('Criticité') }}</span>
+            <select class="form-select" name="severity">
+              <option value="">{{ _('Toutes') }}</option>
+              {% for s in severities %}
+              <option value="{{ s }}"{% if filters.severity == s %} selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="logs-filters-footer">
+          <div class="logs-filters-actions">
+            <button type="submit" class="btn btn-primary btn-sm">{{ _('Filtrer') }}</button>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
 
-  <div class="card logs-table-wrap">
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Code</th>
-          <th>{{ _('Criticité') }}</th>
-          <th>{{ _('Domaine') }}</th>
-          <th>Label</th>
-          <th>{{ _('Libellé FR') }}</th>
-          <th>{{ _('Action legacy') }}</th>
-          <th>Runbook</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for e in events %}
-        <tr>
-          <td class="font-mono"><code>{{ e.code }}</code></td>
-          <td>
-            {% if e.severity == 'CRITICAL' %}<span class="badge badge-critical">CRITICAL</span>
-            {% elif e.severity == 'ERROR' %}<span class="badge badge-error-outline">ERROR</span>
-            {% elif e.severity == 'WARNING' %}<span class="badge badge-warn">WARNING</span>
-            {% elif e.severity == 'NOTICE' %}<span class="badge badge-notice">NOTICE</span>
-            {% else %}<span class="badge badge-muted">{{ e.severity }}</span>
-            {% endif %}
-          </td>
-          <td>{{ e.domain }}</td>
-          <td><code>{{ e.label }}</code></td>
-          <td>{{ e.title_fr }}</td>
-          <td class="font-mono">{{ e.legacy_action or "—" }}</td>
-          <td>{{ e.runbook or "—" }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="7" class="logs-empty-cell">{{ _('Aucun événement') }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="bp-card logs-table-card" id="catalogue-table-wrap">
+    <div class="bp-card-head">
+      <div>
+        <h2 class="bp-card-title">{{ _('Événements') }}</h2>
+        <p class="bp-card-sub">{{ _('Code stable, criticité et runbook de chaque événement d’audit.') }}</p>
+      </div>
+      <span class="bp-card-meta">{{ events | length }} {{ _('code(s)') }}</span>
+    </div>
+    <div class="bp-card-body bp-card-body--flush">
+      <div class="table-wrap logs-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>{{ _('Criticité') }}</th>
+              <th>{{ _('Domaine') }}</th>
+              <th>Label</th>
+              <th>{{ _('Libellé FR') }}</th>
+              <th>{{ _('Action legacy') }}</th>
+              <th>Runbook</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in events %}
+            <tr>
+              <td class="font-mono"><code>{{ e.code }}</code></td>
+              <td>
+                {% if e.severity == 'CRITICAL' %}<span class="badge badge-critical">CRITICAL</span>
+                {% elif e.severity == 'ERROR' %}<span class="badge badge-error-outline">ERROR</span>
+                {% elif e.severity == 'WARNING' %}<span class="badge badge-warn">WARNING</span>
+                {% elif e.severity == 'NOTICE' %}<span class="badge badge-notice">NOTICE</span>
+                {% else %}<span class="badge badge-muted">{{ e.severity }}</span>
+                {% endif %}
+              </td>
+              <td>{{ e.domain }}</td>
+              <td><code>{{ e.label }}</code></td>
+              <td>{{ e.title_fr }}</td>
+              <td class="font-mono">{{ e.legacy_action or "—" }}</td>
+              <td>{{ e.runbook or "—" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="logs-empty-cell">{{ _('Aucun événement') }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}

@@ -240,9 +240,10 @@
         applyData(cache);
       } else if (!silent) {
         feed.innerHTML =
-          '<div class="notif-loading"><span class="notif-spinner" aria-hidden="true"></span> ' +
+          '<div class="notif-loading" role="status"><span class="bastion-loading">' +
+          '<span class="bastion-spinner bastion-spinner--sm" aria-hidden="true"></span>' +
           BastionI18n.t('Chargement…') +
-          '</div>';
+          '</span></div>';
       }
       fetchFeed()
         .then(function (data) {
