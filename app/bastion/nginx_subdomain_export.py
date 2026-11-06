@@ -37,10 +37,8 @@ _NGX_PROXY_X_AUTH_SOURCE = "        proxy_set_header X-Auth-Source $auth_source;
 # Canonical backend identity for HTTP REMOTE_USER apps (Zabbix, …) — SSO email.
 _NGX_PROXY_X_REMOTE_USER = "        proxy_set_header X-Remote-User $bastion_remote_user;"
 _NGX_MODSECURITY_OFF = "        modsecurity off;"
-# CrushFTP named-upstream overlay (connector on in location{}, never in server{}).
-_CRUSHFTP_CRS_ENGINE_ON = (
-    '        SecAction "id:1500100,phase:1,pass,nolog,ctl:ruleEngine=On"'
-)
+# CrushFTP named-upstream CRS exclusions. Connector + SecRuleEngine come from the
+# subdomain family (server{} snippet) — never forced here (see below).
 _CRUSHFTP_CRS_JS_LFI = (
     '        SecRule REQUEST_URI "@rx ^/WebInterface/Resources/[^?]*\\.js$" '
     '"id:1500101,phase:1,pass,nolog,ctl:ruleRemoveById=930130"'
@@ -239,18 +237,24 @@ def _activesync_locations(
 
 
 def _crushftp_named_modsecurity_lines() -> list[str]:
-    """Arm CRS on CrushFTP upstream without a second server-level `modsecurity`.
+    """CRS on the CrushFTP upstream follows the subdomain WAF family.
 
-    The subdomain snippet already sets the connector in server{}. This location
-    turns the engine on (family switch / SecRuleEngine may be Off) and drops
-    the password*.js LFI FP. Command API is a separate location (CRS off).
+    No `modsecurity` / `SecRuleEngine` here: the named location inherits the
+    connector switch and the engine mode from server{} (snippet
+    modsecurity-subdomain.conf), so Admin → WAF governs CrushFTP like any
+    subdomain path — Off = no CRS, DetectionOnly = audit log only, On = 403,
+    and Désarmer stops it. A location-level `SecRuleEngine` would override the
+    family at merge time; `ctl:ruleEngine=On` never runs while the engine is
+    Off and turned DetectionOnly into blocking.
+
+    Only CrushFTP false-positive exclusions live here (password*.js = 930130,
+    no body inspection on uploads). Command API is a separate location (CRS off).
     """
     return [
-        "        # CrushFTP: CRS on (WebFS / uploads). password*.js = 930130.",
+        "        # CRS follows the subdomain WAF family (Admin → WAF): connector and",
+        "        # engine mode inherited from server{}. CrushFTP FP exclusions only.",
         "        # /WebInterface/function is a dedicated location with CRS off.",
-        "        modsecurity on;",
         "        modsecurity_rules '",
-        _CRUSHFTP_CRS_ENGINE_ON,
         _CRUSHFTP_CRS_JS_LFI,
         _CRUSHFTP_CRS_UPLOAD_BODY,
         "        ';",
@@ -575,7 +579,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         f"    server_name {fqdn_esc};",
         "",
         # One `modsecurity` in this server{} — the snippet includes the switch.
-        # CrushFTP arms CRS in the named upstream (location), not here.
+        # CrushFTP's named upstream inherits it (plus its own FP exclusions).
         "    include /etc/nginx/snippets/modsecurity-subdomain.conf;",
         "",
         "    absolute_redirect off;",

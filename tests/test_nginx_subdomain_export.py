@@ -204,9 +204,17 @@ def test_generate_crushftp_block_filters_portal_cookies():
     # Filter lives only in the named upstream location (after auth).
     named = block.split("location @app_upstream_transfer {", 1)[1]
     named_body = named.split("location ^~ /WebInterface/function", 1)[0]
-    assert "modsecurity on;" in named_body
-    assert "modsecurity off;" not in named_body
-    assert "ctl:ruleEngine=On" in named_body
+    # CRS follows the subdomain family: connector + SecRuleEngine inherited
+    # from server{} — no override in either direction (Désarmer must stop it,
+    # DetectionOnly must not block).
+    named_directives = [
+        ln.strip() for ln in named_body.splitlines() if not ln.strip().startswith("#")
+    ]
+    assert "modsecurity on;" not in named_directives
+    assert "modsecurity off;" not in named_directives
+    assert not any("ctl:ruleEngine" in ln for ln in named_directives)
+    assert not any(ln.startswith("SecRuleEngine") for ln in named_directives)
+    assert "modsecurity_rules '" in named_directives
     assert "ctl:ruleRemoveById=930130" in named_body
     assert "ctl:ruleRemoveByTag=attack-rfi" not in named_body
     assert "@beginsWith /WebInterface/function/" not in named_body

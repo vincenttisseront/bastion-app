@@ -509,9 +509,15 @@
       fi
       docker exec bastion-nginx grep -q 'proxy_redirect http://' "$conf"
       docker exec bastion-nginx grep -A25 'location @app_upstream_' "$conf" \
-        | grep -q 'modsecurity on'
-      docker exec bastion-nginx grep -A25 'location @app_upstream_' "$conf" \
         | grep -q 'ctl:ruleRemoveById=930130'
+      # CRS on the named upstream follows the subdomain WAF family (Admin → WAF):
+      # no connector / engine override there, in either direction.
+      if docker exec bastion-nginx cat "$conf" \
+           | awk '/location @app_upstream_/,/^    }/' \
+           | grep -E '^[[:space:]]*(modsecurity (on|off);|SecRuleEngine[[:space:]])|ctl:ruleEngine' >/dev/null; then
+        echo "CrushFTP named upstream overrides the subdomain WAF family (modsecurity / SecRuleEngine / ctl:ruleEngine)"
+        exit 1
+      fi
       docker exec bastion-nginx grep -q 'location ^~ /WebInterface/function' "$conf"
       docker exec bastion-nginx grep -q 'location @app_function_' "$conf"
     fi
