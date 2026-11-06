@@ -26,6 +26,8 @@ CIDR_DOCKER_BRIDGE = v4_cidr(0xAC110000, 16)  # 172.17.0.0/16
 CIDR_LOOPBACK_NET = v4_cidr(0x7F000000, 8)  # 127.0.0.0/8
 # Single loopback host
 CIDR_LOOPBACK_HOST = v4_cidr(0x7F000001, 32)  # 127.0.0.1/32
+# Loopback host address (no prefix), e.g. for in-container health URLs
+LOOPBACK_V4_HOST = str(ipaddress.IPv4Address(0x7F000001))  # 127.0.0.1
 
 # RFC1918 private ranges (+ loopback host for local tools)
 CIDR_RFC1918_10 = v4_cidr(0x0A000000, 8)  # 10.0.0.0/8

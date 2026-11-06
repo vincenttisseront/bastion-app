@@ -46,7 +46,7 @@ def _import_sqlcipher():
     except ImportError as exc:
         raise SystemExit(
             "sqlcipher3 required for encrypt_portal_db.py "
-            "(pip install sqlcipher3-binary on Linux)"
+            "(pip install sqlcipher3 on Linux)"
         ) from exc
 
 

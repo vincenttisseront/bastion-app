@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -15,12 +16,25 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 
-async def _scheduled_probe_cycle() -> None:
+async def _probe_cycle() -> None:
     db = SessionLocal()
     try:
         await probe_all_enabled_apps(db)
     finally:
         db.close()
+
+
+def _run_probe_cycle_in_thread() -> None:
+    asyncio.run(_probe_cycle())
+
+
+async def _scheduled_probe_cycle() -> None:
+    # The cycle mixes async HTTP probes with synchronous SQLite/SQLCipher work
+    # (queries, commits, lazy loads). Run it in a worker thread with its own
+    # event loop so a slow or stuck DB call never blocks the main loop serving
+    # /api/health and every request (incident 2026-11-06: the loop was stuck in
+    # sqlcipher3.connect from this job).
+    await asyncio.to_thread(_run_probe_cycle_in_thread)
 
 
 def start_health_scheduler(settings: Settings) -> None:

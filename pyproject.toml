@@ -39,8 +39,12 @@ dependencies = [
     "altcha>=1.0.0",
     # Postgres driver for optional hot store (sessions/audit).
     "psycopg[binary]>=3.2.0",
-    # Linux wheels only (Docker/prod). Windows/macOS stay on stdlib sqlite for tests.
-    "sqlcipher3-binary>=0.6.0; sys_platform == 'linux'",
+    # Linux only (Docker/prod). Windows/macOS stay on stdlib sqlite for tests.
+    # sqlcipher3 (not -binary, frozen at 0.6.0 / SQLite 3.51.1): self-contained
+    # wheels since 0.6.2; >=0.6.4 bundles SQLite 3.53+, which fixes the unix-VFS
+    # open/close deadlock (SQLite f65aa46796) behind the 2026-11-06 freeze, and
+    # 0.6.3 fixes a Py_DECREF without the GIL in UDF destructors (coleifer/sqlcipher3#33).
+    "sqlcipher3>=0.6.5; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]

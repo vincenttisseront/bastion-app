@@ -96,6 +96,12 @@ logger = logging.getLogger("app.main")
 async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(settings)
+    if not settings.is_test:
+        # SIGUSR1 → all thread stacks on stderr, even with the GIL frozen
+        # (sent by app.healthcheck right before it kills a hung process).
+        from app.healthcheck import install_stack_dump_handler
+
+        install_stack_dump_handler()
 
     Base.metadata.create_all(bind=engine)
     from app.branding import ensure_branding_dir
