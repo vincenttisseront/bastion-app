@@ -140,6 +140,15 @@ class Settings(BaseSettings):
             "oidc_session_max_age",
         ),
     )
+    # identite_utilisateur password cache lifetime (seconds) — capped at
+    # oidc_session_max_age so it never outlives a portal session by design.
+    identity_password_cache_ttl: int = Field(
+        default=10 * 3600,
+        validation_alias=AliasChoices(
+            "IDENTITY_PASSWORD_CACHE_TTL",
+            "identity_password_cache_ttl",
+        ),
+    )
     oidc_session_jwt_audience: str = Field(
         default="bastion-portal",
         validation_alias=AliasChoices(

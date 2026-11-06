@@ -19,6 +19,7 @@ from app.bastion.m2m_policy import m2m_flags_for, normalize_bypass_paths
 from app.database import get_db
 from app.models import App
 from app.rbac.effective_access_service import get_effective_apps_for_user
+from app.robotic.identity_password_cache import forget_if_disabled
 from app.security import require_internal_token
 from app.sso_settings import Settings, get_settings
 from app.web.user_context import UserContext, is_portal_admin, require_user_enriched
@@ -70,6 +71,7 @@ class AppCreate(BaseModel):
     login_http_method: str = "POST"
     credential_mode: Literal["shared", "individual_required", "identite_utilisateur"] = "shared"
     identity_format: Literal["email", "username"] = "email"
+    identity_password_session_cache: bool = False
     healthcheck_url: str | None = None
     enabled: bool = True
     allow_activesync: bool = False
@@ -101,6 +103,7 @@ class AppUpdate(BaseModel):
     login_http_method: str | None = None
     credential_mode: Literal["shared", "individual_required", "identite_utilisateur"] | None = None
     identity_format: Literal["email", "username"] | None = None
+    identity_password_session_cache: bool | None = None
     healthcheck_url: str | None = None
     enabled: bool | None = None
     allow_activesync: bool | None = None
@@ -131,6 +134,7 @@ class AppOut(BaseModel):
     login_http_method: str = "POST"
     credential_mode: str = "shared"
     identity_format: str = "email"
+    identity_password_session_cache: bool = False
     healthcheck_url: str | None
     enabled: bool
     allow_activesync: bool = False
@@ -269,6 +273,9 @@ def create_app(
         )
     )
     _apply_upstream_tls_verify(payload, mode)
+    payload["identity_password_session_cache"] = bool(
+        payload.get("identity_password_session_cache")
+    ) and payload.get("credential_mode") == "identite_utilisateur"
     app = App(**payload)
     db.add(app)
     db.commit()
@@ -382,6 +389,9 @@ def update_app(
     _apply_auth_bridge_on_update(updates, app)
     for key, value in updates.items():
         setattr(app, key, value)
+    if app.credential_mode != "identite_utilisateur":
+        app.identity_password_session_cache = False
+    forget_if_disabled(db, app)
     app.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(app)

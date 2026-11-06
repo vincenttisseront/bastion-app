@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -23,6 +25,7 @@ from app.bastion.upstream_tls import resolve_upstream_tls_verify
 from app.database import get_db
 from app.rbac.effective_access_service import user_can_launch_application
 from app.request_client_ip import client_ip_from_request
+from app.robotic import identity_password_cache as identity_cache
 from app.robotic.impersonate_service import (
     ImpersonationCredentialRequiredError,
     ImpersonationError,
@@ -91,7 +94,7 @@ def _oidc_login_username(
 
 
 def _identity_user_key(user: UserContext) -> str:
-    return user.keycloak_user_id or user.email or user.username or "unknown"
+    return identity_cache.identity_user_key(user)
 
 
 def _wants_json(request: Request) -> bool:
@@ -109,19 +112,44 @@ def _flash_secret(settings: Settings) -> str:
     return portal_signing_secret(settings)
 
 
-async def _read_identity_password(request: Request) -> str:
-    """Password from form POST (preferred) or JSON body — never logged."""
+@dataclass(frozen=True)
+class _IdentityForm:
+    """open-with-identity body. ``password`` is never logged."""
+
+    password: str = ""
+    # Keep the typed password for the portal session (app must allow it).
+    remember: bool = False
+    # Tile believed a cached password exists: on a miss, re-prompt instead of erroring.
+    use_cached: bool = False
+
+
+_TRUTHY = frozenset({"1", "on", "true", "yes"})
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in _TRUTHY
+
+
+async def _read_identity_form(request: Request) -> _IdentityForm:
+    """Form POST (preferred) or JSON body."""
     content_type = (request.headers.get("content-type") or "").lower()
     if _MIME_JSON in content_type:
         try:
             payload = await request.json()
         except Exception:
-            return ""
-        if isinstance(payload, dict):
-            return str(payload.get("password") or "")
-        return ""
-    form = await request.form()
-    return str(form.get("password") or "")
+            return _IdentityForm()
+        if not isinstance(payload, dict):
+            return _IdentityForm()
+        source = payload
+    else:
+        source = await request.form()
+    return _IdentityForm(
+        password=str(source.get("password") or ""),
+        remember=_truthy(source.get("remember")),
+        use_cached=_truthy(source.get("use_cached")),
+    )
 
 
 def _check_app_rbac(
@@ -514,15 +542,22 @@ async def open_with_identity(
             json_status=400,
         )
 
-    password = await _read_identity_password(request)
+    form = await _read_identity_form(request)
+    cache = _IdentityCacheCtx.for_request(request, app, user=user, login_username=username)
+    password = form.password
+    if not password and cache.enabled:
+        password = identity_cache.recall_password(
+            db,
+            settings,
+            cookie=cache.cookie,
+            app=app,
+            user_key=cache.user_key,
+            login_username=username,
+        ) or ""
+        cache.from_cache = bool(password)
     if not password:
-        message = "Mot de passe requis."
-        return _identity_error_response(
-            request,
-            settings=settings,
-            message=message,
-            json_payload={"error": "password_required", "message": message},
-            json_status=400,
+        return _identity_password_missing(
+            request, settings=settings, slug=slug, re_prompt=form.use_cached
         )
 
     try:
@@ -540,6 +575,7 @@ async def open_with_identity(
             client_headers=_browser_fingerprint_headers(request),
         )
     except ImpersonationTechnicalError as exc:
+        # Upstream down / misconfigured: the cached password is still good.
         payload, status = _impersonation_error_payload(exc)
         return _identity_error_response(
             request,
@@ -550,34 +586,150 @@ async def open_with_identity(
         )
     except ImpersonationError as exc:
         record_identity_failure(slug, user_key)
-        payload, status = _impersonation_error_payload(exc)
-        return _identity_error_response(
-            request,
-            settings=settings,
-            message=payload.get("message") or str(exc),
-            json_payload=payload,
-            json_status=status,
+        return _identity_auth_failure(
+            exc, request=request, settings=settings, db=db, slug=slug, cache=cache
         )
-    finally:
-        password = ""  # noqa: F841
 
     clear_identity_failures(slug, user_key)
 
     # Top-level navigation (form POST) — 303 so Domain=parent is honored by browsers.
     # JSON clients keep the previous contract for automated tests/API callers.
     if wants_json:
-        return _cookie_json_open(
+        response: Response = _cookie_json_open(
             result, settings=settings, db=db, user=user, request=request, slug=slug
         )
-    return _cookie_redirect(
-        result,
+    else:
+        response = _cookie_redirect(
+            result,
+            settings=settings,
+            db=db,
+            user=user,
+            request=request,
+            slug=slug,
+            status_code=303,
+        )
+    try:
+        _identity_cache_after_success(
+            response,
+            db=db,
+            settings=settings,
+            cache=cache,
+            remember=form.remember,
+            password=password,
+        )
+    finally:
+        password = ""
+    return response
+
+
+@dataclass
+class _IdentityCacheCtx:
+    """Per-request view of the identite_utilisateur session cache."""
+
+    app: object
+    enabled: bool
+    cookie: identity_cache.CacheCookie | None
+    user_key: str
+    user_email: str
+    login_username: str
+    from_cache: bool = False
+
+    @classmethod
+    def for_request(
+        cls, request: Request, app, *, user: UserContext, login_username: str
+    ) -> _IdentityCacheCtx:
+        enabled = identity_cache.is_enabled_for(app)
+        return cls(
+            app=app,
+            enabled=enabled,
+            cookie=identity_cache.cookie_from_request(request) if enabled else None,
+            user_key=_identity_user_key(user),
+            user_email=user.email or "",
+            login_username=login_username,
+        )
+
+
+def _identity_prompt_url(slug: str, reason: str) -> str:
+    return f"{_APPS_CATALOGUE}?{urlencode({'identity_prompt': slug, 'identity_reason': reason})}"
+
+
+def _identity_password_missing(
+    request: Request, *, settings: Settings, slug: str, re_prompt: bool
+) -> Response:
+    """No typed password and no usable cache entry."""
+    message = "Mot de passe requis."
+    if re_prompt and not _wants_json(request):
+        # The tile expected a cached password (expired, logged out elsewhere):
+        # back to the catalogue with the password prompt open — no error flash.
+        return RedirectResponse(url=_identity_prompt_url(slug, "expired"), status_code=303)
+    return _identity_error_response(
+        request,
         settings=settings,
-        db=db,
-        user=user,
-        request=request,
-        slug=slug,
-        status_code=303,
+        message=message,
+        json_payload={"error": "password_required", "message": message},
+        json_status=400,
     )
+
+
+def _identity_auth_failure(
+    exc: ImpersonationError,
+    *,
+    request: Request,
+    settings: Settings,
+    db: Session,
+    slug: str,
+    cache: _IdentityCacheCtx,
+) -> Response:
+    """Upstream refused the password: never keep it, re-prompt when it was cached."""
+    if cache.enabled:
+        identity_cache.forget(db, cookie=cache.cookie, app_id=cache.app.id)
+    payload, status = _impersonation_error_payload(exc)
+    if cache.from_cache and not _wants_json(request):
+        # Most likely an AD password change since it was cached.
+        return RedirectResponse(url=_identity_prompt_url(slug, "rejected"), status_code=303)
+    return _identity_error_response(
+        request,
+        settings=settings,
+        message=payload.get("message") or str(exc),
+        json_payload=payload,
+        json_status=status,
+    )
+
+
+def _identity_cache_after_success(
+    response: Response,
+    *,
+    db: Session,
+    settings: Settings,
+    cache: _IdentityCacheCtx,
+    remember: bool,
+    password: str,
+) -> None:
+    """Store, keep or drop the session cache once the upstream accepted the password.
+
+    Best-effort: a cache failure must never break an otherwise successful open.
+    """
+    if not cache.enabled or cache.from_cache:
+        return
+    try:
+        if not remember:
+            identity_cache.forget(db, cookie=cache.cookie, app_id=cache.app.id)
+            return
+        cookie = identity_cache.remember_password(
+            db,
+            settings,
+            cookie=cache.cookie,
+            app=cache.app,
+            user_key=cache.user_key,
+            user_email=cache.user_email,
+            login_username=cache.login_username,
+            password=password,
+        )
+    except Exception:
+        db.rollback()
+        logger.exception("identity password cache: store failed slug=%s", cache.app.slug)
+        return
+    identity_cache.set_cache_cookie(response, cookie)
 
 
 def _open_identity_rbac_denied(

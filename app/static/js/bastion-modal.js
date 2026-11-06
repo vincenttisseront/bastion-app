@@ -7,10 +7,12 @@
  *   → Promise<void>
  * window.bastionPrompt({ title, message, label, defaultValue, placeholder, confirmLabel, cancelLabel, required })
  *   → Promise<string|null>  (null = cancelled)
- * window.bastionPasswordPrompt({ title, message, username, confirmLabel, cancelLabel, error, onConfirm })
- *   → Promise<{ ok: boolean, password: string|null }>
- *   Optional onConfirm(password) runs inside the click/Enter gesture before close.
+ * window.bastionPasswordPrompt({ title, message, username, confirmLabel, cancelLabel, error, remember, onConfirm })
+ *   → Promise<{ ok: boolean, password: string|null, remember: boolean }>
+ *   Optional onConfirm(password, remember) runs inside the click/Enter gesture before close.
  *   Return false from onConfirm to keep the modal open.
+ *   remember: undefined → no checkbox (password used once); true/false → checkbox
+ *   « keep for the portal session », pre-checked when true.
  *
  * Confirm / dismiss use document-level event delegation so handlers work even if
  * the modal markup is re-rendered or scripts load before the partial is present.
@@ -35,6 +37,7 @@
   var promptRequired = false;
   var listenersBound = false;
   var passwordOnConfirm = null;
+  var rememberInput = null;
 
   function refreshRefs() {
     root = document.getElementById('bastion-modal');
@@ -133,7 +136,33 @@
     extraEl.hidden = false;
   }
 
-  function renderPasswordFields(username, errorText) {
+  function rememberBlock(remember) {
+    if (remember === undefined || remember === null) {
+      return (
+        '<p class="form-help" style="margin-top:var(--sp-2);">' +
+        BastionI18n.t('Transmis uniquement pour cette connexion, non conservé.') +
+        '</p>'
+      );
+    }
+    return (
+      '<label class="form-check" style="margin-top:var(--sp-2);">' +
+      '<input type="checkbox" id="bastion-modal-remember"' +
+      (remember ? ' checked' : '') +
+      '> ' +
+      BastionI18n.t('Mémoriser pendant ma session portail') +
+      '</label>' +
+      '<p class="form-help" style="margin-top:var(--sp-1);">' +
+      BastionI18n.t('Conservé chiffré, effacé à la déconnexion du portail.') +
+      '</p>'
+    );
+  }
+
+  function rememberChecked() {
+    rememberInput = document.getElementById('bastion-modal-remember') || rememberInput;
+    return Boolean(rememberInput && rememberInput.checked);
+  }
+
+  function renderPasswordFields(username, errorText, remember) {
     extraEl.innerHTML =
       '<div class="bastion-modal-password-form">' +
       '<div class="form-group" style="margin-bottom:var(--sp-3);">' +
@@ -151,9 +180,7 @@
       '</label>' +
       '<input type="password" id="bastion-modal-password" class="form-input" ' +
       'autocomplete="off" autofocus>' +
-      '<p class="form-help" style="margin-top:var(--sp-2);">' +
-      BastionI18n.t('Transmis uniquement pour cette connexion, non conservé.') +
-      '</p>' +
+      rememberBlock(remember) +
       '<div id="bastion-modal-password-error" class="form-error bastion-modal-password-error"' +
       (errorText ? '' : ' hidden') +
       '>' +
@@ -164,6 +191,7 @@
     extraEl.hidden = false;
     passwordInput = document.getElementById('bastion-modal-password');
     passwordErrorEl = document.getElementById('bastion-modal-password-error');
+    rememberInput = document.getElementById('bastion-modal-remember');
     if (passwordInput) {
       passwordInput.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
@@ -245,7 +273,7 @@
       showPasswordError('');
       if (typeof passwordOnConfirm === 'function') {
         try {
-          var cont = passwordOnConfirm(passwordValue);
+          var cont = passwordOnConfirm(passwordValue, rememberChecked());
           if (cont === false) {
             showPasswordError(
               BastionI18n.t("Impossible d'ouvrir l'application. Réessayez.")
@@ -259,7 +287,7 @@
           return;
         }
       }
-      finishClose({ ok: true, password: passwordValue });
+      finishClose({ ok: true, password: passwordValue, remember: rememberChecked() });
       return;
     }
     if (mode === 'prompt') {
@@ -322,6 +350,7 @@
     if (promptInput) promptInput.value = '';
     clearExtra();
     passwordOnConfirm = null;
+    rememberInput = null;
     if (confirmBtn) confirmBtn.disabled = false;
     if (previousFocus && typeof previousFocus.focus === 'function') {
       try {
@@ -346,7 +375,11 @@
     if (mode === 'alert') {
       finishClose(undefined);
     } else if (mode === 'password') {
-      finishClose({ ok: Boolean(result), password: passwordValue });
+      finishClose({
+        ok: Boolean(result),
+        password: passwordValue,
+        remember: result ? rememberChecked() : false,
+      });
     } else if (mode === 'prompt') {
       finishClose(result ? (promptInput ? promptInput.value : '') : null);
     } else {
@@ -451,7 +484,7 @@
       options.message ||
         BastionI18n.t('Saisissez votre mot de passe pour ouvrir cette application.')
     );
-    renderPasswordFields(options.username || '', options.error || '');
+    renderPasswordFields(options.username || '', options.error || '', options.remember);
     confirmBtn.textContent = options.confirmLabel || BastionI18n.t('Ouvrir');
     confirmBtn.className = 'btn btn-secondary';
     confirmBtn.disabled = false;

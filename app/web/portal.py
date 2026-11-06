@@ -82,6 +82,9 @@ def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
         normalize_credential_mode,
         resolve_identity_login_username,
     )
+    from app.robotic.identity_password_cache import (
+        is_enabled_for as is_identity_cache_enabled,
+    )
     from app.vault.user_app_credential_service import needs_individual_credential_setup
     from app.web.app_logos import logo_public_url
     from app.web.portal_enrichment import enrich_tile
@@ -122,12 +125,36 @@ def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
             "needs_credential_setup": needs_credential_setup,
             "credential_mode": cred_mode,
             "identity_login": identity_login,
+            "identity_cache_enabled": is_identity_cache_enabled(entry.app),
+            "identity_cached": False,
             "launch_url": app_launch_url(entry.app),
             "logo_url": logo_public_url(entry.app),
             "tile_icon": entry.app.tile_icon,
         }
         tiles.append(enrich_tile(entry.app, tile))
     return tiles
+
+
+def _mark_identity_cached_tiles(
+    db: Session, request: Request, user: UserContext, tiles: list[dict]
+) -> None:
+    """Flag identite_utilisateur tiles this browser can open without a prompt.
+
+    Only a hint for the UI: the open endpoint re-checks and re-prompts on a miss.
+    """
+    from app.robotic import identity_password_cache as identity_cache
+
+    ids = [t["id"] for t in tiles if t.get("identity_cache_enabled")]
+    if not ids:
+        return
+    cached = identity_cache.cached_app_ids(
+        db,
+        cookie=identity_cache.cookie_from_request(request),
+        user_key=identity_cache.identity_user_key(user),
+        app_ids=ids,
+    )
+    for tile in tiles:
+        tile["identity_cached"] = tile.get("id") in cached
 
 
 def _account_console_url(db: Session, user: UserContext, settings: Settings) -> str | None:
@@ -195,6 +222,7 @@ def apps_portal(
     touch_portal_session(db, user, _client_ip(request), request=request)
     portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
+    _mark_identity_cached_tiles(db, request, user, tiles)
     from app.i18n.middleware import get_request_locale
     from app.web.portal_enrichment import build_apps_sections
     from app.web.portal_favorites import list_favorite_app_ids

@@ -154,6 +154,9 @@ class App(Base):
     credential_mode = Column(String, default="shared", nullable=False)
     # identite_utilisateur: "email" (UPN) or "username" (short preferred_username)
     identity_format = Column(String, default="email", nullable=False)
+    # identite_utilisateur: keep the typed password for the portal session
+    # (encrypted, key split with the browser — see IdentityPasswordCache).
+    identity_password_session_cache = Column(Boolean, default=False, nullable=False)
     # Target session cookies: host_only (default) or wide_domain (opt-in parent Domain)
     injected_cookie_scope = Column(String, default="host_only", nullable=False)
     # Mobile messaging (EAS): allow ActiveSync/Autodiscover without browser SSO redirect
@@ -1657,6 +1660,41 @@ class ActiveSyncDevice(Base):
 
     app = relationship("App", foreign_keys=[application_id])
     realm = relationship("RealmConfig", foreign_keys=[realm_id])
+
+
+class IdentityPasswordCache(Base):
+    """identite_utilisateur password kept for one portal session, split in two.
+
+    The row holds only the AES-GCM ciphertext; the decryption key is derived
+    from a random value that lives in the user's ``HttpOnly`` cookie and from
+    the server signing secret. A database dump alone, or a stolen cookie alone,
+    yields nothing. Rows die at portal logout, admin disconnect, upstream
+    rejection or ``expires_at``.
+    """
+
+    __tablename__ = "identity_password_cache"
+    __table_args__ = (
+        UniqueConstraint(
+            "handle", "application_id", name="uq_identity_password_cache_handle_app"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    # Public half of the browser cookie (the key half never reaches the DB).
+    handle = Column(String, nullable=False, index=True)
+    application_id = Column(
+        Integer, ForeignKey(_FK_APPS_ID, ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Keycloak subject when known, else e-mail — same key as the identity throttle.
+    user_key = Column(String, nullable=False, index=True)
+    user_email = Column(String, nullable=True, index=True)
+    # Login the password belongs to; bound into the AEAD associated data.
+    login_username = Column(String, nullable=False)
+    # base64url(nonce || ciphertext)
+    ciphertext = Column(Text, nullable=False)
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
+    expires_at = Column(UTCDateTime, nullable=False, index=True)
+    last_used_at = Column(UTCDateTime, nullable=True)
 
 
 ACCESS_REQUEST_STATUSES: tuple[str, ...] = ("pending", "approved", "rejected")
