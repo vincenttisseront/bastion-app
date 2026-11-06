@@ -142,10 +142,12 @@ def find_target_pids(proc_root: Path = Path("/proc"), marker: bytes = TARGET_MAR
     return sorted(pids)
 
 
-def _log(message: str) -> None:
+def _log(message: str, *, container_log: bool = True) -> None:
     """Healthcheck output (``docker inspect``) and, best effort, the container log."""
     line = f"bastion-healthcheck: {message}\n"
     sys.stdout.write(line)
+    if not container_log:
+        return
     try:
         # PID 1's stderr is the container log stream (same UID, no capability).
         with open("/proc/1/fd/2", "a", encoding="utf-8") as stream:
@@ -161,11 +163,19 @@ def restart_frozen_app(
     kill=os.kill,
     sleep=time.sleep,
     grace_s: float = STACK_DUMP_GRACE_S,
+    repeated: bool = False,
 ) -> list[int]:
-    """SIGUSR1 (stack dump) then SIGKILL every uvicorn child of PID 1."""
+    """SIGUSR1 (stack dump) then SIGKILL every uvicorn child of PID 1.
+
+    ``repeated``: an earlier probe already gave up; don't write the "nothing
+    to kill" line to the container log again (no init, or a one-off command).
+    """
     pids = find_target_pids(proc_root)
     if not pids or _SIGKILL is None:
-        _log(f"{reason}; no uvicorn child of PID 1 to kill (is compose `init: true` set?)")
+        _log(
+            f"{reason}; no uvicorn child of PID 1 to kill (is compose `init: true` set?)",
+            container_log=not repeated,
+        )
         return []
     # Log first: once uvicorn dies the whole container (this probe included) stops.
     _log(
@@ -207,7 +217,10 @@ def main() -> int:
         return 1
     sys.stdout.write(f"bastion-healthcheck: {error} ({failures}/{kill_after or 'off'})\n")
     if kill_after and failures >= kill_after:
-        restart_frozen_app(f"/api/health failed {failures} times in a row ({error})")
+        restart_frozen_app(
+            f"/api/health failed {failures} times in a row ({error})",
+            repeated=failures > kill_after,
+        )
     return 1
 
 

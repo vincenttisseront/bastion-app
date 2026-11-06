@@ -77,16 +77,22 @@ def test_restart_dumps_stacks_then_sigkills(fake_proc, monkeypatch):
     ]
 
 
-def test_restart_reports_when_nothing_to_kill(tmp_path, monkeypatch):
+@pytest.mark.parametrize("repeated", [False, True])
+def test_restart_reports_when_nothing_to_kill(tmp_path, monkeypatch, repeated):
     monkeypatch.setattr(healthcheck, "_SIGKILL", FAKE_SIGKILL)
-    logs: list[str] = []
-    monkeypatch.setattr(healthcheck, "_log", logs.append)
+    logs: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        healthcheck, "_log", lambda msg, container_log=True: logs.append((msg, container_log))
+    )
     calls: list = []
     assert healthcheck.restart_frozen_app(
-        "down", proc_root=tmp_path, kill=lambda *a: calls.append(a)
+        "down", proc_root=tmp_path, kill=lambda *a: calls.append(a), repeated=repeated
     ) == []
     assert calls == []
-    assert logs and logs[0].startswith("down; ") and "init: true" in logs[0]
+    [(message, to_container_log)] = logs
+    assert message.startswith("down; ") and "init: true" in message
+    # only the first give-up goes to `docker logs` (no init / one-off command)
+    assert to_container_log is not repeated
 
 
 @pytest.fixture
@@ -97,7 +103,9 @@ def run_main(tmp_path, monkeypatch):
     restarts: list[int] = []
     logs: list[str] = []
     monkeypatch.setattr(
-        healthcheck, "restart_frozen_app", lambda reason: restarts.append(reason) or [7]
+        healthcheck,
+        "restart_frozen_app",
+        lambda reason, repeated=False: restarts.append((reason, repeated)) or [7],
     )
     monkeypatch.setattr(healthcheck, "_log", logs.append)
 
@@ -128,12 +136,14 @@ def test_failures_below_threshold_only_count(run_main):
 def test_threshold_triggers_restart(run_main):
     previous = str(healthcheck.DEFAULT_KILL_AFTER - 1)
     assert run_main("TimeoutError: timed out", previous=previous) == 1
-    assert run_main.restarts == [
-        (
-            f"/api/health failed {healthcheck.DEFAULT_KILL_AFTER} times in a row "
-            "(TimeoutError: timed out)"
-        )
-    ]
+    expected_reason = (
+        f"/api/health failed {healthcheck.DEFAULT_KILL_AFTER} times in a row "
+        "(TimeoutError: timed out)"
+    )
+    assert run_main.restarts == [(expected_reason, False)]
+    # Still failing at the next probe (nothing was killed): retried, quietly.
+    assert run_main("TimeoutError: timed out") == 1
+    assert run_main.restarts[-1][1] is True
 
 
 def test_counter_is_bumped_before_probe(run_main, monkeypatch):
