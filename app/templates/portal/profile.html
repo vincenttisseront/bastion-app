@@ -25,7 +25,8 @@
           {% set p = activesync_pending[0] %}
 {{ _('Un appareil (') }}{{ p.model_label or p.device_type or 'mobile' }})
           {{ _("tente d'accéder à votre messagerie") }}
-          {% if p.first_seen_at %}{{ _('depuis le') }} {{ p.first_seen_at.strftime('%d/%m %H:%M') }}{% endif %} {{ _('— validation requise.') }}
+          {% if p.first_seen_at %}{{ _('depuis le') }} {{ p.first_seen_at.strftime('%d/%m %H:%M') }}{% endif %}
+          {% if p.app_admin_approval_only %}{{ _('— en attente de validation par un administrateur. Si ce n’est pas vous, refusez-le.') }}{% else %}{{ _('— validation requise.') }}{% endif %}
 
         </p>
       </div>
@@ -240,6 +241,16 @@
                   <td style="white-space:nowrap;">
                     {% if d.blocked_by_admin %}
                     —
+                    {% elif d.app_admin_approval_only and d.status in ('pending', 'rejected') %}
+                    {% if d.status == 'pending' %}
+                    <form method="post" action="/profile/activesync/devices/{{ d.id }}/reject" style="display:inline;">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <button type="submit" class="btn btn-ghost btn-sm">{{ _("Ce n'est pas moi") }}</button>
+                    </form>
+                    <div class="form-hint">{{ _('Validation par un administrateur') }}</div>
+                    {% else %}
+                    <div class="form-hint">{{ _('Contactez votre administrateur pour le réactiver.') }}</div>
+                    {% endif %}
                     {% elif d.status == 'pending' or d.status == 'rejected' %}
                     <form method="post" action="/profile/activesync/devices/{{ d.id }}/approve" style="display:inline;">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

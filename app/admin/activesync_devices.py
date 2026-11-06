@@ -71,7 +71,7 @@ def activesync_enabled_apps(db: Session) -> list[App]:
         .all()
     )
 
-
+
 def _apps_by_id(db: Session, devices) -> dict[int, App]:
     ids = {d.application_id for d in devices if d.application_id}
     if not ids:
@@ -121,6 +121,7 @@ def serialize_device(device: ActiveSyncDevice, app: App | None) -> dict:
         "app_label": app.label if app else None,
         "app_fqdn": app.public_fqdn if app else None,
         "app_device_control": control_on,
+        "app_admin_approval_only": device_service.admin_approval_only(app),
         "status": device.status,
         "status_badge_class": badge_class,
         "status_label": badge_label,
@@ -494,4 +495,40 @@ def admin_activesync_control_disable(
         "success",
         secret,
     )
+    return response
+
+
+@router.post(
+    "/admin/apps/{slug}/activesync/devices/approval-mode",
+    responses=_APP_NOT_FOUND,
+)
+def admin_activesync_approval_mode(
+    slug: str,
+    admin_only: str | None = Form(None),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Choose who approves new devices: the owner (default) or an admin only."""
+    app = _app_or_404(db, slug)
+    blocked = _redirect_unless_activesync(app, settings)
+    if blocked is not None:
+        return blocked
+    secret = portal_signing_secret(settings)
+    dest = f"/admin/apps/{slug}/activesync/devices/preview"
+    response = RedirectResponse(url=dest, status_code=302)
+    enabled = (admin_only or "").strip().lower() in ("1", "on", "true", "yes")
+    changed = device_service.set_admin_approval_only(
+        db, app, enabled=enabled, actor=admin_actor(user)
+    )
+    if not changed:
+        message = "Mode d'approbation inchangé."
+    elif enabled:
+        message = (
+            "Approbation réservée aux administrateurs : les utilisateurs peuvent "
+            "encore refuser ou révoquer leurs appareils, plus les approuver."
+        )
+    else:
+        message = "Les utilisateurs peuvent de nouveau approuver leurs appareils."
+    flash_redirect(response, message, "success", secret)
     return response

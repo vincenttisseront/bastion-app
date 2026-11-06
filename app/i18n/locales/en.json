@@ -3069,5 +3069,16 @@
   "Posture WAF": "WAF posture",
   "Procédure": "Procedure",
   "Règles du pack": "Pack rules",
-  "Sections WAF": "WAF sections"
+  "Sections WAF": "WAF sections",
+  "Validation par un administrateur": "Approval by an administrator",
+  "Contactez votre administrateur pour le réactiver.": "Contact your administrator to re-enable it.",
+  "— en attente de validation par un administrateur. Si ce n’est pas vous, refusez-le.": "— awaiting approval by an administrator. If this is not you, refuse it.",
+  "Tout appareil hors inventaire sera refusé à l’activation (validation par un administrateur requise).": "Any device outside the inventory will be refused once enabled (administrator approval required).",
+  "Approbation des nouveaux appareils": "Approval of new devices",
+  "Administrateurs uniquement": "Administrators only",
+  "Par l’utilisateur": "By the user",
+  "L’utilisateur approuve ses appareils depuis son profil (défaut)": "Users approve their own devices from their profile (default)",
+  "Seul un administrateur approuve (file Appareils)": "Only an administrator approves (Devices queue)",
+  "Dans les deux cas, l’utilisateur peut refuser un appareil inconnu ou révoquer le sien. Les appareils déjà approuvés ne changent pas.": "Either way, users can refuse an unknown device or revoke their own. Devices already approved are unchanged.",
+  "Activer le contrôle ? Les appareils en attente listés ici seront approuvés ; tout nouvel appareil sera refusé jusqu’à validation par un administrateur.": "Enable control? Pending devices listed here will be approved; any new device will be refused until an administrator approves it."
 }
