@@ -234,3 +234,15 @@ def test_install_stack_dump_handler(monkeypatch):
 
 def test_default_url_is_loopback_health():
     assert healthcheck.DEFAULT_URL == f"http://{LOOPBACK_V4_HOST}:8000/api/health"
+
+
+def test_default_state_file_is_in_private_tmpfs_not_tmp():
+    """Counter must not live in a world-writable dir (Sonar python:S5443)."""
+    assert healthcheck.STATE_DIR == "/run/bastion-healthcheck"
+    assert healthcheck.DEFAULT_STATE_FILE.startswith(healthcheck.STATE_DIR + "/")
+    root = Path(__file__).resolve().parents[1]
+    for compose in (root / "docker-compose.yml", root / "deploy" / "docker-compose.yml"):
+        # compose mounts it as a 0700 tmpfs owned by the app UID
+        assert f"- {healthcheck.STATE_DIR}:size=64k,mode=0700," in compose.read_text(
+            encoding="utf-8"
+        )

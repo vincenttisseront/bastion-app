@@ -11,8 +11,11 @@ no Python-level SIGTERM handler).
 
 Each run of this probe, in its own process:
 
-1. bumps a consecutive-failure counter in tmpfs *before* probing, so a probe
-   killed by Docker's healthcheck ``timeout`` still counts as a failure;
+1. bumps a consecutive-failure counter *before* probing, so a probe killed by
+   Docker's healthcheck ``timeout`` still counts as a failure. The counter
+   lives in a private tmpfs (compose: ``/run/bastion-healthcheck``, mode 0700,
+   owned by the app UID — not world-writable ``/tmp``), so it resets on every
+   container restart. If it is not writable, nothing is ever killed;
 2. GETs ``/api/health`` on loopback; success resets the counter (exit 0);
 3. after ``BASTION_HEALTHCHECK_KILL_AFTER`` consecutive failures (default 6,
    about 3 min at ``interval: 30s``; ``0`` disables), sends SIGUSR1 to uvicorn
@@ -40,8 +43,11 @@ from pathlib import Path
 
 from app.ip_cidrs import LOOPBACK_V4_HOST
 
-DEFAULT_URL = f"http://{LOOPBACK_V4_HOST}:8000/api/health"
-DEFAULT_STATE_FILE = "/tmp/bastion-healthcheck.failures"  # tmpfs: reset on restart
+# Loopback inside the container; uvicorn serves plain HTTP on :8000 (TLS ends at nginx).
+DEFAULT_URL = f"http://{LOOPBACK_V4_HOST}:8000/api/health"  # NOSONAR python:S5332
+# Private tmpfs mounted by compose (0700, app UID): reset on restart, not shared.
+STATE_DIR = "/run/bastion-healthcheck"
+DEFAULT_STATE_FILE = f"{STATE_DIR}/failures"
 DEFAULT_KILL_AFTER = 6
 DEFAULT_TIMEOUT_S = 4.0
 STACK_DUMP_GRACE_S = 2.0

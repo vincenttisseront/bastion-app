@@ -54,7 +54,8 @@ EXPOSE 8000
 
 # No curl/shell in DHI runtime — probe with stdlib only (exec form).
 # app/healthcheck.py also SIGKILLs a frozen uvicorn when run with an init as
-# PID 1 (compose `init: true` / `docker run --init`); otherwise it only reports.
+# PID 1 and its private counter tmpfs (both set in compose: `init: true`,
+# /run/bastion-healthcheck); otherwise it only reports.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=25s --retries=3 \
     CMD ["python", "-m", "app.healthcheck"]
 

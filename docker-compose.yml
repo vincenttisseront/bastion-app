@@ -126,6 +126,8 @@ services:
     cpus: ${BASTION_APP_CPUS:-0.50}
     tmpfs:
       - /tmp:size=64M,mode=1777
+      # Private (0700, app UID) failure counter for app/healthcheck.py; reset on restart.
+      - /run/bastion-healthcheck:size=64k,mode=0700,uid=65532,gid=65532
     env_file:
       - .env
     environment:

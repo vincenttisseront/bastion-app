@@ -208,6 +208,12 @@ def test_bastion_app_restarts_itself_when_frozen(compose):
     timeout = re.search(r"^      timeout: (\d+)s$", block, re.MULTILINE)
     assert timeout and int(timeout.group(1)) >= 10  # probe 4 s + stack-dump grace 2 s
     assert "docker.sock" not in block
+    # Failure counter: private tmpfs (Sonar python:S5443 — not world-writable /tmp),
+    # owned by the app UID so the non-root probe can write it.
+    assert (
+        "- /run/bastion-healthcheck:size=64k,mode=0700,uid=65532,gid=65532" in block
+    )
+    assert 'user: "65532:65532"' in block
 
 
 def test_dockerfile_healthcheck_uses_self_healing_probe():
