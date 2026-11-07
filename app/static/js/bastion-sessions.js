@@ -184,7 +184,7 @@
 
   function syncClock(iso) {
     var t = Date.parse(iso || '');
-    if (!isNaN(t)) clockOffsetMs = t - Date.now();
+    if (!Number.isNaN(t)) clockOffsetMs = t - Date.now();
   }
 
   function serverNow() {
@@ -193,13 +193,13 @@
 
   function secondsSince(iso) {
     var t = Date.parse(iso || '');
-    if (isNaN(t)) return null;
+    if (Number.isNaN(t)) return null;
     return Math.max(0, Math.floor((serverNow() - t) / 1000));
   }
 
   function secondsUntil(iso) {
     var t = Date.parse(iso || '');
-    if (isNaN(t)) return null;
+    if (Number.isNaN(t)) return null;
     return Math.floor((t - serverNow()) / 1000);
   }
 
@@ -243,7 +243,7 @@
 
   function fmtAbsolute(iso) {
     var t = Date.parse(iso || '');
-    if (isNaN(t)) return '';
+    if (Number.isNaN(t)) return '';
     try {
       return new Date(t).toLocaleString();
     } catch (e) {
