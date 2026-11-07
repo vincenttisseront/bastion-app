@@ -182,6 +182,9 @@ def _native_oidc_auth_response(
     if realm:
         # Cookie portal_realm_slug was retired — realm lives in bastion_session JWT.
         headers["X-Auth-Request-Realm"] = realm
+    _portal_heartbeat(
+        db, identities=(headers.get("X-Auth-Request-Email"), username), breakglass=False
+    )
     return Response(status_code=200, headers=headers)
 
 
@@ -240,6 +243,13 @@ async def _oauth2_proxy_auth_response(
         return Response(status_code=503)
 
 
+def _portal_heartbeat(db: Session, *, identities, breakglass: bool) -> None:
+    """Live /sessions: slide the portal row's last_seen (throttled, never raises)."""
+    from app.web.sessions_service import touch_portal_heartbeat
+
+    touch_portal_heartbeat(db, identities=identities, breakglass=breakglass)
+
+
 def _apply_oauth2_sso_binding(
     db: Session,
     request: Request,
@@ -271,6 +281,19 @@ def _apply_oauth2_sso_binding(
         db.rollback()
 
 
+def _after_oauth2_ok(db: Session, request: Request, oauth2_resp: Response) -> None:
+    """One threadpool hop for the oauth2-proxy success path: binding + heartbeat."""
+    _apply_oauth2_sso_binding(db, request, oauth2_resp)
+    _portal_heartbeat(
+        db,
+        identities=(
+            oauth2_resp.headers.get("X-Auth-Request-Email"),
+            oauth2_resp.headers.get("X-Auth-Request-Preferred-Username"),
+        ),
+        breakglass=False,
+    )
+
+
 def _breakglass_auth_response(
     db: Session,
     request: Request,
@@ -288,6 +311,15 @@ def _breakglass_auth_response(
         db.rollback()
     if not result.ok:
         return Response(status_code=401)
+    username = (result.username or "").strip()
+    if username:
+        from app.web.user_context import BREAKGLASS_EMAIL_DOMAIN
+
+        _portal_heartbeat(
+            db,
+            identities=(f"{username}@{BREAKGLASS_EMAIL_DOMAIN}",),
+            breakglass=True,
+        )
     return Response(status_code=200, headers={"X-Auth-Source": "breakglass"})
 
 
@@ -318,7 +350,7 @@ async def oauth2_auth(
     # Otherwise a leftover bg_session sends /apps → 302 /dashboard and never hits oauth2.
     oauth2_resp = await _oauth2_proxy_auth_response(request, settings, db)
     if oauth2_resp is not None and oauth2_resp.status_code in (200, 202):
-        await run_in_threadpool(_apply_oauth2_sso_binding, db, request, oauth2_resp)
+        await run_in_threadpool(_after_oauth2_ok, db, request, oauth2_resp)
         return oauth2_resp
 
     bg_cookie = request.cookies.get(COOKIE_NAME)

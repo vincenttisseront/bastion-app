@@ -1055,8 +1055,10 @@ def breakglass_logout(
     db: Session = Depends(get_db),
 ):
     from app.robotic.identity_password_cache import forget_request_cache
+    from app.web.sessions_service import close_registry_for_logout_request
 
     username = revoke_breakglass_session_from_request(request, db, settings)
+    close_registry_for_logout_request(request, db, settings, bg_actor=username)
     clear_breakglass_cookie(response, settings)
     forget_request_cache(db, request, response)
     log_action(

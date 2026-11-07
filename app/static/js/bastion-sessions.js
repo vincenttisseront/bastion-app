@@ -1,9 +1,20 @@
 (function () {
   'use strict';
 
-  var POLL_MS = 15000;
+  // Live feed: server-sent events (/api/sessions/stream) push verified
+  // snapshots on change; polling is only the fallback when the stream is down.
+  var FALLBACK_POLL_MS = 10000;
+  var STALE_AFTER_MS = 35000;
+  var STREAM_RETRY_MS = 15000;
   var isAdmin = window.__SESSIONS_IS_ADMIN__ === true;
   var groupsCache = Array.isArray(window.__SESSIONS_BOOT__) ? window.__SESSIONS_BOOT__ : [];
+  var clockOffsetMs = 0;
+  var lastMessageAt = 0;
+  var stream = null;
+  var streamRetryTimer = null;
+  var fallbackTimer = null;
+  var expectingReconnect = false;
+  var previousStates = {};
   var selectedEmail = '';
   var railFilter = '';
   var openSessionId = null;
@@ -169,13 +180,225 @@
       .join('');
   }
 
-  function liveBadgeClass(s) {
-    var st = s.live_status || s.status;
-    if (st === 'active') return 'ok';
-    if (st === 'invalid') return 'err';
-    if (st === 'isolated') return 'warn';
-    if (st === 'declarative' || st === 'presence') return 'info';
-    return 'warn';
+  /* ── Live clock & formatting (ticked every second, server-aligned) ──── */
+
+  function syncClock(iso) {
+    var t = Date.parse(iso || '');
+    if (!isNaN(t)) clockOffsetMs = t - Date.now();
+  }
+
+  function serverNow() {
+    return Date.now() + clockOffsetMs;
+  }
+
+  function secondsSince(iso) {
+    var t = Date.parse(iso || '');
+    if (isNaN(t)) return null;
+    return Math.max(0, Math.floor((serverNow() - t) / 1000));
+  }
+
+  function secondsUntil(iso) {
+    var t = Date.parse(iso || '');
+    if (isNaN(t)) return null;
+    return Math.floor((t - serverNow()) / 1000);
+  }
+
+  function tf(msgid, vars) {
+    var out = BastionI18n.t(msgid);
+    Object.keys(vars || {}).forEach(function (k) {
+      out = out.split('{' + k + '}').join(String(vars[k]));
+    });
+    return out;
+  }
+
+  function pad2(n) {
+    return n < 10 ? '0' + n : String(n);
+  }
+
+  function fmtDuration(sec) {
+    if (sec == null || sec < 0) sec = 0;
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = sec % 60;
+    if (h) return h + 'h ' + pad2(m) + 'm';
+    if (m) return m + 'm ' + pad2(s) + 's';
+    return s + 's';
+  }
+
+  function fmtAgo(iso) {
+    var s = secondsSince(iso);
+    if (s == null) return '—';
+    if (s < 60) return tf('il y a {s}s', { s: s });
+    if (s < 3600) return tf('il y a {m} min', { m: Math.floor(s / 60) });
+    if (s < 86400) return tf('il y a {h} h', { h: Math.floor(s / 3600) });
+    return tf('il y a {d} j', { d: Math.floor(s / 86400) });
+  }
+
+  function fmtLeft(iso) {
+    var s = secondsUntil(iso);
+    if (s == null) return '—';
+    if (s <= 0) return BastionI18n.t('échu');
+    return tf('dans {d}', { d: fmtDuration(s) });
+  }
+
+  function fmtAbsolute(iso) {
+    var t = Date.parse(iso || '');
+    if (isNaN(t)) return '';
+    try {
+      return new Date(t).toLocaleString();
+    } catch (e) {
+      return String(iso);
+    }
+  }
+
+  function liveAgo(iso) {
+    if (!iso) return '—';
+    return (
+      '<span data-live-ago="' +
+      escapeHtml(iso) +
+      '" title="' +
+      escapeHtml(fmtAbsolute(iso)) +
+      '">' +
+      escapeHtml(fmtAgo(iso)) +
+      '</span>'
+    );
+  }
+
+  function liveDuration(iso) {
+    if (!iso) return '—';
+    return (
+      '<span data-live-dur="' +
+      escapeHtml(iso) +
+      '">' +
+      escapeHtml(fmtDuration(secondsSince(iso))) +
+      '</span>'
+    );
+  }
+
+  function liveLeft(iso, approx) {
+    if (!iso) return '—';
+    return (
+      (approx ? '≈ ' : '') +
+      '<span data-live-left="' +
+      escapeHtml(iso) +
+      '" title="' +
+      escapeHtml(fmtAbsolute(iso)) +
+      '">' +
+      escapeHtml(fmtLeft(iso)) +
+      '</span>'
+    );
+  }
+
+  function tickLive() {
+    document.querySelectorAll('[data-live-ago]').forEach(function (el) {
+      el.textContent = fmtAgo(el.getAttribute('data-live-ago'));
+    });
+    document.querySelectorAll('[data-live-dur]').forEach(function (el) {
+      el.textContent = fmtDuration(secondsSince(el.getAttribute('data-live-dur')));
+    });
+    document.querySelectorAll('[data-live-left]').forEach(function (el) {
+      el.textContent = fmtLeft(el.getAttribute('data-live-left'));
+    });
+    refreshPillTitle();
+  }
+
+  /* ── Verified status presentation ──────────────────────────────────── */
+
+  var STATE_CLASS = {
+    online: 'ok',
+    idle: 'muted',
+    unverified: 'warn',
+    invalid: 'err',
+    isolated: 'warn',
+  };
+
+  function stateClass(st) {
+    return STATE_CLASS[st] || 'muted';
+  }
+
+  function activityOf(s) {
+    return s.activity_at || s.last_seen_at || null;
+  }
+
+  function statusTitleOf(s) {
+    var v = s.verification || {};
+    return [s.live_status_title, v.summary].filter(Boolean).join(' — ');
+  }
+
+  function stateBadgeHtml(s, extraClass) {
+    var st = s.live_status || 'unverified';
+    return (
+      '<span class="' +
+      (extraClass ? extraClass + ' ' : '') +
+      'badge badge-' +
+      stateClass(st) +
+      ' session-state session-state--' +
+      escapeHtml(st) +
+      '" title="' +
+      escapeHtml(statusTitleOf(s)) +
+      '">' +
+      (st === 'online' ? '<span class="live-dot live-dot-sm"></span> ' : '') +
+      escapeHtml(s.live_status_label || st.toUpperCase()) +
+      '</span>'
+    );
+  }
+
+  function factHtml(label, valueHtml, opts) {
+    opts = opts || {};
+    return (
+      '<div><dt>' +
+      escapeHtml(label) +
+      '</dt><dd' +
+      (opts.mono ? ' class="mono"' : '') +
+      (opts.title ? ' title="' + escapeHtml(opts.title) + '"' : '') +
+      '>' +
+      valueHtml +
+      '</dd></div>'
+    );
+  }
+
+  function verificationHtml(s) {
+    var v = s.verification || {};
+    var approx = v.method === 'oauth2_proxy';
+    var rows =
+      factHtml(BastionI18n.t('Source'), escapeHtml(v.method_label || '—')) +
+      factHtml(BastionI18n.t('Résultat'), escapeHtml(v.summary || '—'));
+    if (v.continuous) {
+      rows += factHtml(
+        BastionI18n.t('Vérifié'),
+        escapeHtml(BastionI18n.t('en continu (à chaque mise à jour du flux)'))
+      );
+    } else if (v.checked_at) {
+      rows += factHtml(BastionI18n.t('Vérifié'), liveAgo(v.checked_at));
+    }
+    if (v.expires_at) {
+      rows += factHtml(BastionI18n.t('Expiration'), liveLeft(v.expires_at, approx));
+    }
+    if (v.idle_expires_at) {
+      rows += factHtml(
+        BastionI18n.t('Coupure inactivité'),
+        liveLeft(v.idle_expires_at, false),
+        {
+          title: BastionI18n.t(
+            'Sans nouvelle requête portail, le jeton est refusé à cette échéance.'
+          ),
+        }
+      );
+    }
+    if (v.credentials > 1) {
+      rows += factHtml(BastionI18n.t('Jetons valides'), escapeHtml(String(v.credentials)));
+    }
+    return (
+      '<section class="session-verify session-verify--' +
+      escapeHtml(s.live_status || 'unverified') +
+      '" aria-label="' +
+      escapeHtml(BastionI18n.t('Vérification')) +
+      '"><h3 class="session-verify-title">' +
+      escapeHtml(BastionI18n.t('Vérification')) +
+      '</h3><dl class="session-card-facts">' +
+      rows +
+      '</dl></section>'
+    );
   }
 
   function familyOf(s) {
@@ -203,53 +426,6 @@
     if (family === 'oidc') return BastionI18n.t('OIDC / Keycloak');
     if (family === 'breakglass') return BastionI18n.t('Break-glass (hors Keycloak)');
     return BastionI18n.t('Application robotic/vault');
-  }
-
-  function statusTitleOf(s) {
-    if (s.verifiable)
-      return BastionI18n.t('Statut vérifié auprès de l’app cible (live)');
-    if (s.presence_only || s.live_status === 'presence') {
-      return BastionI18n.t(
-        'Présence SSO détectée via accès subdomain (pas une vérif cookies robotic)'
-      );
-    }
-    if (s.freshness && s.freshness.note) return s.freshness.note;
-    return BastionI18n.t('Statut déclaratif côté bastion');
-  }
-
-  function verifiedMetaHtml(s) {
-    if (s.verifiable) {
-      return (
-        '<div class="session-verified-meta mono">' +
-        (s.last_verified_ago
-          ? BastionI18n.t('Vérifié') + ' ' + escapeHtml(s.last_verified_ago)
-          : BastionI18n.t('En attente de vérification live…')) +
-        '</div>'
-      );
-    }
-    if (s.presence_only || s.live_status === 'presence') {
-      return (
-        '<div class="session-verified-meta mono" title="Heartbeat subdomain-auth">' +
-        BastionI18n.t('Vu') +
-        ' ' +
-        escapeHtml(s.last_seen_ago || '—') +
-        '</div>'
-      );
-    }
-    if (s.freshness) {
-      return (
-        '<div class="session-verified-meta mono" title="' +
-        escapeHtml(s.freshness.note || '') +
-        '">' +
-        BastionI18n.t('Âge') +
-        ' ' +
-        escapeHtml(s.freshness.age_label || '—') +
-        ' · ' +
-        escapeHtml(s.freshness.policy_label || '') +
-        '</div>'
-      );
-    }
-    return '';
   }
 
   /* ── SessionDetailPanel (drawer) ─────────────────────────────────────── */
@@ -292,14 +468,9 @@
     var els = drawerEls();
     if (!els.drawer || !s) return;
     var family = familyOf(s);
-    var statusClass = liveBadgeClass(s);
     var kindClass =
       family === 'breakglass' ? 'warn' : family === 'app' ? 'ok' : 'info';
     var cookieClass = s.cookies_ok ? 'ok' : 'warn';
-    var liveDot =
-      s.live_status === 'active' || s.live_status === 'presence'
-        ? '<span class="live-dot live-dot-sm"></span> '
-        : '';
     var cookieTitle = s.cookies_title || '';
     if (s.cookies_issued_at)
       cookieTitle += ' · ' + BastionI18n.t('émis') + ' ' + s.cookies_issued_at;
@@ -347,15 +518,9 @@
         '">' +
         escapeHtml(s.protocol || '') +
         '</span>' +
-        '<span class="badge badge-' +
-        statusClass +
-        '" title="' +
-        escapeHtml(statusTitleOf(s)) +
-        '">' +
-        liveDot +
-        escapeHtml(s.live_status_label || String(s.status || '').toUpperCase()) +
-        '</span></div>' +
-        verifiedMetaHtml(s) +
+        stateBadgeHtml(s) +
+        '</div>' +
+        verificationHtml(s) +
         '<dl class="session-card-facts">' +
         '<div><dt>' +
         BastionI18n.t('Type') +
@@ -374,14 +539,12 @@
         '<div><dt>' +
         BastionI18n.t('Durée') +
         '</dt><dd class="mono">' +
-        escapeHtml(s.duration || '—') +
+        liveDuration(s.started_at) +
         '</dd></div>' +
         '<div><dt>' +
         BastionI18n.t('Dernière activité') +
-        '</dt><dd title="' +
-        escapeHtml(s.last_seen_label || '') +
-        '">' +
-        escapeHtml(s.last_seen_ago || '—') +
+        '</dt><dd>' +
+        liveAgo(activityOf(s)) +
         '</dd></div>' +
         '<div><dt>' +
         BastionI18n.t('Navigateur') +
@@ -572,18 +735,18 @@
 
   function renderSessionRow(s) {
     var family = familyOf(s);
-    var statusClass = liveBadgeClass(s);
     var kindClass =
       family === 'breakglass' ? 'warn' : family === 'app' ? 'ok' : 'info';
-    var liveDot =
-      s.live_status === 'active'
-        ? '<span class="live-dot live-dot-sm"></span> '
-        : '';
     var isOpen = openSessionId === s.id;
+    var changed =
+      previousStates[s.id] !== undefined && previousStates[s.id] !== s.live_status;
     return (
       '<li><button type="button" class="session-row session-row-' +
       escapeHtml(family) +
+      ' session-row--' +
+      escapeHtml(s.live_status || 'unverified') +
       (isOpen ? ' is-open' : '') +
+      (changed ? ' is-updated' : '') +
       '" data-session-id="' +
       escapeHtml(s.id) +
       '" data-kind="' +
@@ -616,23 +779,16 @@
       '">' +
       escapeHtml(s.protocol || '') +
       '</span></span>' +
-      '<span class="session-row-status badge badge-' +
-      statusClass +
-      '" title="' +
-      escapeHtml(statusTitleOf(s)) +
-      '">' +
-      liveDot +
-      escapeHtml(s.live_status_label || String(s.status || '').toUpperCase()) +
-      '</span>' +
+      stateBadgeHtml(s, 'session-row-status') +
       '<span class="session-row-meta mono" title="' +
-      BastionI18n.t('Durée') +
+      escapeHtml(BastionI18n.t('Durée')) +
       '">' +
-      escapeHtml(s.duration || '—') +
+      liveDuration(s.started_at) +
       '</span>' +
       '<span class="session-row-meta session-row-ago" title="' +
-      escapeHtml(s.last_seen_label || '') +
+      escapeHtml(BastionI18n.t('Dernière activité authentifiée')) +
       '">' +
-      escapeHtml(s.last_seen_ago || '—') +
+      liveAgo(activityOf(s)) +
       '</span>' +
       '<span class="session-row-chevron" aria-hidden="true">' +
       '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>' +
@@ -663,7 +819,11 @@
       .map(function (g) {
         var selected = g.user_email === selectedEmail;
         var initial = (g.user && g.user[0] ? g.user[0] : '?').toUpperCase();
-        var statusClass = g.status === 'active' ? 'ok' : 'warn';
+        var subParts = [];
+        if (g.realm) subParts.push(escapeHtml(g.realm));
+        subParts.push(
+          escapeHtml(String(g.session_count)) + ' ' + escapeHtml(BastionI18n.t('session(s)'))
+        );
         var logoutHint = g.sso_logout
           ? '<div class="sessions-user-logout mono" title="' +
             escapeHtml(g.sso_logout.residual_note || '') +
@@ -690,19 +850,28 @@
           escapeHtml(g.user) +
           '</div>' +
           '<div class="sessions-user-sub mono">' +
-          escapeHtml(g.realm) +
-          ' · ' +
-          escapeHtml(String(g.session_count)) +
+          subParts.join(' · ') +
           '</div>' +
           '<div class="sessions-user-families">' +
           familyChips(g) +
           '</div>' +
           logoutHint +
           '</div>' +
-          '<span class="sessions-user-status badge badge-' +
-          statusClass +
-          '">' +
-          escapeHtml(String(g.status || '').toUpperCase()) +
+          '<span class="sessions-user-state">' +
+          stateBadgeHtml(
+            {
+              live_status: g.live_status,
+              live_status_label: g.live_status_label,
+              live_status_title:
+                g.online_count > 0
+                  ? tf('{n} session(s) en ligne', { n: g.online_count })
+                  : '',
+            },
+            'sessions-user-status'
+          ) +
+          (g.activity_at
+            ? '<span class="sessions-user-seen mono">' + liveAgo(g.activity_at) + '</span>'
+            : '') +
           '</span></button>'
         );
       })
@@ -768,7 +937,6 @@
       }
     }
 
-    var statusClass = g.status === 'active' ? 'ok' : 'warn';
     var disconnectBtn = '';
     if (isAdmin && g.show_disconnect !== false && (g.has_oidc || g.has_app)) {
       disconnectBtn =
@@ -811,7 +979,9 @@
     title.textContent = g.user || '';
     var sub = document.createElement('p');
     sub.className = 'sessions-detail-sub mono';
-    sub.textContent = (g.user_email || '') + ' · ' + (g.realm || '');
+    sub.textContent =
+      (g.user_email || '') +
+      (g.realm ? ' · ' + g.realm : g.has_breakglass ? ' · ' + BastionI18n.t('hors realm (break-glass)') : '');
     var families = document.createElement('div');
     families.className = 'sessions-user-families';
     families.style.marginTop = '6px';
@@ -822,9 +992,12 @@
     var actions = document.createElement('div');
     actions.className = 'session-actions-group';
     var countBadge = document.createElement('span');
-    countBadge.className = 'badge badge-' + statusClass;
+    countBadge.className = 'badge badge-' + stateClass(g.live_status);
     countBadge.textContent =
-      String(g.session_count) + ' ' + BastionI18n.t('session(s)');
+      String(g.session_count) +
+      ' ' +
+      BastionI18n.t('session(s)') +
+      (g.online_count ? ' · ' + tf('{n} en ligne', { n: g.online_count }) : '');
     actions.appendChild(countBadge);
     if (disconnectBtn) {
       var disconnectWrap = document.createElement('div');
@@ -975,7 +1148,7 @@
           '</div>';
       }
       setTimeout(function () {
-        refreshSessions();
+        void refreshSessions();
       }, 400);
     } catch (e) {
       if (resultEl) {
@@ -987,9 +1160,63 @@
     }
   };
 
+  function focusKeyOf(el) {
+    if (!el || !el.dataset) return null;
+    if (el.closest && el.closest('#session-detail-drawer')) {
+      return el.dataset.sessionAction ? 'a:' + el.dataset.sessionAction : null;
+    }
+    if (el.dataset.sessionId && el.classList.contains('session-row')) {
+      return 's:' + el.dataset.sessionId;
+    }
+    if (el.dataset.userEmail && el.classList.contains('sessions-user-item')) {
+      return 'u:' + el.dataset.userEmail;
+    }
+    return null;
+  }
+
+  function restoreFocus(key) {
+    if (!key) return;
+    var kind = key.slice(0, 2);
+    var value = key.slice(2);
+    var nodes;
+    if (kind === 's:') nodes = document.querySelectorAll('.session-row');
+    else if (kind === 'u:') nodes = document.querySelectorAll('.sessions-user-item');
+    else nodes = document.querySelectorAll('#session-detail-actions [data-session-action]');
+    for (var i = 0; i < nodes.length; i++) {
+      var d = nodes[i].dataset;
+      var match =
+        kind === 's:'
+          ? d.sessionId === value
+          : kind === 'u:'
+            ? d.userEmail === value
+            : d.sessionAction === value;
+      if (match) {
+        try {
+          nodes[i].focus({ preventScroll: true });
+        } catch (e) {
+          nodes[i].focus();
+        }
+        return;
+      }
+    }
+  }
+
+  function rememberStates() {
+    var next = {};
+    groupsCache.forEach(function (g) {
+      (g.sessions || []).forEach(function (s) {
+        next[s.id] = s.live_status;
+      });
+    });
+    previousStates = next;
+  }
+
   function renderAll() {
+    var focusKey = focusKeyOf(document.activeElement);
     renderUserList();
     renderDetail();
+    restoreFocus(focusKey);
+    rememberStates();
   }
 
   function updateCounts(counts) {
@@ -1004,13 +1231,228 @@
     });
   }
 
+  function applySnapshot(data) {
+    if (!data) return;
+    if (data.server_time) syncClock(data.server_time);
+    groupsCache = Array.isArray(data.groups) ? data.groups : [];
+    var total =
+      data.total != null ? data.total : Array.isArray(data.sessions) ? data.sessions.length : null;
+    var countEl = document.getElementById('sessions-count');
+    if (countEl && total != null) countEl.textContent = String(total);
+    var usersEl = document.getElementById('sessions-users-count');
+    if (usersEl) usersEl.textContent = String(groupsCache.length);
+    updateCounts(data.counts);
+    renderAll();
+  }
+
+  /* ── LIVE pill: reflects the feed, never decorative ──────────────────── */
+
+  var PILL_LABELS = {
+    connecting: 'Connexion…',
+    live: 'Live',
+    stale: 'Reconnexion…',
+    polling: 'Différé',
+  };
+
+  function setPill(mode) {
+    var pill = document.getElementById('sessions-live-pill');
+    if (!pill) return;
+    pill.dataset.mode = mode;
+    pill.classList.toggle('is-stale', mode !== 'live');
+    var label = document.getElementById('sessions-live-label');
+    if (label) label.textContent = BastionI18n.t(PILL_LABELS[mode] || 'Live');
+    refreshPillTitle();
+  }
+
+  function refreshPillTitle() {
+    var pill = document.getElementById('sessions-live-pill');
+    if (!pill) return;
+    var mode = pill.dataset.mode || 'connecting';
+    var since = lastMessageAt
+      ? tf('dernière mise à jour il y a {s}s', {
+          s: Math.max(0, Math.floor((Date.now() - lastMessageAt) / 1000)),
+        })
+      : BastionI18n.t('en attente du flux');
+    var head =
+      mode === 'live'
+        ? BastionI18n.t('Flux temps réel actif : statuts re-vérifiés côté serveur toutes les 2 s')
+        : mode === 'polling'
+          ? BastionI18n.t('Flux temps réel indisponible : rafraîchissement périodique')
+          : BastionI18n.t('Flux temps réel interrompu : reconnexion en cours');
+    pill.title = head + ' — ' + since;
+  }
+
+  function markMessage() {
+    lastMessageAt = Date.now();
+    stopFallback();
+    setPill('live');
+  }
+
+  function checkStale() {
+    if (document.hidden) return;
+    if (lastMessageAt && Date.now() - lastMessageAt > STALE_AFTER_MS) {
+      var pill = document.getElementById('sessions-live-pill');
+      if (pill && pill.dataset.mode === 'live') setPill('stale');
+      startFallback();
+    }
+  }
+
+  /* ── Fallback polling (stream unavailable) ─────────────────────────── */
+
+  function pageKind() {
+    var page = document.getElementById('sessions-page');
+    var kind = (page && page.dataset.kind) || 'all';
+    return kind === 'user' || kind === 'app' ? kind : '';
+  }
+
+  function liveVerifySelected() {
+    selectedEmail = resolveSelected();
+    if (!selectedEmail) return Promise.resolve();
+    var body = { user_email: selectedEmail };
+    var kind = pageKind();
+    if (kind) body.kind = kind;
+    return fetch('/api/sessions/live-verify', {
+      method: 'POST',
+      headers: {
+        'X-CSRF-Token': getCsrfToken(),
+        'Content-Type': 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(body),
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error('live-verify failed');
+        return r.json();
+      })
+      .then(applySnapshot)
+      .catch(function () {
+        /* keep last render */
+      });
+  }
+
+  function refreshSessions() {
+    var kind = pageKind();
+    var url = '/api/sessions' + (kind ? '?kind=' + encodeURIComponent(kind) : '');
+    return fetch(url, { credentials: 'same-origin' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('poll failed');
+        return r.json();
+      })
+      .then(function (data) {
+        applySnapshot(data);
+        // Polling has no server-side probe loop: probe the selected user here.
+        if (fallbackTimer) return liveVerifySelected();
+        return null;
+      })
+      .catch(function () {
+        /* silent — keep last render */
+      });
+  }
+
+  function startFallback() {
+    if (fallbackTimer) return;
+    setPill('polling');
+    fallbackTimer = setInterval(function () {
+      if (!document.hidden) void refreshSessions();
+    }, FALLBACK_POLL_MS);
+    void refreshSessions();
+  }
+
+  function stopFallback() {
+    if (!fallbackTimer) return;
+    clearInterval(fallbackTimer);
+    fallbackTimer = null;
+  }
+
+  /* ── Server-sent events ───────────────────────────────────────────── */
+
+  function streamUrl() {
+    var kind = pageKind();
+    return '/api/sessions/stream' + (kind ? '?kind=' + encodeURIComponent(kind) : '');
+  }
+
+  function closeStream() {
+    if (streamRetryTimer) {
+      clearTimeout(streamRetryTimer);
+      streamRetryTimer = null;
+    }
+    if (stream) {
+      stream.close();
+      stream = null;
+    }
+  }
+
+  function scheduleStreamRetry() {
+    if (streamRetryTimer || document.hidden) return;
+    streamRetryTimer = setTimeout(function () {
+      streamRetryTimer = null;
+      openStream();
+    }, STREAM_RETRY_MS);
+  }
+
+  function parseEvent(ev) {
+    try {
+      return JSON.parse(ev.data || '{}');
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function openStream() {
+    if (stream || document.hidden) return;
+    if (typeof window.EventSource !== 'function') {
+      startFallback();
+      return;
+    }
+    if (!lastMessageAt) setPill('connecting');
+    var es = new window.EventSource(streamUrl());
+    stream = es;
+    es.addEventListener('snapshot', function (ev) {
+      expectingReconnect = false;
+      applySnapshot(parseEvent(ev));
+      markMessage();
+    });
+    es.addEventListener('ping', function (ev) {
+      expectingReconnect = false;
+      var data = parseEvent(ev);
+      if (data.server_time) syncClock(data.server_time);
+      markMessage();
+    });
+    es.addEventListener('degraded', function () {
+      setPill('stale');
+    });
+    es.addEventListener('timeout', function () {
+      // Planned server-side rotation: EventSource reconnects by itself.
+      expectingReconnect = true;
+    });
+    es.onerror = function () {
+      if (es.readyState === window.EventSource.CLOSED) {
+        // Auth failure or non-stream answer: no auto-retry — poll, retry later.
+        if (stream === es) stream = null;
+        startFallback();
+        scheduleStreamRetry();
+        return;
+      }
+      if (!expectingReconnect) setPill('stale');
+    };
+  }
+
+  function onVisibilityChange() {
+    if (document.hidden) {
+      closeStream();
+      stopFallback();
+      return;
+    }
+    openStream();
+  }
+
   function onUserClick(ev) {
     var btn = ev.target.closest('.sessions-user-item');
     if (!btn) return;
     selectedEmail = btn.dataset.userEmail || '';
     closeSessionDetailPanel();
     renderAll();
-    void liveVerifySelected();
+    if (fallbackTimer) void liveVerifySelected();
   }
 
   function onSessionRowClick(ev) {
@@ -1042,75 +1484,10 @@
     }
   }
 
-  function liveVerifySelected() {
-    selectedEmail = resolveSelected();
-    if (!selectedEmail) return Promise.resolve();
-    var page = document.getElementById('sessions-page');
-    var kind = (page && page.dataset.kind) || 'all';
-    var body = { user_email: selectedEmail };
-    if (kind === 'user' || kind === 'app') body.kind = kind;
-    return fetch('/api/sessions/live-verify', {
-      method: 'POST',
-      headers: {
-        'X-CSRF-Token': getCsrfToken(),
-        'Content-Type': 'application/json',
-      },
-      credentials: 'same-origin',
-      body: JSON.stringify(body),
-    })
-      .then(function (r) {
-        if (!r.ok) throw new Error('live-verify failed');
-        return r.json();
-      })
-      .then(function (data) {
-        if (data.groups) {
-          groupsCache = data.groups;
-        }
-        if (data.sessions) {
-          var countEl = document.getElementById('sessions-count');
-          if (countEl) countEl.textContent = String(data.sessions.length);
-        }
-        if (data.counts) updateCounts(data.counts);
-        var usersEl = document.getElementById('sessions-users-count');
-        if (usersEl && data.groups) usersEl.textContent = String(data.groups.length);
-        renderAll();
-      })
-      .catch(function () {
-        /* keep last render */
-      });
-  }
-
-  function refreshSessions() {
-    var page = document.getElementById('sessions-page');
-    if (!page) return;
-    var kind = page.dataset.kind || 'all';
-    var url = '/api/sessions';
-    if (kind === 'user' || kind === 'app') url += '?kind=' + encodeURIComponent(kind);
-
-    fetch(url, { credentials: 'same-origin' })
-      .then(function (r) {
-        if (!r.ok) throw new Error('poll failed');
-        return r.json();
-      })
-      .then(function (data) {
-        var sessions = data.sessions || [];
-        groupsCache = data.groups || [];
-        var countEl = document.getElementById('sessions-count');
-        if (countEl) countEl.textContent = String(sessions.length);
-        var usersEl = document.getElementById('sessions-users-count');
-        if (usersEl) usersEl.textContent = String(groupsCache.length);
-        updateCounts(data.counts);
-        renderAll();
-        return liveVerifySelected();
-      })
-      .catch(function () {
-        /* silent — keep last render */
-      });
-  }
-
   var page = document.getElementById('sessions-page');
   if (page) {
     selectedEmail = page.dataset.selectedEmail || '';
+    syncClock(window.__SESSIONS_SERVER_TIME__);
     var list = document.getElementById('sessions-user-list');
     if (list) list.addEventListener('click', onUserClick);
     var detail = document.getElementById('sessions-detail');
@@ -1135,7 +1512,12 @@
       });
     }
     document.addEventListener('keydown', onDrawerKeydown);
-    void liveVerifySelected();
-    setInterval(refreshSessions, POLL_MS);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', closeStream);
+    // Client render from the boot payload: same markup as live updates.
+    if (document.getElementById('sessions-split')) renderAll();
+    setInterval(tickLive, 1000);
+    setInterval(checkStale, 5000);
+    openStream();
   }
 })();

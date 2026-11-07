@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 import httpx
@@ -20,6 +22,21 @@ VerifyStatus = Literal["active", "invalid", "unknown"]
 _DRIVEN_DRIVERS = frozenset({"crushftp", "generic_form"})
 _VERIFY_TIMEOUT = 5.0
 _INVALID_STREAK_TO_REVOKE = 2
+
+# Background probing (live /sessions stream): each driven session is probed at
+# most every PROBE_MIN_INTERVAL, whoever is watching. Two "invalid" strikes
+# closer than STREAM_STRIKE_GAP count as one, so concurrent viewers / workers
+# can never auto-revoke on a single upstream hiccup.
+PROBE_MIN_INTERVAL = timedelta(seconds=45)
+STREAM_STRIKE_GAP = timedelta(seconds=20)
+_PROBE_CONCURRENCY = 4
+_PROBE_BATCH = 24
+
+
+def _aware(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 def is_driven_session(row: ActiveSession) -> bool:
@@ -106,7 +123,10 @@ async def verify_generic_form_session(details: dict[str, Any]) -> VerifyStatus:
 
 
 async def verify_driven_session(row: ActiveSession) -> VerifyStatus:
-    details = _details_dict(row)
+    return await verify_driven_details(_details_dict(row))
+
+
+async def verify_driven_details(details: dict[str, Any]) -> VerifyStatus:
     driver = (details.get("driver") or "").strip().lower()
     if driver == "crushftp":
         return await verify_crushftp_session(details)
@@ -125,9 +145,15 @@ def _apply_verify_outcome(
     email: str,
     ip_address: str | None,
     revoke_active_session,
+    min_strike_gap: timedelta = timedelta(0),
 ) -> tuple[bool, dict[str, Any]]:
     """Update row from verify status. Returns (revoked, result_payload)."""
     details = _details_dict(row)
+    prev_invalid_at = (
+        _aware(row.last_verified_at)
+        if (row.last_verified_status or "").strip().lower() == "invalid"
+        else None
+    )
     if status == "active":
         details["consecutive_invalid_count"] = 0
         row.last_verified_status = "active"
@@ -142,7 +168,9 @@ def _apply_verify_outcome(
         }
 
     if status == "invalid":
-        streak = int(details.get("consecutive_invalid_count") or 0) + 1
+        streak = int(details.get("consecutive_invalid_count") or 0)
+        if prev_invalid_at is None or _aware(now) - prev_invalid_at >= min_strike_gap:
+            streak += 1
         details["consecutive_invalid_count"] = streak
         row.last_verified_status = "invalid"
         row.last_verified_at = now
@@ -248,3 +276,113 @@ async def live_verify_user_sessions(
 
     db.commit()
     return results
+
+
+def _identity_clauses(user_email: str):
+    from sqlalchemy import or_
+
+    from app.web.sessions_service import identity_match_keys
+
+    email = (user_email or "").strip().lower()
+    local = email.split("@", 1)[0] if "@" in email else email
+    emails, usernames = identity_match_keys(email=email, username=local)
+    keys = sorted(emails | usernames)
+    if not keys:
+        return None
+    return or_(ActiveSession.user_email.in_(keys), ActiveSession.username.in_(keys))
+
+
+def _load_due_probes(
+    user_email: str | None, *, now: datetime
+) -> list[tuple[str, dict[str, Any]]]:
+    from sqlalchemy import or_
+
+    from app import database
+
+    db = database.SessionLocal()
+    try:
+        q = db.query(ActiveSession).filter(
+            ActiveSession.kind == "app",
+            ActiveSession.status != "isolated",
+            or_(
+                ActiveSession.last_verified_at.is_(None),
+                ActiveSession.last_verified_at <= now - PROBE_MIN_INTERVAL,
+            ),
+        )
+        if user_email:
+            clause = _identity_clauses(user_email)
+            if clause is None:
+                return []
+            q = q.filter(clause)
+        rows = [r for r in q.all() if is_driven_session(r)]
+        rows.sort(key=lambda r: _aware(r.last_verified_at) or datetime.min.replace(tzinfo=timezone.utc))
+        return [(r.id, _details_dict(r)) for r in rows[:_PROBE_BATCH]]
+    finally:
+        db.close()
+
+
+def _apply_due_probes(
+    results: list[tuple[str, VerifyStatus]], *, loaded_at: datetime, actor: str
+) -> int:
+    from app import database
+    from app.web.sessions_service import revoke_active_session
+
+    db = database.SessionLocal()
+    revoked = 0
+    try:
+        for session_id, status in results:
+            row = db.query(ActiveSession).filter_by(id=session_id).first()
+            if row is None or row.status == "isolated":
+                continue
+            checked = _aware(row.last_verified_at)
+            if checked is not None and checked >= loaded_at:
+                continue  # another viewer / worker probed it meanwhile
+            was_revoked, _payload = _apply_verify_outcome(
+                db,
+                row,
+                status=status,
+                now=utcnow(),
+                actor=actor,
+                email=row.user_email,
+                ip_address=None,
+                revoke_active_session=revoke_active_session,
+                min_strike_gap=STREAM_STRIKE_GAP,
+            )
+            revoked += int(was_revoked)
+            db.commit()
+        return revoked
+    except Exception:
+        logger.exception("background session probe apply failed")
+        db.rollback()
+        return revoked
+    finally:
+        db.close()
+
+
+async def verify_due_driven_sessions(
+    *, user_email: str | None = None, actor: str = "system:sessions-live"
+) -> int:
+    """Probe driven app sessions not checked for PROBE_MIN_INTERVAL.
+
+    ``user_email`` scopes the probe to one identity (non-admin viewer). DB work
+    runs in a thread; upstream probes run concurrently (bounded). Returns the
+    number of probes performed.
+    """
+    loaded_at = utcnow()
+    due = await asyncio.to_thread(_load_due_probes, user_email, now=loaded_at)
+    if not due:
+        return 0
+    gate = asyncio.Semaphore(_PROBE_CONCURRENCY)
+
+    async def _probe(details: dict[str, Any]) -> VerifyStatus:
+        async with gate:
+            try:
+                return await verify_driven_details(details)
+            except Exception:
+                logger.exception("background session probe failed")
+                return "unknown"
+
+    statuses = await asyncio.gather(*(_probe(details) for _sid, details in due))
+    results = [(sid, status) for (sid, _d), status in zip(due, statuses)]
+    await asyncio.to_thread(_apply_due_probes, results, loaded_at=loaded_at, actor=actor)
+    return len(results)
