@@ -153,7 +153,11 @@ def test_sessions_grouped_by_user(client: TestClient, db_session: Session):
     assert portal["resource_title"] == "Portail SSO"
     assert portal["type_label"] == "Portail OIDC"
     assert portal["auth_family"] == "oidc"
-    assert portal["live_status_label"] == "REGISTRE"
+    # Header-auth test client: no credential store to read, but the touch
+    # itself was an authenticated request a moment ago.
+    assert portal["live_status"] == "online"
+    assert portal["live_status_label"] == "EN LIGNE"
+    assert portal["verification"]["method"] == "traffic"
     assert "last_seen_ago" in portal
     assert "client_ip" in portal
     app = next(s for s in group["sessions"] if s["kind"] == "app")

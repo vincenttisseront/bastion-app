@@ -500,6 +500,12 @@ def dashboard(
     )
 
 
+def _utcnow_iso() -> str:
+    from app.models import utcnow
+
+    return utcnow().isoformat()
+
+
 @authenticated_router.get("/sessions")
 def sessions_page(
     request: Request,
@@ -537,6 +543,7 @@ def sessions_page(
             session_kind=filter_kind or "all",
             session_counts=(view or {}).get("session_counts", {}),
             sessions_unavailable=view is None,
+            sessions_server_time=_utcnow_iso(),
         ),
     )
 
@@ -1165,6 +1172,11 @@ def logout(
     realm_slug = resolve_logout_realm_slug(request, settings, db)
     oidc_actor = revoke_oidc_session_from_request(request, db, settings)
     bg_actor = revoke_breakglass_session_from_request(request, db, settings)
+    from app.web.sessions_service import close_registry_for_logout_request
+
+    close_registry_for_logout_request(
+        request, db, settings, oidc_actor=oidc_actor, bg_actor=bg_actor
+    )
     # Keep _oauth2_proxy for the sign_out hop (IdP end_session needs the session).
     response = RedirectResponse(
         url=oauth2_sign_out_path(realm_slug),

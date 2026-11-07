@@ -1058,6 +1058,11 @@ def oidc_logout(
     realm_slug = resolve_logout_realm_slug(request, settings, db)
     actor = revoke_oidc_session_from_request(request, db, settings)
     bg_actor = revoke_breakglass_session_from_request(request, db, settings)
+    from app.web.sessions_service import close_registry_for_logout_request
+
+    close_registry_for_logout_request(
+        request, db, settings, oidc_actor=actor, bg_actor=bg_actor
+    )
     # API responses cannot chain browser IdP logout; clear oauth2 cookies here
     # and expose the sign_out URL for clients that can navigate.
     clear_browser_auth_cookies(response, settings, include_oauth2=True)
