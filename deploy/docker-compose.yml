@@ -242,7 +242,7 @@ services:
     restart: unless-stopped
 
   acme-companion:
-    image: neilpang/acme.sh:3.1.6@sha256:af6dbefd9d4fe891963528b6f59f82167de0d18251bcd5aaac67adf02863de7a
+    image: neilpang/acme.sh:3.1.6@sha256:94a84ef906c6226720cfb837d8eabe2fe05961937ea38a3fed7a654a65c64265
     container_name: bastion-acme
     env_file:
       - path: ${ACME_ENV_FILE:-.env.acme}
