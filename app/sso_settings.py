@@ -461,6 +461,18 @@ class Settings(BaseSettings):
             "crushftp_upstream_keepalive_seconds",
         ),
     )
+    # Trusted-header SSO — forward a username that looks like an e-mail as
+    # X-Auth-Request-Email / X-Forwarded-Email when the IdP sends no email claim.
+    # Upstreams key accounts on that header and a username is not a verified
+    # address: enable only when usernames are admin-controlled (read-only
+    # LDAP/AD federation, "Edit username" off in Keycloak). Default off.
+    trusted_email_from_username: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "TRUSTED_EMAIL_FROM_USERNAME",
+            "trusted_email_from_username",
+        ),
+    )
     # TCP peers allowed to set X-Real-IP / X-Forwarded-For (nginx-bastion → FastAPI).
     # Do NOT include the public Internet or the DMZ reverse alone — only the hop
     # that terminates TLS toward the app (docker vpcbr / loopback).

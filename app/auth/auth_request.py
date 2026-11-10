@@ -2,6 +2,7 @@
 
 import ipaddress
 import logging
+from collections.abc import Iterable
 from typing import Mapping, Optional
 
 import httpx
@@ -37,15 +38,72 @@ router = APIRouter()
 _AUTH_REQUEST_HEADER_PREFIX = "x-auth-request-"
 
 
+_GROUPS_HEADER = "x-auth-request-groups"
+
+
+def safe_header_value(value: str | None) -> str:
+    """Value safe to emit as an HTTP response header, or ``""`` to omit it.
+
+    Starlette encodes response headers as latin-1 and raises on anything else;
+    control characters are rejected one layer down. Either way the whole
+    auth_request answered 500 and the user was locked out of every vhost.
+    Values that cannot be emitted are dropped, never approximated: an identity
+    must not be mangled into another one.
+    """
+    text = (value or "").strip()
+    if not text or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in text):
+        return ""
+    try:
+        text.encode("latin-1")
+    except UnicodeEncodeError:
+        return ""
+    return text
+
+
+def safe_groups_header(groups: Iterable[str]) -> str:
+    """Comma-joined group names for ``X-Auth-Request-Groups`` / ``X-Auth-Groups``.
+
+    The header is split on commas by every consumer, so a name containing one
+    would be read back as two groups (``x,portal-admins``). Such names, and
+    names that cannot be emitted at all, are dropped — the user keeps the
+    grants of the remaining groups.
+    """
+    kept: list[str] = []
+    for group in groups:
+        name = safe_header_value(group)
+        if name and "," not in name:
+            kept.append(name)
+    return ",".join(kept)
+
+
+def email_from_username_enabled(settings: Settings) -> bool:
+    """True only when ``TRUSTED_EMAIL_FROM_USERNAME`` is explicitly on.
+
+    ``is True`` on purpose: a partial settings object must never switch the
+    username → e-mail fallback on by accident.
+    """
+    return getattr(settings, "trusted_email_from_username", False) is True
+
+
 def _forward_auth_request_headers(upstream_headers: Mapping[str, str]) -> dict[str, str]:
     """Copy X-Auth-Request-* headers for Nginx auth_request_set variables."""
     forwarded: dict[str, str] = {}
     for name, value in upstream_headers.items():
-        if name.lower().startswith(_AUTH_REQUEST_HEADER_PREFIX) and value:
+        lowered = name.lower()
+        if not lowered.startswith(_AUTH_REQUEST_HEADER_PREFIX):
+            continue
+        # oauth2-proxy already joined the groups: filter them one by one so a
+        # single unencodable name does not discard the whole list.
+        safe = (
+            safe_groups_header(value.split(","))
+            if lowered == _GROUPS_HEADER
+            else safe_header_value(value)
+        )
+        if safe:
             # Canonical casing expected by ops docs / oauth2-proxy set_xauthrequest.
             forwarded[
                 "-".join(part.capitalize() for part in name.split("-"))
-            ] = value
+            ] = safe
     return forwarded
 
 
@@ -165,23 +223,30 @@ def _native_oidc_auth_response(
     if claims is None:
         return None
 
+    subject = safe_header_value(claims.sub)
+    realm = safe_header_value(claims.realm)
+    if not subject or not realm:
+        # Fail closed: without a subject there is no identity, and without the
+        # realm the grants would be resolved against the default realm.
+        return None
+
     headers: dict[str, str] = {
-        "X-Auth-Request-User": claims.sub,
+        "X-Auth-Request-User": subject,
+        # Cookie portal_realm_slug was retired — realm lives in bastion_session JWT.
+        "X-Auth-Request-Realm": realm,
     }
-    username = (claims.username or "").strip()
-    email = (claims.email or "").strip()
+    username = safe_header_value(claims.username)
+    email = safe_header_value(claims.email)
+    if not email and email_from_username_enabled(settings) and "@" in username:
+        # Opt-in only: a username is not a verified address (see Settings).
+        email = username
     if username:
         headers["X-Auth-Request-Preferred-Username"] = username
     if email:
         headers["X-Auth-Request-Email"] = email
-    elif username and "@" in username:
-        headers["X-Auth-Request-Email"] = username
-    if claims.groups:
-        headers["X-Auth-Request-Groups"] = ",".join(claims.groups)
-    realm = (claims.realm or "").strip()
-    if realm:
-        # Cookie portal_realm_slug was retired — realm lives in bastion_session JWT.
-        headers["X-Auth-Request-Realm"] = realm
+    groups = safe_groups_header(claims.groups)
+    if groups:
+        headers["X-Auth-Request-Groups"] = groups
     return Response(status_code=200, headers=headers)
 
 

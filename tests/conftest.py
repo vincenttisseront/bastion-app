@@ -114,8 +114,11 @@ def _isolate_fernet_key_store(tmp_path, monkeypatch):
         )
     get_settings.cache_clear()
     from app.request_client_ip import clear_trusted_proxy_cache
+    from app.subdomain.subdomain_auth import reset_deny_audit_throttle
 
     clear_trusted_proxy_cache()
+    # Denied auth_request audit rows are de-duplicated per process window.
+    reset_deny_audit_throttle()
     yield
     reset_active_cache_for_tests()
     reset_breakglass_ephemeral_secret_for_tests()
