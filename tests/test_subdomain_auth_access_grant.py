@@ -1136,3 +1136,178 @@ def test_nginx_auth_snippet_caches_only_on_fastapi_opt_in():
     assert "keys_zone=subdomain_auth:" in main
     assert "/var/cache/nginx/subdomain-auth" in main
     assert "map $request_uri $bastion_auth_cache_skip" in main
+
+
+# --- Auth boundary hardening -------------------------------------------------
+
+
+def _teleport_with_bypass(db_session) -> App:
+    import json
+
+    app = _app(db_session, slug="teleport")
+    app.m2m_bypass_paths = json.dumps(["/webapi/find", "/webapi/host/"])
+    db_session.add(app)
+    db_session.commit()
+    return app
+
+
+@respx.mock
+def test_subdomain_auth_m2m_bypass_refuses_path_traversal(client, db_session):
+    """nginx routes on the normalized URI: a raw ``../`` must not skip SSO."""
+    _override_settings(client, _settings())
+    _realm(db_session)
+    _teleport_with_bypass(db_session)
+    respx.get(OIDC_URL).mock(return_value=Response(401))
+
+    for uri in (
+        "/webapi/host/../../web/",
+        "/webapi/host/%2e%2e/%2e%2e/web/",
+        "/webapi/host/..%2f..%2fweb/",
+        "/webapi/host/..;/web/",
+        "/webapi/host/%252e%252e/web/",
+    ):
+        resp = client.get(
+            "/internal/subdomain-auth",
+            headers={**_auth_headers("teleport.example.com"), "X-Original-URI": uri},
+        )
+        assert resp.status_code == 401, uri
+        assert resp.headers.get("x-auth-source") != "m2m-path-bypass", uri
+
+    # The declared prefix itself still bypasses.
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            **_auth_headers("teleport.example.com"),
+            "X-Original-URI": "/webapi/host/abc/token?x=%2F..",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-source") == "m2m-path-bypass"
+
+
+@respx.mock
+def test_subdomain_auth_denials_are_audited_once_per_window(client, db_session):
+    """Denied subrequests are not cached: no audit row per request."""
+    _override_settings(client, _settings())
+    _realm(db_session)
+    _app(db_session)
+    respx.get(OIDC_URL).mock(return_value=_oidc_ok())
+
+    for _ in range(3):
+        resp = client.get("/internal/subdomain-auth", headers=_auth_headers())
+        assert resp.status_code == 401
+        assert resp.headers.get("x-auth-error") == "access_denied_no_grant"
+
+    rows = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "access_denied_no_grant")
+        .count()
+    )
+    assert rows == 1
+
+
+@respx.mock
+def test_subdomain_auth_survives_non_latin1_identity_from_oauth2_proxy(
+    client, db_session
+):
+    """A group or username outside latin-1 used to answer 500 on every request."""
+    _override_settings(client, _settings())
+    _realm(db_session)
+    app = _app(db_session)
+    _grant_launch(db_session, app)
+    respx.get(OIDC_URL).mock(
+        return_value=Response(
+            202,
+            headers=[
+                (b"X-Auth-Request-User", KC_USER.encode()),
+                (b"X-Auth-Request-Email", b"alice@example.com"),
+                (b"X-Auth-Request-Preferred-Username", "Łukasz".encode()),
+                (b"X-Auth-Request-Groups", "ops,Zespół".encode()),
+            ],
+        )
+    )
+
+    resp = client.get("/internal/subdomain-auth", headers=_auth_headers())
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-source") == "oidc"
+    assert resp.headers.get("x-auth-groups") == "ops"
+    assert resp.headers.get("x-auth-email") == "alice@example.com"
+    assert resp.headers.get("x-auth-preferred-username") == "alice@example.com"
+
+
+@respx.mock
+def test_subdomain_auth_username_upn_is_forwarded_as_email(client, db_session):
+    """Accounts come from the AD: a UPN username stands in for a missing e-mail."""
+    _override_settings(client, _settings())
+    _realm(db_session)
+    app = _app(db_session)
+    _grant_launch(db_session, app)
+    respx.get(OIDC_URL).mock(
+        return_value=Response(
+            202,
+            headers={
+                "X-Auth-Request-User": KC_USER,
+                "X-Auth-Request-Preferred-Username": "alice@corp.example",
+            },
+        )
+    )
+
+    resp = client.get("/internal/subdomain-auth", headers=_auth_headers())
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-email") == "alice@corp.example"
+    assert resp.headers.get("x-auth-request-email") == "alice@corp.example"
+
+
+def _native_token(db_session, **claims) -> str:
+    from app.auth.oidc_bff import issue_oidc_session
+
+    token, _jti = issue_oidc_session(
+        db_session,
+        sub=KC_USER,
+        realm="example-corp",
+        secret=OIDC_SECRET,
+        max_age=3600,
+        **claims,
+    )
+    db_session.commit()
+    return token
+
+
+@respx.mock
+def test_portal_auth_native_session_filters_unsafe_claims(client, db_session):
+    """Native session: unsafe group names dropped, UPN stands in for the e-mail."""
+    realm = _realm(db_session)
+    realm.oidc_native_session_enabled = True
+    db_session.commit()
+    token = _native_token(
+        db_session,
+        username="alice@corp.example",
+        groups=("ops", "Zespół", "x,portal-admins"),
+    )
+    respx.get(OIDC_URL).mock(return_value=Response(401))
+
+    _override_settings(client, _native_settings())
+    resp = client.get("/internal/oauth2-auth", headers={"Cookie": f"{COOKIE}={token}"})
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-request-user") == KC_USER
+    assert resp.headers.get("x-auth-request-realm") == "example-corp"
+    assert resp.headers.get("x-auth-request-groups") == "ops"
+    assert resp.headers.get("x-auth-request-preferred-username") == "alice@corp.example"
+    assert resp.headers.get("x-auth-request-email") == "alice@corp.example"
+
+
+@respx.mock
+def test_portal_auth_native_session_survives_non_latin1_username(client, db_session):
+    realm = _realm(db_session)
+    realm.oidc_native_session_enabled = True
+    db_session.commit()
+    token = _native_token(
+        db_session, username="Łukasz", email="lukasz@example.com", groups=("ops",)
+    )
+    respx.get(OIDC_URL).mock(return_value=Response(401))
+
+    _override_settings(client, _native_settings())
+    resp = client.get("/internal/oauth2-auth", headers={"Cookie": f"{COOKIE}={token}"})
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-request-email") == "lukasz@example.com"
+    assert resp.headers.get("x-auth-request-preferred-username") is None

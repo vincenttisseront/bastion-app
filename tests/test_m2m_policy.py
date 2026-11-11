@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from app.bastion.m2m_policy import (
     authorization_scheme,
+    canonical_request_path,
     m2m_credential_allows,
     m2m_flags_for,
     nginx_location_specs,
@@ -36,6 +39,60 @@ def test_uri_matches_bypass_exact_and_prefix():
     assert uri_matches_bypass("/sonarqube-webhook/", paths)
     assert uri_matches_bypass("/api/ce/submit", paths)
     assert not uri_matches_bypass("/projects", paths)
+
+
+# nginx routes on the normalized URI but FastAPI is handed the raw one: none of
+# these may match a bypass entry, or the SSO gate is skipped for another path.
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "/scripts/../admin",
+        "/scripts/%2e%2e/admin",
+        "/scripts/%2E%2E/admin",
+        "/scripts/.%2e/admin",
+        "/scripts/..%2fmanage/script",
+        "/scripts/%252e%252e/admin",
+        "/scripts/..;/admin",
+        "/scripts/x;jsessionid=1/../admin",
+        "/scripts/..\\admin",
+        "/scripts/%5c..%5cadmin",
+        "/scripts/./x",
+        "/scripts/%00/x",
+        "/scripts/%c0%ae%c0%ae/admin",
+        "/computer/../manage/script?x=1",
+        "scripts/x",
+        "",
+    ],
+)
+def test_uri_matches_bypass_refuses_ambiguous_paths(uri):
+    paths = ["/scripts/", "/computer/", "/webapi/find"]
+    assert canonical_request_path(uri) is None
+    assert not uri_matches_bypass(uri, paths)
+
+
+def test_uri_matches_bypass_refuses_oversized_path():
+    assert not uri_matches_bypass("/scripts/" + "a" * 4096, ["/scripts/"])
+
+
+def test_uri_matches_bypass_keeps_benign_requests():
+    paths = ["/scripts/", "/computer/", "/webapi/find"]
+    assert uri_matches_bypass("/scripts/install.sh", paths)
+    assert uri_matches_bypass("/scripts/", paths)
+    assert uri_matches_bypass("/scripts", paths)
+    assert uri_matches_bypass("//scripts//install.sh", paths)
+    assert uri_matches_bypass("/webapi/find", paths)
+    assert uri_matches_bypass("/webapi/find/", paths)
+    assert not uri_matches_bypass("/webapi/findx", paths)
+    # Harmless percent-encoding in the path, and anything in the query string.
+    assert uri_matches_bypass(
+        "/computer/agent%20one/slave-agent.jnlp?next=%2F..%2Fadmin;x", paths
+    )
+
+
+def test_canonical_request_path_normalizes_slashes_only():
+    assert canonical_request_path("/a//b/?q=1") == "/a/b/"
+    assert canonical_request_path("/") == "/"
+    assert canonical_request_path("/a%20b") == "/a b"
 
 
 def test_m2m_flags_cleared_outside_subdomain_proxy():
