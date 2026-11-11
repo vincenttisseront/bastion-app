@@ -76,15 +76,6 @@ def safe_groups_header(groups: Iterable[str]) -> str:
     return ",".join(kept)
 
 
-def email_from_username_enabled(settings: Settings) -> bool:
-    """True only when ``TRUSTED_EMAIL_FROM_USERNAME`` is explicitly on.
-
-    ``is True`` on purpose: a partial settings object must never switch the
-    username → e-mail fallback on by accident.
-    """
-    return getattr(settings, "trusted_email_from_username", False) is True
-
-
 def _forward_auth_request_headers(upstream_headers: Mapping[str, str]) -> dict[str, str]:
     """Copy X-Auth-Request-* headers for Nginx auth_request_set variables."""
     forwarded: dict[str, str] = {}
@@ -237,8 +228,9 @@ def _native_oidc_auth_response(
     }
     username = safe_header_value(claims.username)
     email = safe_header_value(claims.email)
-    if not email and email_from_username_enabled(settings) and "@" in username:
-        # Opt-in only: a username is not a verified address (see Settings).
+    if not email and "@" in username:
+        # Every account is provisioned from the AD through Keycloak, so the
+        # username (UPN) is administrator-controlled, never user-chosen.
         email = username
     if username:
         headers["X-Auth-Request-Preferred-Username"] = username

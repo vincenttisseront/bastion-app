@@ -15,7 +15,6 @@ from starlette.responses import Response
 
 from app.auth.auth_request import (
     _forward_auth_request_headers,
-    email_from_username_enabled,
     safe_groups_header,
     safe_header_value,
 )
@@ -65,21 +64,6 @@ def test_forward_auth_request_headers_survives_utf8_from_oauth2_proxy():
         "X-Auth-Request-Groups": "ops,admins",
     }
     Response(status_code=202, headers=forwarded)  # must not raise
-
-
-def test_email_from_username_is_opt_in():
-    base = {
-        "vault_portal_internal_token": "test-secret",
-        "portal_secret_encryption_key": "test-encryption-key-for-pytest-only",
-        "database_url": "sqlite://",
-    }
-    assert email_from_username_enabled(Settings(**base)) is False
-    assert (
-        email_from_username_enabled(Settings(**base, trusted_email_from_username=True))
-        is True
-    )
-    # A partial / mocked settings object must never enable the fallback.
-    assert email_from_username_enabled(object()) is False  # type: ignore[arg-type]
 
 
 def _request(headers: dict[str, bytes]) -> Request:

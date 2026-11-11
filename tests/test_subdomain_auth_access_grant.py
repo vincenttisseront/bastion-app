@@ -1236,10 +1236,9 @@ def test_subdomain_auth_survives_non_latin1_identity_from_oauth2_proxy(
 
 
 @respx.mock
-def test_subdomain_auth_username_is_not_forwarded_as_email_by_default(
-    client, db_session
-):
-    """Upstreams key accounts on the e-mail header: a username is not one."""
+def test_subdomain_auth_username_upn_is_forwarded_as_email(client, db_session):
+    """Accounts come from the AD: a UPN username stands in for a missing e-mail."""
+    _override_settings(client, _settings())
     _realm(db_session)
     app = _app(db_session)
     _grant_launch(db_session, app)
@@ -1248,24 +1247,15 @@ def test_subdomain_auth_username_is_not_forwarded_as_email_by_default(
             202,
             headers={
                 "X-Auth-Request-User": KC_USER,
-                "X-Auth-Request-Preferred-Username": "admin@example.com",
+                "X-Auth-Request-Preferred-Username": "alice@corp.example",
             },
         )
     )
 
-    _override_settings(client, _settings())
     resp = client.get("/internal/subdomain-auth", headers=_auth_headers())
     assert resp.status_code == 200
-    assert resp.headers.get("x-auth-email") is None
-    assert resp.headers.get("x-auth-request-email") is None
-    assert resp.headers.get("x-auth-preferred-username") == "admin@example.com"
-
-    opted_in = _settings().model_copy(update={"trusted_email_from_username": True})
-    _override_settings(client, opted_in)
-    resp = client.get("/internal/subdomain-auth", headers=_auth_headers())
-    assert resp.status_code == 200
-    assert resp.headers.get("x-auth-email") == "admin@example.com"
-    assert resp.headers.get("x-auth-request-email") == "admin@example.com"
+    assert resp.headers.get("x-auth-email") == "alice@corp.example"
+    assert resp.headers.get("x-auth-request-email") == "alice@corp.example"
 
 
 def _native_token(db_session, **claims) -> str:
@@ -1285,13 +1275,13 @@ def _native_token(db_session, **claims) -> str:
 
 @respx.mock
 def test_portal_auth_native_session_filters_unsafe_claims(client, db_session):
-    """Native session: unsafe groups dropped, username never used as e-mail."""
+    """Native session: unsafe group names dropped, UPN stands in for the e-mail."""
     realm = _realm(db_session)
     realm.oidc_native_session_enabled = True
     db_session.commit()
     token = _native_token(
         db_session,
-        username="admin@example.com",
+        username="alice@corp.example",
         groups=("ops", "Zespół", "x,portal-admins"),
     )
     respx.get(OIDC_URL).mock(return_value=Response(401))
@@ -1302,16 +1292,8 @@ def test_portal_auth_native_session_filters_unsafe_claims(client, db_session):
     assert resp.headers.get("x-auth-request-user") == KC_USER
     assert resp.headers.get("x-auth-request-realm") == "example-corp"
     assert resp.headers.get("x-auth-request-groups") == "ops"
-    assert resp.headers.get("x-auth-request-preferred-username") == "admin@example.com"
-    assert resp.headers.get("x-auth-request-email") is None
-
-    opted_in = _native_settings().model_copy(
-        update={"trusted_email_from_username": True}
-    )
-    _override_settings(client, opted_in)
-    resp = client.get("/internal/oauth2-auth", headers={"Cookie": f"{COOKIE}={token}"})
-    assert resp.status_code == 200
-    assert resp.headers.get("x-auth-request-email") == "admin@example.com"
+    assert resp.headers.get("x-auth-request-preferred-username") == "alice@corp.example"
+    assert resp.headers.get("x-auth-request-email") == "alice@corp.example"
 
 
 @respx.mock

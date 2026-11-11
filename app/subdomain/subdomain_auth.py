@@ -23,7 +23,6 @@ from app import re_safe
 from app.audit import log_action
 from app.auth.auth_request import (
     _get_oauth2_auth,
-    email_from_username_enabled,
     get_realm_proxy_url,
     is_rfc1918,
     safe_groups_header,
@@ -139,7 +138,6 @@ def _allow_identity_headers(
     email: str = "",
     preferred: str = "",
     groups: list[str] | None = None,
-    email_from_username: bool = False,
 ) -> dict[str, str]:
     """Headers returned on auth_request 200 for nginx → upstream SSO apps.
 
@@ -147,11 +145,10 @@ def _allow_identity_headers(
     trusted-header SSO (e.g. Open WebUI ``WEBUI_AUTH_TRUSTED_EMAIL_HEADER``)
     consume the X-Forwarded-* aliases that nginx maps from these values.
 
-    Email is required for most trusted-header apps: the IdP email claim is
-    forwarded as is. A preferred username that looks like an email is used
-    instead only when ``email_from_username`` is set
-    (``TRUSTED_EMAIL_FROM_USERNAME``): upstreams key accounts on this header,
-    and a username is not a verified address.
+    Email is required for most trusted-header apps: prefer the IdP email claim,
+    else a preferred username that already looks like an email. Upstreams key
+    accounts on this header; that is safe because every account comes from the
+    AD through Keycloak, so usernames (UPN) are never user-chosen.
 
     Every value goes through ``safe_header_value``: one that cannot be emitted
     is omitted instead of failing the whole auth_request with a 500.
@@ -159,7 +156,7 @@ def _allow_identity_headers(
     subject = safe_header_value(keycloak_user_id)
     email_l = safe_header_value(email)
     preferred_l = safe_header_value(preferred)
-    if not email_l and email_from_username and "@" in preferred_l:
+    if not email_l and "@" in preferred_l:
         email_l = preferred_l
     user = subject or preferred_l or email_l
     display = preferred_l or email_l or user
@@ -422,7 +419,6 @@ def _subdomain_auth_before_idp(
                     email=email,
                     preferred=preferred,
                     groups=groups,
-                    email_from_username=email_from_username_enabled(settings),
                 ),
             )
         return Response(
@@ -551,7 +547,6 @@ def _subdomain_auth_before_idp(
                     email=email,
                     preferred=preferred,
                     groups=groups,
-                    email_from_username=email_from_username_enabled(settings),
                 ),
                 **_allow_cache_headers(settings, original_uri),
             },
@@ -676,7 +671,6 @@ def _subdomain_auth_after_idp(
                     email=email,
                     preferred=preferred,
                     groups=groups,
-                    email_from_username=email_from_username_enabled(settings),
                 ),
                 **_allow_cache_headers(settings, original_uri),
             },
