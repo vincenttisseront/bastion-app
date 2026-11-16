@@ -8,12 +8,16 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import unquote
 
 from app import re_safe
 from app.access_modes import normalize_access_mode
 
 MAX_BYPASS_PATHS = 32
 MAX_PATH_LEN = 256
+# Longest raw request path considered for a bypass match (nginx caps the
+# request line well below this; anything longer simply requires SSO).
+MAX_REQUEST_PATH_LEN = 2048
 
 # Characters that would turn a path into an nginx regex / injection hazard.
 _FORBIDDEN_PATH_CHARS = re_safe.compile(r"[*?\[\]{}()\\<>\s\"'`|;$]")
@@ -159,9 +163,48 @@ def _entry_matches_bypass(req: str, raw: str, entry: str) -> bool:
     return req == exact
 
 
+def canonical_request_path(uri: str | None) -> str | None:
+    """Path of a raw ``$request_uri`` when it is unambiguous, else None.
+
+    nginx selects the location on the *normalized* URI but hands FastAPI the
+    raw one (``X-Original-URI $request_uri``), and the upstream receives the raw
+    form too. A prefix test on the raw string therefore let
+    ``/scripts/../admin`` (or ``%2e%2e``, ``..%2f``, ``..;/``) match a bypass
+    entry while nginx and the upstream resolved it elsewhere. Anything either
+    side may interpret differently is refused here, so the request falls
+    through to SSO: dot segments, encoded separators, double encoding, path
+    parameters, backslashes, control characters, invalid UTF-8.
+    """
+    raw = (uri or "").split("?", 1)[0]
+    if not raw.startswith("/") or len(raw) > MAX_REQUEST_PATH_LEN:
+        return None
+    try:
+        decoded = unquote(raw, errors="strict")
+    except UnicodeDecodeError:
+        return None
+    # A "%" left after one decoding pass is a literal percent or a second
+    # encoding layer; neither can be compared safely.
+    if "%" in decoded or ";" in decoded or "\\" in decoded:
+        return None
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in decoded):
+        return None
+    segments = decoded.split("/")
+    if any(segment in (".", "..") for segment in segments):
+        return None
+    path = "/" + "/".join(segment for segment in segments if segment)
+    if decoded.endswith("/") and path != "/":
+        path += "/"
+    return path
+
+
 def uri_matches_bypass(uri: str, paths: list[str]) -> bool:
-    """True when request path equals an exact entry or sits under a prefix entry."""
-    raw = path_only(uri)
+    """True when request path equals an exact entry or sits under a prefix entry.
+
+    Ambiguous request paths never match (see :func:`canonical_request_path`).
+    """
+    raw = canonical_request_path(uri)
+    if raw is None:
+        return False
     req = raw.rstrip("/") or "/"
     return any(_entry_matches_bypass(req, raw, entry) for entry in paths)
 
