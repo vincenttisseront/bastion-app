@@ -19,7 +19,7 @@ from app.admin.export import (
     generate_oauth2_proxy_config,
 )
 from app.models import RealmConfig
-from app.rbac.keycloak_admin import _admin_get, _issuer_parts
+from app.rbac.keycloak_admin import _admin_failure, _admin_get, _issuer_parts
 from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -162,7 +162,7 @@ async def fetch_realm_session_timeouts(
             "(realm-management:view-realm ou realm-admin requis)."
         )
     if resp.status_code >= 400:
-        raise ValueError(f"Échec lecture realm Keycloak (HTTP {resp.status_code})")
+        raise _admin_failure("Échec lecture realm Keycloak", resp)
     data = resp.json()
     if not isinstance(data, dict):
         raise ValueError("Réponse realm Keycloak invalide")

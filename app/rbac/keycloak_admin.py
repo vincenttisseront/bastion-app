@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import logging
 import time
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import httpx
 from sqlalchemy.orm import Session
@@ -83,15 +85,62 @@ SSO_LOGOUT_RESIDUAL_NOTE = (
 )
 
 
-def _read_failure(label: str, status: int) -> ValueError:
-    """Error for a failed Admin API read, with a hint when Keycloak says 401."""
-    if status == 401:
-        return ValueError(
-            f"{label} (HTTP 401) : Keycloak a refusé le token du compte de service "
-            "(même après renouvellement). Vérifiez l'URL issuer du realm (hostname "
-            "public de Keycloak), l'horloge des serveurs et le secret du compte."
+# Keycloak 26.8.2+ rejects (401) Admin REST API tokens that lack this built-in
+# client scope. The upgrade assigns it to admin-cli / security-admin-console
+# only: custom service-account clients (sync, provisioning) need it by hand.
+KC_ADMIN_API_SCOPE = "kc-admin-api"
+
+
+def _unverified_claims(token: str | None) -> dict:
+    """JWT payload decoded WITHOUT signature check: error messages only."""
+    try:
+        segment = (token or "").split(".")[1]
+        data = json.loads(base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)))
+    except (IndexError, ValueError):  # binascii / unicode / JSON errors are ValueError
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _admin_401_hint(token: str | None, called_url: str | None) -> str:
+    """Explain a 401 from the Admin API using what the rejected token says."""
+    claims = _unverified_claims(token)
+    client = str(claims.get("azp") or "").strip()
+    who = f"du client « {client} »" if client else "du compte de service"
+    if claims and KC_ADMIN_API_SCOPE not in str(claims.get("scope") or "").split():
+        return (
+            f"le token {who} ne porte pas le client scope « {KC_ADMIN_API_SCOPE} » : "
+            "depuis Keycloak 26.8.2, l'Admin REST API refuse un tel token. Dans "
+            f"Keycloak, ajoutez « {KC_ADMIN_API_SCOPE} » aux client scopes par défaut "
+            "(Default) de ce client, puis rechargez : le bastion renouvelle le token "
+            "de lui-même."
         )
-    return ValueError(f"{label} (HTTP {status})")
+    hint = (
+        f"Keycloak a refusé le token {who} (même après renouvellement). "
+        "Vérifiez l'URL issuer du realm (hostname public de Keycloak), les "
+        "révocations (not-before) du realm et, sur Keycloak 26.8.2 ou plus, le "
+        f"client scope « {KC_ADMIN_API_SCOPE} » du client. Les journaux Keycloak "
+        "donnent la cause exacte."
+    )
+    base, sep, rest = (called_url or "").partition("/admin/realms/")
+    issuer = str(claims.get("iss") or "").rstrip("/")
+    if sep and issuer:
+        expected = f"{base}/realms/{unquote(rest.split('/', 1)[0].split('?', 1)[0])}"
+        if issuer != expected:
+            hint += f" Issuer du token : {issuer} ; realm appelé : {expected}."
+    return hint
+
+
+def _admin_failure(label: str, resp: httpx.Response) -> ValueError:
+    """Error for a failed Admin API call; a 401 says why Keycloak refused it."""
+    if resp.status_code != 401:
+        return ValueError(f"{label} (HTTP {resp.status_code})")
+    try:
+        request = resp.request
+    except RuntimeError:  # response built without a request (stubs)
+        return ValueError(f"{label} (HTTP 401) : {_admin_401_hint(None, None)}")
+    scheme, _, bearer = request.headers.get("Authorization", "").partition(" ")
+    token = bearer.strip() if scheme.lower() == "bearer" else None
+    return ValueError(f"{label} (HTTP 401) : {_admin_401_hint(token, str(request.url))}")
 
 
 def _evict_cached_token(token: str) -> None:
@@ -234,9 +283,7 @@ async def logout_keycloak_user(
     if resp.status_code == 404:
         raise ValueError("Utilisateur Keycloak introuvable pour le logout SSO")
     if resp.status_code >= 400:
-        raise ValueError(
-            f"Échec logout Keycloak Admin API (HTTP {resp.status_code})"
-        )
+        raise _admin_failure("Échec logout Keycloak Admin API", resp)
     return {
         "ok": True,
         "keycloak_user_id": uid,
@@ -258,7 +305,7 @@ async def list_keycloak_user_sessions(
     if resp.status_code == 404:
         return []
     if resp.status_code >= 400:
-        raise _read_failure("Échec lecture sessions utilisateur", resp.status_code)
+        raise _admin_failure("Échec lecture sessions utilisateur", resp)
     data = resp.json()
     return data if isinstance(data, list) else []
 
@@ -281,7 +328,7 @@ async def delete_keycloak_session(
     if resp.status_code == 404:
         return
     if resp.status_code >= 400:
-        raise ValueError(f"Échec révocation session Keycloak (HTTP {resp.status_code})")
+        raise _admin_failure("Échec révocation session Keycloak", resp)
 
 
 async def find_keycloak_user_by_identity(
@@ -353,7 +400,7 @@ async def fetch_group_members(
     if resp.status_code == 403:
         raise ValueError(_view_users_error())
     if resp.status_code >= 400:
-        raise _read_failure("Échec lecture membres du groupe", resp.status_code)
+        raise _admin_failure("Échec lecture membres du groupe", resp)
     data = resp.json()
     return data if isinstance(data, list) else []
 
@@ -378,7 +425,7 @@ async def count_keycloak_users(
     if resp.status_code == 403:
         raise ValueError(_view_users_error())
     if resp.status_code >= 400:
-        raise _read_failure("Échec comptage utilisateurs", resp.status_code)
+        raise _admin_failure("Échec comptage utilisateurs", resp)
     try:
         return int(resp.json())
     except (TypeError, ValueError) as exc:
@@ -399,7 +446,7 @@ async def search_keycloak_users(
     if resp.status_code == 403:
         raise ValueError(_view_users_error())
     if resp.status_code >= 400:
-        raise _read_failure("Échec recherche utilisateurs", resp.status_code)
+        raise _admin_failure("Échec recherche utilisateurs", resp)
     data = resp.json()
     return data if isinstance(data, list) else []
 
@@ -508,9 +555,7 @@ async def find_keycloak_user_exact(
         if resp.status_code == 403:
             raise ValueError(_view_users_error())
         if resp.status_code >= 400:
-            raise ValueError(
-                f"Échec vérification de doublon (HTTP {resp.status_code})"
-            )
+            raise _admin_failure("Échec vérification de doublon", resp)
         data = resp.json()
         if isinstance(data, list) and data:
             return data[0]
@@ -577,9 +622,7 @@ async def create_keycloak_user(
     if resp.status_code == 403:
         raise ValueError(_provision_manage_users_error())
     if resp.status_code >= 400:
-        raise ValueError(
-            f"Échec création utilisateur Keycloak (HTTP {resp.status_code})"
-        )
+        raise _admin_failure("Échec création utilisateur Keycloak", resp)
 
     location = resp.headers.get("location", "")
     user_id = location.rstrip("/").rsplit("/", 1)[-1] if location else ""
@@ -626,7 +669,7 @@ async def update_keycloak_user(
         if resp.status_code == 404:
             raise ValueError(_MSG_KC_USER_NOT_FOUND)
         if resp.status_code >= 400:
-            raise _read_failure("Échec lecture utilisateur Keycloak", resp.status_code)
+            raise _admin_failure("Échec lecture utilisateur Keycloak", resp)
         current = resp.json() if resp.content else {}
     if not isinstance(current, dict):
         raise ValueError("Réponse Keycloak utilisateur invalide")
@@ -669,7 +712,7 @@ async def update_keycloak_user(
     if resp.status_code == 409:
         raise ValueError("Conflit Keycloak (email déjà utilisé)")
     if resp.status_code >= 400:
-        raise ValueError(f"Échec mise à jour Keycloak (HTTP {resp.status_code})")
+        raise _admin_failure("Échec mise à jour Keycloak", resp)
 
 
 async def reset_keycloak_password(
@@ -723,9 +766,7 @@ async def reset_keycloak_password(
     if resp.status_code == 404:
         raise ValueError(_MSG_KC_USER_NOT_FOUND)
     if resp.status_code >= 400:
-        raise ValueError(
-            f"Échec reset mot de passe Keycloak (HTTP {resp.status_code})"
-        )
+        raise _admin_failure("Échec reset mot de passe Keycloak", resp)
 
 
 async def delete_keycloak_user(
@@ -751,9 +792,7 @@ async def delete_keycloak_user(
     if resp.status_code == 403:
         raise ValueError(_provision_manage_users_error())
     if resp.status_code >= 400:
-        raise ValueError(
-            f"Échec suppression utilisateur Keycloak (HTTP {resp.status_code})"
-        )
+        raise _admin_failure("Échec suppression utilisateur Keycloak", resp)
     return True
 
 
@@ -778,9 +817,7 @@ async def add_user_to_keycloak_group(
     if resp.status_code == 404:
         raise ValueError("Utilisateur ou groupe Keycloak introuvable pour l'assignation")
     if resp.status_code >= 400:
-        raise ValueError(
-            f"Échec ajout au groupe Keycloak (HTTP {resp.status_code})"
-        )
+        raise _admin_failure("Échec ajout au groupe Keycloak", resp)
 
 
 async def remove_user_from_keycloak_group(
@@ -805,9 +842,7 @@ async def remove_user_from_keycloak_group(
     if resp.status_code == 403:
         raise ValueError(_provision_manage_users_error())
     if resp.status_code >= 400:
-        raise ValueError(
-            f"Échec retrait du groupe Keycloak (HTTP {resp.status_code})"
-        )
+        raise _admin_failure("Échec retrait du groupe Keycloak", resp)
 
 
 async def delete_keycloak_group(
@@ -832,9 +867,7 @@ async def delete_keycloak_group(
     if resp.status_code == 403:
         raise ValueError(_provision_manage_users_error())
     if resp.status_code >= 400:
-        raise ValueError(
-            f"Échec suppression groupe Keycloak (HTTP {resp.status_code})"
-        )
+        raise _admin_failure("Échec suppression groupe Keycloak", resp)
     return True
 
 
@@ -870,7 +903,7 @@ async def create_keycloak_group(
             return str(again["id"])
         raise ValueError(f"Groupe Keycloak « {name} » en conflit (409) sans id résolu")
     if resp.status_code >= 400:
-        raise ValueError(f"Échec création groupe Keycloak (HTTP {resp.status_code})")
+        raise _admin_failure("Échec création groupe Keycloak", resp)
     return await _resolve_created_group_id(realm, settings, name=name, resp=resp, token=token)
 
 
@@ -959,7 +992,7 @@ async def fetch_user_groups(
     if resp.status_code == 403:
         raise ValueError(_view_users_error())
     if resp.status_code >= 400:
-        raise _read_failure("Échec lecture groupes utilisateur", resp.status_code)
+        raise _admin_failure("Échec lecture groupes utilisateur", resp)
     data = resp.json()
     return data if isinstance(data, list) else []
 
@@ -973,7 +1006,7 @@ async def fetch_keycloak_user(
     if resp.status_code == 403:
         raise ValueError(_view_users_error())
     if resp.status_code >= 400:
-        raise _read_failure("Échec lecture utilisateur", resp.status_code)
+        raise _admin_failure("Échec lecture utilisateur", resp)
     return resp.json()
 
 
@@ -1172,6 +1205,13 @@ async def _fetch_keycloak_groups_with_token(
         status, roots = await _paginate_group_collection(client, groups_base, headers)
         if status == 403:
             raise ValueError(_MSG_QUERY_GROUPS)
+        if status == 401:
+            # Next sync mints a fresh token instead of reusing the rejected one.
+            _evict_cached_token(token)
+            raise ValueError(
+                "Échec lecture groupes Keycloak (HTTP 401) : "
+                f"{_admin_401_hint(token, groups_base)}"
+            )
         if status >= 400:
             raise ValueError(f"Échec lecture groupes Keycloak (HTTP {status})")
         return await _hydrate_group_tree(client, groups_base, headers, roots)
