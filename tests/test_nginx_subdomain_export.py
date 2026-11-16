@@ -387,6 +387,26 @@ def test_allow_identity_headers_email_fallback_from_preferred():
     assert "ops" in headers["X-Auth-Groups"]
 
 
+def test_allow_identity_headers_drops_values_that_cannot_be_emitted():
+    """Non latin-1 / comma group names must not fail the auth_request (500)."""
+    from starlette.responses import Response
+
+    from app.subdomain.subdomain_auth import _allow_identity_headers
+
+    headers = _allow_identity_headers(
+        app_slug="open-webui",
+        auth_source="oidc",
+        keycloak_user_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        email="alice@example.com",
+        preferred="Łukasz",
+        groups=["ops", "Zespół", "x,portal-admins", "Équipe"],
+    )
+    assert headers["X-Auth-Groups"] == "ops,Équipe"
+    assert headers["X-Auth-Preferred-Username"] == "alice@example.com"
+    assert headers["X-Auth-Display-Name"] == "alice@example.com"
+    Response(status_code=200, headers=headers)  # must not raise
+
+
 def test_generate_conf_and_inventory(db_session, tmp_path):
     db_session.add(
         App(

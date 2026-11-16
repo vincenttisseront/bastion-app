@@ -56,9 +56,13 @@ def require_nginx_internal_token(
     expected = (settings.vault_portal_internal_token or "").strip()
     if not expected:
         raise HTTPException(status_code=503, detail="Internal token not configured")
-    if credentials is not None and credentials.credentials == expected:
+    # Constant-time, on bytes: compare_digest refuses non-ASCII str operands.
+    expected_bytes = expected.encode()
+    if credentials is not None and secrets.compare_digest(
+        credentials.credentials.encode(), expected_bytes
+    ):
         return expected
     header = (request.headers.get("x-portal-internal-token") or "").strip()
-    if header == expected:
+    if header and secrets.compare_digest(header.encode(), expected_bytes):
         return expected
     raise HTTPException(status_code=403, detail="Invalid internal token")
