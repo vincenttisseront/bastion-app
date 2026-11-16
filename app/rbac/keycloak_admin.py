@@ -83,6 +83,17 @@ SSO_LOGOUT_RESIDUAL_NOTE = (
 )
 
 
+def _read_failure(label: str, status: int) -> ValueError:
+    """Error for a failed Admin API read, with a hint when Keycloak says 401."""
+    if status == 401:
+        return ValueError(
+            f"{label} (HTTP 401) : Keycloak a refusé le token du compte de service "
+            "(même après renouvellement). Vérifiez l'URL issuer du realm (hostname "
+            "public de Keycloak), l'horloge des serveurs et le secret du compte."
+        )
+    return ValueError(f"{label} (HTTP {status})")
+
+
 def _evict_cached_token(token: str) -> None:
     """Drop a service-account token Keycloak just rejected (HTTP 401).
 
@@ -247,7 +258,7 @@ async def list_keycloak_user_sessions(
     if resp.status_code == 404:
         return []
     if resp.status_code >= 400:
-        raise ValueError(f"Échec lecture sessions utilisateur (HTTP {resp.status_code})")
+        raise _read_failure("Échec lecture sessions utilisateur", resp.status_code)
     data = resp.json()
     return data if isinstance(data, list) else []
 
@@ -342,7 +353,7 @@ async def fetch_group_members(
     if resp.status_code == 403:
         raise ValueError(_view_users_error())
     if resp.status_code >= 400:
-        raise ValueError(f"Échec lecture membres du groupe (HTTP {resp.status_code})")
+        raise _read_failure("Échec lecture membres du groupe", resp.status_code)
     data = resp.json()
     return data if isinstance(data, list) else []
 
@@ -367,7 +378,7 @@ async def count_keycloak_users(
     if resp.status_code == 403:
         raise ValueError(_view_users_error())
     if resp.status_code >= 400:
-        raise ValueError(f"Échec comptage utilisateurs (HTTP {resp.status_code})")
+        raise _read_failure("Échec comptage utilisateurs", resp.status_code)
     try:
         return int(resp.json())
     except (TypeError, ValueError) as exc:
@@ -388,7 +399,7 @@ async def search_keycloak_users(
     if resp.status_code == 403:
         raise ValueError(_view_users_error())
     if resp.status_code >= 400:
-        raise ValueError(f"Échec recherche utilisateurs (HTTP {resp.status_code})")
+        raise _read_failure("Échec recherche utilisateurs", resp.status_code)
     data = resp.json()
     return data if isinstance(data, list) else []
 
@@ -615,7 +626,7 @@ async def update_keycloak_user(
         if resp.status_code == 404:
             raise ValueError(_MSG_KC_USER_NOT_FOUND)
         if resp.status_code >= 400:
-            raise ValueError(f"Échec lecture utilisateur Keycloak (HTTP {resp.status_code})")
+            raise _read_failure("Échec lecture utilisateur Keycloak", resp.status_code)
         current = resp.json() if resp.content else {}
     if not isinstance(current, dict):
         raise ValueError("Réponse Keycloak utilisateur invalide")
@@ -948,7 +959,7 @@ async def fetch_user_groups(
     if resp.status_code == 403:
         raise ValueError(_view_users_error())
     if resp.status_code >= 400:
-        raise ValueError(f"Échec lecture groupes utilisateur (HTTP {resp.status_code})")
+        raise _read_failure("Échec lecture groupes utilisateur", resp.status_code)
     data = resp.json()
     return data if isinstance(data, list) else []
 
@@ -962,7 +973,7 @@ async def fetch_keycloak_user(
     if resp.status_code == 403:
         raise ValueError(_view_users_error())
     if resp.status_code >= 400:
-        raise ValueError(f"Échec lecture utilisateur (HTTP {resp.status_code})")
+        raise _read_failure("Échec lecture utilisateur", resp.status_code)
     return resp.json()
 
 
