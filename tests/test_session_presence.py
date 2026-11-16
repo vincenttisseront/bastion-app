@@ -54,8 +54,9 @@ def test_touch_app_presence_creates_presence_only_row(db_session: Session):
 
     payload = _row_to_dict(row)
     assert payload["presence_only"] is True
-    assert payload["live_status"] == "presence"
-    assert payload["live_status_label"] == "ACTIVITÉ SSO"
+    assert payload["live_status"] == "online"
+    assert payload["live_status_label"] == "EN LIGNE"
+    assert payload["verification"]["method"] == "sso_grant"
 
 
 def test_touch_app_presence_throttles_within_window(db_session: Session):

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
+import time
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
@@ -19,7 +21,13 @@ from starlette.concurrency import run_in_threadpool
 
 from app import re_safe
 from app.audit import log_action
-from app.auth.auth_request import get_realm_proxy_url, is_rfc1918
+from app.auth.auth_request import (
+    _get_oauth2_auth,
+    get_realm_proxy_url,
+    is_rfc1918,
+    safe_groups_header,
+    safe_header_value,
+)
 from app.bastion.m2m_policy import app_uri_is_m2m_bypass, m2m_credential_allows
 from app.auth.breakglass import (
     COOKIE_NAME,
@@ -138,14 +146,20 @@ def _allow_identity_headers(
     consume the X-Forwarded-* aliases that nginx maps from these values.
 
     Email is required for most trusted-header apps: prefer the IdP email claim,
-    else a preferred username that already looks like an email.
+    else a preferred username that already looks like an email. Upstreams key
+    accounts on this header; that is safe because every account comes from the
+    AD through Keycloak, so usernames (UPN) are never user-chosen.
+
+    Every value goes through ``safe_header_value``: one that cannot be emitted
+    is omitted instead of failing the whole auth_request with a 500.
     """
-    email_l = (email or "").strip()
-    preferred_l = (preferred or "").strip()
+    subject = safe_header_value(keycloak_user_id)
+    email_l = safe_header_value(email)
+    preferred_l = safe_header_value(preferred)
     if not email_l and "@" in preferred_l:
         email_l = preferred_l
-    user = keycloak_user_id or preferred_l or email_l
-    display = preferred_l or email_l or keycloak_user_id or user
+    user = subject or preferred_l or email_l
+    display = preferred_l or email_l or user
     headers: dict[str, str] = {
         "X-Auth-Source": auth_source,
         "X-Auth-User": user,
@@ -160,9 +174,24 @@ def _allow_identity_headers(
         headers["X-Auth-Preferred-Username"] = preferred_l or email_l
     if display:
         headers["X-Auth-Display-Name"] = display
-    if groups:
-        headers["X-Auth-Groups"] = ",".join(groups)
+    groups_value = safe_groups_header(groups or [])
+    if groups_value:
+        headers["X-Auth-Groups"] = groups_value
     return headers
+
+
+def _allow_cache_headers(settings: Settings, uri: str) -> dict[str, str]:
+    """Let bastion-nginx reuse this ALLOW for a few seconds (proxy_cache).
+
+    Only for a fully authenticated decision (SSO session + AccessGrant + app
+    session cookie). nginx keys the entry on vhost + client IP + exact Cookie
+    jar, so only the same session can hit it; nothing is cached without this
+    header. The CrushFTP login bounce stays uncached (diagnostic log below).
+    """
+    ttl = int(getattr(settings, "subdomain_auth_cache_seconds", 0) or 0)
+    if ttl <= 0 or (uri or "").startswith(_CRUSHFTP_LOGIN_URI):
+        return {}
+    return {"X-Accel-Expires": str(ttl)}
 
 
 def _deny_no_app_session(app: App) -> Response:
@@ -183,6 +212,42 @@ def _require_app_session_cookie(app: App | None, cookie_header: str) -> Response
     return _deny_no_app_session(app)
 
 
+# Denied auth subrequests are not cached by nginx and a single page load fires
+# dozens of them: one audit row (INSERT + COMMIT + SIEM forward) per request
+# let an anonymous or unauthorized client grow the audit trail without bound.
+# Keep one row per (actor, target, reason) per window — the signal survives,
+# the flood does not.
+_DENY_AUDIT_TTL_SECONDS = 60.0
+_DENY_AUDIT_MAX_KEYS = 4096
+_deny_audit_seen: dict[tuple[str, str, str], float] = {}
+_deny_audit_lock = threading.Lock()
+
+
+def _should_audit_deny(actor: str, target: str, reason: str) -> bool:
+    """True the first time this denial is seen within the window (thread-safe)."""
+    now = time.monotonic()
+    key = (actor, target, reason)
+    with _deny_audit_lock:
+        last = _deny_audit_seen.get(key)
+        if last is not None and now - last < _DENY_AUDIT_TTL_SECONDS:
+            return False
+        if len(_deny_audit_seen) >= _DENY_AUDIT_MAX_KEYS:
+            cutoff = now - _DENY_AUDIT_TTL_SECONDS
+            for stale in [k for k, seen in _deny_audit_seen.items() if seen < cutoff]:
+                del _deny_audit_seen[stale]
+            if len(_deny_audit_seen) >= _DENY_AUDIT_MAX_KEYS:
+                # Still full of live keys: start over rather than grow.
+                _deny_audit_seen.clear()
+        _deny_audit_seen[key] = now
+        return True
+
+
+def reset_deny_audit_throttle() -> None:
+    """Tests: forget which denials were already audited."""
+    with _deny_audit_lock:
+        _deny_audit_seen.clear()
+
+
 def _deny_no_grant(
     db: Session,
     *,
@@ -193,20 +258,21 @@ def _deny_no_grant(
     uri: str | None = None,
     host: str | None = None,
 ) -> Response:
-    log_action(
-        db,
-        actor=actor or "unknown",
-        action="access_denied_no_grant",
-        target=app.slug,
-        details={
-            "reason": "access_denied_no_grant",
-            "application_id": app.id,
-            "auth_source": auth_source,
-            "uri": (uri or "/")[:1024],
-            "host": (host or "")[:255] or None,
-        },
-        ip_address=ip_address or None,
-    )
+    if _should_audit_deny(actor or "unknown", app.slug, "access_denied_no_grant"):
+        log_action(
+            db,
+            actor=actor or "unknown",
+            action="access_denied_no_grant",
+            target=app.slug,
+            details={
+                "reason": "access_denied_no_grant",
+                "application_id": app.id,
+                "auth_source": auth_source,
+                "uri": (uri or "/")[:1024],
+                "host": (host or "")[:255] or None,
+            },
+            ip_address=ip_address or None,
+        )
     return Response(
         status_code=401,
         headers={
@@ -223,19 +289,20 @@ def _deny_no_app(
     uri: str | None,
     ip_address: str | None,
 ) -> Response:
-    log_action(
-        db,
-        actor="anonymous",
-        action="access_denied_no_app",
-        target=(host or "")[:255] or None,
-        details={
-            "reason": "no_app_for_host",
-            "uri": (uri or "/")[:1024],
-            "host": (host or "")[:255] or None,
-        },
-        ip_address=ip_address or None,
-    )
     host_hint = (host or "").split(":")[0].strip().lower()[:80] or "-"
+    if _should_audit_deny("anonymous", host_hint, "no_app_for_host"):
+        log_action(
+            db,
+            actor="anonymous",
+            action="access_denied_no_app",
+            target=(host or "")[:255] or None,
+            details={
+                "reason": "no_app_for_host",
+                "uri": (uri or "/")[:1024],
+                "host": (host or "")[:255] or None,
+            },
+            ip_address=ip_address or None,
+        )
     return Response(
         status_code=401,
         headers={"X-Auth-Error": f"no-app-for-host:{host_hint}"},
@@ -472,14 +539,17 @@ def _subdomain_auth_before_idp(
         )
         return Response(
             status_code=200,
-            headers=_allow_identity_headers(
-                app_slug=app_slug,
-                auth_source=auth_source,
-                keycloak_user_id=keycloak_user_id,
-                email=email,
-                preferred=preferred,
-                groups=groups,
-            ),
+            headers={
+                **_allow_identity_headers(
+                    app_slug=app_slug,
+                    auth_source=auth_source,
+                    keycloak_user_id=keycloak_user_id,
+                    email=email,
+                    preferred=preferred,
+                    groups=groups,
+                ),
+                **_allow_cache_headers(settings, original_uri),
+            },
         )
 
     # auth_request is high-concurrency — never hold a pool slot across httpx.
@@ -593,14 +663,17 @@ def _subdomain_auth_after_idp(
         )
         return Response(
             status_code=200,
-            headers=_allow_identity_headers(
-                app_slug=app_slug,
-                auth_source="oidc",
-                keycloak_user_id=keycloak_user_id,
-                email=email,
-                preferred=preferred,
-                groups=groups,
-            ),
+            headers={
+                **_allow_identity_headers(
+                    app_slug=app_slug,
+                    auth_source="oidc",
+                    keycloak_user_id=keycloak_user_id,
+                    email=email,
+                    preferred=preferred,
+                    groups=groups,
+                ),
+                **_allow_cache_headers(settings, original_uri),
+            },
         )
 
     # 3b. Break-glass — emergency admin: allow all apps without AccessGrant.
@@ -713,11 +786,11 @@ async def subdomain_auth(
     oauth2_headers: Mapping[str, str] = {}
     oauth2_unreachable = False
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"{pre.proxy_url}/oauth2/auth",
-                headers={"Cookie": pre.cookie_header},
-            )
+        # Lifespan keep-alive client (same as portal /internal/oauth2-auth) —
+        # not a fresh TCP connection + client per auth_request.
+        resp = await _get_oauth2_auth(
+            request, f"{pre.proxy_url}/oauth2/auth", pre.cookie_header
+        )
         if resp.status_code in (200, 202):
             oauth2_ok = True
             oauth2_headers = resp.headers

@@ -37,7 +37,14 @@ def test_every_edge_proxy_block_overwrites_cf_connecting_ip():
     ``$remote_addr`` on :8080 (allow 10/8 on /breakglass, limit_req, bans).
     """
     text = (ROOT / "docker/nginx/sync-acme-tls.sh").read_text(encoding="utf-8")
-    blocks = text.split("proxy_pass http://127.0.0.1:8080;")[1:]
+    # :443 → :8080 goes through the keepalive pool (still loopback: the hop
+    # peer :8080 sees is 127.0.0.1, trusted below for CF-Connecting-IP).
+    edge = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
+    pool = edge.split("upstream bastion_edge_internal {", 1)[1].split("}", 1)[0]
+    assert [ln.strip() for ln in pool.splitlines() if ln.strip().startswith("server ")] == [
+        "server 127.0.0.1:8080;"
+    ]
+    blocks = text.split("proxy_pass http://bastion_edge_internal;")[1:]
     assert len(blocks) >= 2  # default_server + per-FQDN PROXY_EOF body
     for body in blocks:
         head = body.split("}", 1)[0].split("PROXY_EOF", 1)[0]

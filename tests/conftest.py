@@ -100,6 +100,7 @@ def _isolate_fernet_key_store(tmp_path, monkeypatch):
 
     clear_admin_token_cache()
     monkeypatch.setattr(sessions_service, "_last_satellite_purge", None)
+    sessions_service.reset_live_state_for_tests()
     keys = tmp_path / "vault-keys"
     keys.mkdir()
     monkeypatch.setenv("VAULT_KEYS_DIR", str(keys))
@@ -114,8 +115,11 @@ def _isolate_fernet_key_store(tmp_path, monkeypatch):
         )
     get_settings.cache_clear()
     from app.request_client_ip import clear_trusted_proxy_cache
+    from app.subdomain.subdomain_auth import reset_deny_audit_throttle
 
     clear_trusted_proxy_cache()
+    # Denied auth_request audit rows are de-duplicated per process window.
+    reset_deny_audit_throttle()
     yield
     reset_active_cache_for_tests()
     reset_breakglass_ephemeral_secret_for_tests()

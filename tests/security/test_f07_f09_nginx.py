@@ -106,7 +106,12 @@ def test_acme_tls_sync_forwards_websocket_headers():
     """:443 → :8080 must re-set Upgrade/Connection or Teleport wss breaks."""
     text = (ROOT / "docker/nginx/sync-acme-tls.sh").read_text(encoding="utf-8")
     assert "proxy_set_header Upgrade" in text
-    assert "connection_upgrade" in text
+    # Upgrade still forwarded, but plain requests send no "Connection: close"
+    # so the loopback hop to :8080 is reused (upstream bastion_edge_internal).
+    assert text.count("bastion_upstream_connection;") == 2
+    assert "connection_upgrade;" not in text
+    assert text.count("proxy_pass http://bastion_edge_internal;") == 2
+    assert "proxy_pass http://127.0.0.1:8080;" not in text
     assert "proxy_read_timeout 3600s" in text
     # Large oauth2 Set-Cookie on callback must not become nginx 500
     assert "proxy_buffer_size 128k" in text
@@ -128,6 +133,27 @@ def test_acme_tls_sync_forwards_websocket_headers():
     assert "$portal_client_real_ip" not in text
     main = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
     assert "map $http_upgrade $connection_upgrade" in main
+    assert "map $http_upgrade $bastion_upstream_connection" in main
+    edge = main.split("upstream bastion_edge_internal {", 1)[1].split("}", 1)[0]
+    assert "server 127.0.0.1:8080;" in edge
+    assert "keepalive " in edge
+
+
+def test_acme_tls_http2_on_app_fqdns_not_portal():
+    """h2 multiplexing for app FQDNs; portal keeps HTTP/1.1 (limit_req bursts)."""
+    text = (ROOT / "docker/nginx/sync-acme-tls.sh").read_text(encoding="utf-8")
+    portal_branch = text.split('if [[ "$family" == "portal" ]]; then', 1)[1]
+    portal_part, else_part = portal_branch.split("  else\n", 1)
+    else_part = else_part.split("  fi\n", 1)[0]
+    assert "http2 on;" not in portal_part
+    assert "http2 on;" in else_part
+    # h2 upload window = request body buffer when buffering is off.
+    assert "client_body_buffer_size 1m;" in else_part
+    # Unknown-SNI default server stays HTTP/1.1.
+    default_block = text.split("listen 0.0.0.0:443 ssl default_server;", 1)[1].split("EOF", 1)[0]
+    assert "http2" not in default_block
+    main = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
+    assert "ssl_session_cache   shared:bastion_tls:" in main
 
 
 def test_j2_portal_vhost_internal_handlers():

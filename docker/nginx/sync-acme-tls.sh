@@ -104,12 +104,13 @@ server {
     proxy_buffering off;
 
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://bastion_edge_internal;
         proxy_http_version 1.1;
         # Required: hop-by-hop Upgrade/Connection are dropped unless re-set
         # (Teleport wss://…/connect/ws fails without these).
         proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection \$connection_upgrade;
+        # keepalive-aware map: "" (not close) for plain requests → loopback reuse.
+        proxy_set_header Connection \$bastion_upstream_connection;
         # oauth2-proxy Set-Cookie (id_token+refresh) often exceeds default 4k/8k
         # → nginx 500 "upstream sent too big header" on /oauth2/*/callback.
         proxy_buffer_size 128k;
@@ -221,16 +222,29 @@ EOF
     cat >> "$OUT" <<EOF
     include /etc/nginx/includes/security-headers-portal-csp.conf;
 EOF
+  else
+    # HTTP/2 on app FQDNs: one multiplexed TLS connection instead of the 6-socket
+    # HTTP/1.1 browser cap (CrushFTP new-ui fires dozens of asset/API requests).
+    # Portal stays HTTP/1.1: its limit_req bursts (portal_standard burst=10) are
+    # tuned for HTTP/1.1 pacing — an h2 burst of assets would hit 429.
+    # client_body_buffer_size sizes the h2 per-stream upload window when request
+    # buffering is off (default 64k ⇒ ~2 MB/s at 30 ms RTT); 1m keeps CrushFTP
+    # 1 MiB /U/ chunks at line rate. WebSockets stay on HTTP/1.1 (no RFC 8441).
+    cat >> "$OUT" <<EOF
+    http2 on;
+    client_body_buffer_size 1m;
+EOF
   fi
   # Shared proxy body for :443 → :8080. Quoted heredoc keeps literal $nginx vars;
   # expanding ${_proxy_headers} into unquoted <<EOF writes them unchanged (not re-escaped).
   _proxy_headers=$(cat <<'PROXY_EOF'
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://bastion_edge_internal;
         proxy_http_version 1.1;
         # Required: hop-by-hop Upgrade/Connection are dropped unless re-set
         # (Teleport wss://…/connect/ws fails without these).
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
+        # keepalive-aware map: "" (not close) for plain requests → loopback reuse.
+        proxy_set_header Connection $bastion_upstream_connection;
         # oauth2-proxy Set-Cookie (id_token+refresh) often exceeds default 4k/8k
         # → nginx 500 "upstream sent too big header" on /oauth2/*/callback.
         proxy_buffer_size 128k;
