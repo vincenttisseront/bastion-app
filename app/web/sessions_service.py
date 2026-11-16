@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import logging
+import threading
+import time
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Iterable
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.audit import log_action
 from app.database import get_db
@@ -34,6 +40,7 @@ from app.web.openapi_responses import (
 )
 from app.sso_settings import Settings, get_settings
 from app.user_agent_label import summarize_user_agent
+from app.web import session_liveness as liveness
 from app.web.session_cookie_seal import (
     SEALED_KEY,
     has_session_cookies,
@@ -271,41 +278,6 @@ def _merge_sso_logout_audit_badge(
     for key in _identity_keys_from_audit(entry):
         if key not in out:
             out[key] = badge
-
-
-def _portal_freshness(
-    row: ActiveSession, *, protocol: str
-) -> dict[str, Any]:
-    """
-    Honest declarative freshness for OIDC / BREAKGLASS — not live-verify.
-
-    There is no cheap equivalent of robotic live-verify for oauth2-proxy cookies
-    without impersonating the user browser cookie; we surface age + known TTLs.
-    """
-    started = _aware(row.started_at) or utcnow()
-    age = utcnow() - started
-    if protocol == _PROTOCOL_BREAKGLASS:
-        idle, absolute = BREAKGLASS_IDLE_TTL, BREAKGLASS_ABSOLUTE_TTL
-        policy = (
-            f"idle ≈ {int(idle.total_seconds() // 60)} min · "
-            f"absolu ≈ {int(absolute.total_seconds() // 3600)} h"
-        )
-    else:
-        idle, absolute = OAUTH2_COOKIE_REFRESH, OAUTH2_COOKIE_EXPIRE
-        policy = (
-            f"cookie_refresh ≈ {int(idle.total_seconds() // 3600)} h · "
-            f"cookie_expire ≈ {int(absolute.total_seconds() // 3600)} h"
-        )
-    return {
-        "mode": "declarative",
-        "age_seconds": int(max(0, age.total_seconds())),
-        "age_label": _format_duration(started, utcnow()),
-        "policy_label": policy,
-        "note": (
-            "Statut déclaratif du registre bastion — pas de vérification live "
-            "équivalent à live-verify (apps robotic)."
-        ),
-    }
 
 
 def _format_duration(started_at: datetime, last_seen_at: datetime | None = None) -> str:
@@ -696,6 +668,218 @@ def expire_stale_sessions(db: Session) -> int:
         db.commit()
     _purge_satellite_registries(db, now)
     return deleted
+
+_ENDED_PURGE_INTERVAL = timedelta(seconds=15)
+_last_ended_purge: datetime | None = None
+
+
+def _purge_ended_rows(
+    db: Session, ended: list[ActiveSession], *, verifier: liveness.RegistryVerifier
+) -> int:
+    """Delete rows whose authorising credential is revoked / expired.
+
+    The revocation itself was audited where it happened (logout, admin revoke,
+    expiry): dropping the mirror row is housekeeping, like the TTL purge.
+    """
+    if not ended:
+        return 0
+    try:
+        for row in ended:
+            proof = verifier.proof(row)
+            logger.info(
+                "sessions.registry_ended kind=%s target=%s method=%s verdict=%s reason=%s",
+                row.kind,
+                row.target,
+                proof.method,
+                proof.verdict,
+                proof.reason,
+            )
+            db.delete(row)
+        db.commit()
+        return len(ended)
+    except Exception:
+        logger.exception("ended session purge failed")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return 0
+
+
+def purge_ended_sessions(db: Session, *, force: bool = False) -> int:
+    """Drop registry rows whose credential died (throttled per process)."""
+    global _last_ended_purge
+    now = utcnow()
+    if (
+        not force
+        and _last_ended_purge is not None
+        and now - _last_ended_purge < _ENDED_PURGE_INTERVAL
+    ):
+        return 0
+    _last_ended_purge = now
+    rows = db.query(ActiveSession).filter(ActiveSession.status == "active").all()
+    verifier = liveness.RegistryVerifier(db, rows, now=now)
+    ended = [
+        r
+        for r in rows
+        if liveness.classify(r, verifier.proof(r), now=now)[0] == liveness.STATE_ENDED
+    ]
+    return _purge_ended_rows(db, ended, verifier=verifier)
+
+
+# Portal auth_request heartbeat: page loads create/enrich the portal row, every
+# authenticated portal request then slides last_seen (at most this often).
+PORTAL_HEARTBEAT_SECONDS = 30
+_HEARTBEAT_CACHE_MAX = 4096
+_heartbeat_lock = threading.Lock()
+_heartbeat_seen: dict[str, float] = {}
+
+
+def touch_portal_heartbeat(
+    db: Session,
+    *,
+    identities: Iterable[str | None],
+    breakglass: bool,
+) -> int:
+    """Slide ``last_seen_at`` of the identity's portal row on an auth_request OK.
+
+    Hot path: an in-process throttle answers most calls with no DB work, then
+    one conditional UPDATE. Never creates rows and never raises.
+    """
+    keys = sorted({(i or "").strip().lower() for i in identities if (i or "").strip()})
+    if not keys:
+        return 0
+    cache_key = ("bg|" if breakglass else "sso|") + "|".join(keys)
+    mono = time.monotonic()
+    with _heartbeat_lock:
+        last = _heartbeat_seen.get(cache_key)
+        if last is not None and mono - last < PORTAL_HEARTBEAT_SECONDS:
+            return 0
+        if len(_heartbeat_seen) >= _HEARTBEAT_CACHE_MAX:
+            _heartbeat_seen.clear()
+        _heartbeat_seen[cache_key] = mono
+    now = utcnow()
+    try:
+        is_bg = (
+            func.upper(func.coalesce(ActiveSession.protocol, "")) == _PROTOCOL_BREAKGLASS
+        )
+        updated = (
+            db.query(ActiveSession)
+            .filter(
+                ActiveSession.kind == KIND_USER,
+                ActiveSession.target == "portal",
+                ActiveSession.status == "active",
+                ActiveSession.user_email.in_(keys),
+                ActiveSession.last_seen_at
+                < now - timedelta(seconds=PORTAL_HEARTBEAT_SECONDS),
+                is_bg if breakglass else ~is_bg,
+            )
+            .update({ActiveSession.last_seen_at: now}, synchronize_session=False)
+        )
+        if updated:
+            db.commit()
+        return int(updated or 0)
+    except Exception:
+        logger.debug("portal heartbeat skipped", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return 0
+
+
+def close_registry_for_logout_request(
+    request: Request,
+    db: Session,
+    settings: Settings,
+    *,
+    oidc_actor: str | None = None,
+    bg_actor: str | None = None,
+) -> int:
+    """Logout routes: reconcile the leaving identity's registry rows right away."""
+    identities: list[str | None] = []
+    if oidc_actor and oidc_actor != "unknown":
+        identities.append(oidc_actor)
+    if bg_actor and bg_actor != "unknown":
+        from app.web.user_context import BREAKGLASS_EMAIL_DOMAIN
+
+        identities.append(f"{bg_actor}@{BREAKGLASS_EMAIL_DOMAIN}")
+    try:
+        from app.web.user_context import get_user_context
+
+        ctx = get_user_context(request, settings, db)
+    except Exception:
+        ctx = None
+    if ctx is not None:
+        identities.extend([ctx.email, ctx.username])
+    return close_registry_after_logout(db, identities=identities)
+
+
+def reset_live_state_for_tests() -> None:
+    """Clear process-level throttles (heartbeat cache, ended purge)."""
+    global _last_ended_purge
+    _last_ended_purge = None
+    with _heartbeat_lock:
+        _heartbeat_seen.clear()
+
+
+def close_registry_after_logout(db: Session, *, identities: Iterable[str | None]) -> int:
+    """After an explicit logout, drop the identity's rows that lost their credential.
+
+    Native / break-glass rows are re-verified: another browser may still hold a
+    valid jti, and then nothing goes. Rows with no server-side proof (oauth2-proxy)
+    go with the identity's SSO-presence rows — the user asked to leave; another
+    browser re-creates its row on its next portal page. Never raises.
+    """
+    keys = liveness.identity_keys(*identities)
+    if not keys:
+        return 0
+    try:
+        rows = (
+            db.query(ActiveSession)
+            .filter(
+                ActiveSession.status == "active",
+                or_(
+                    ActiveSession.user_email.in_(sorted(keys)),
+                    ActiveSession.username.in_(sorted(keys)),
+                ),
+            )
+            .all()
+        )
+        if not rows:
+            return 0
+        now = utcnow()
+        verifier = liveness.RegistryVerifier(db, rows, now=now)
+        proofs = {r.id: verifier.proof(r) for r in rows}
+        alive = any(
+            r.kind == KIND_USER
+            and proofs[r.id].verdict == liveness.VERDICT_VALID
+            and proofs[r.id].method in (liveness.METHOD_OIDC, liveness.METHOD_BREAKGLASS)
+            for r in rows
+        )
+        doomed: list[ActiveSession] = []
+        for r in rows:
+            proof = proofs[r.id]
+            if liveness.classify(r, proof, now=now)[0] == liveness.STATE_ENDED:
+                doomed.append(r)
+            elif alive:
+                continue
+            elif r.kind == KIND_USER and proof.method not in (
+                liveness.METHOD_OIDC,
+                liveness.METHOD_BREAKGLASS,
+            ):
+                doomed.append(r)
+            elif r.kind == KIND_APP and bool((r.details or {}).get("presence_only")):
+                doomed.append(r)
+        return _purge_ended_rows(db, doomed, verifier=verifier)
+    except Exception:
+        logger.exception("close_registry_after_logout failed")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return 0
+
 
 def touch_portal_session(
     db: Session,
@@ -1171,37 +1355,57 @@ def _client_ip_presentation(raw_ip: str, loc: str) -> tuple[str, str | None, boo
     return raw_ip, None, False
 
 
-def _presence_only_flag(
-    row: ActiveSession,
-    details: dict[str, Any] | None,
-    diag: dict[str, Any],
-    verifiable: bool,
-) -> bool:
-    if bool(diag.get("presence_only")):
-        return True
-    if row.kind != KIND_APP or verifiable:
-        return False
-    return bool((details or {}).get("presence_only"))
+_STATE_LABELS: dict[str, str] = {
+    liveness.STATE_ONLINE: "EN LIGNE",
+    liveness.STATE_IDLE: "INACTIF",
+    liveness.STATE_UNVERIFIED: "NON VÉRIFIÉ",
+    liveness.STATE_INVALID: "INVALIDE",
+    liveness.STATE_ISOLATED: "ISOLÉ",
+}
+
+_STATE_TITLES: dict[str, str] = {
+    liveness.STATE_ONLINE: "Identifiant vérifié et activité authentifiée il y a moins de 3 min.",
+    liveness.STATE_IDLE: "Identifiant vérifié, mais aucune activité depuis plus de 3 min.",
+    liveness.STATE_UNVERIFIED: "Validité non prouvée : aucune source faisant foi lisible.",
+    liveness.STATE_INVALID: "Rejetée par la source faisant foi.",
+    liveness.STATE_ISOLATED: "Session isolée par un administrateur.",
+}
+
+_METHOD_LABELS: dict[str, str] = {
+    liveness.METHOD_BREAKGLASS: "Chaîne jti break-glass",
+    liveness.METHOD_OIDC: "Jeton bastion_session (jti)",
+    liveness.METHOD_OAUTH2: "Cookie oauth2-proxy",
+    liveness.METHOD_UPSTREAM: "Sonde de l’application cible",
+    liveness.METHOD_SSO_GRANT: "Accès autorisé par le bastion",
+    liveness.METHOD_TRAFFIC: "Requête authentifiée",
+    liveness.METHOD_NONE: "Aucune source vérifiable",
+}
 
 
-def _verifiable_live_badge(verified_status: str | None, loc: str) -> tuple[str, str]:
-    if verified_status == "active":
-        return "active", "ACTIVE"
-    if verified_status == "invalid":
-        return "invalid", t("INVALIDE", loc)
-    return "unverified", t("NON VÉRIFIÉ", loc)
-
-
-def _user_registry_live_badge(
-    row: ActiveSession,
-    *,
-    protocol: str,
-    loc: str,
-) -> tuple[str, str, dict[str, Any]]:
-    freshness = _portal_freshness(row, protocol=protocol)
-    if row.status == "isolated":
-        return "isolated", t("ISOLÉ", loc), freshness
-    return "declarative", t("REGISTRE", loc), freshness
+def _verification_summary(proof: liveness.Proof, method: str, loc: str) -> str:
+    """One honest sentence on what was checked, and against what."""
+    verdict = proof.verdict
+    if verdict == liveness.VERDICT_VALID:
+        if method == liveness.METHOD_BREAKGLASS:
+            return t("Jeton break-glass valide : non révoqué, dans ses délais absolu et d’inactivité.", loc)
+        if method == liveness.METHOD_OIDC:
+            return t("{n} jeton(s) bastion_session valide(s) : non révoqué(s), non expiré(s).", loc, n=proof.credentials or 1)
+        if method == liveness.METHOD_OAUTH2:
+            return t("Cookie accepté par oauth2-proxy lors du dernier accès — aucun état serveur au-delà.", loc)
+        if method == liveness.METHOD_UPSTREAM:
+            return t("Session confirmée par l’application cible.", loc)
+        return t("Dernier accès autorisé par le bastion (auth_request).", loc)
+    if verdict == liveness.VERDICT_INVALID:
+        return t("L’application cible a rejeté la session — fermeture automatique au 2e échec.", loc)
+    if method == liveness.METHOD_TRAFFIC:
+        return t("Requête authentifiée récente ; le jeton lui-même n’est pas lisible côté serveur.", loc)
+    if proof.reason == "jti_not_found":
+        return t("Jeton break-glass introuvable dans le registre.", loc)
+    if proof.reason == "probe_pending":
+        return t("Vérification auprès de l’application cible en attente.", loc)
+    if proof.reason == "probe_inconclusive":
+        return t("Dernière sonde non concluante (application injoignable ?).", loc)
+    return t("Aucune preuve récente : cookie oauth2-proxy sans état côté serveur.", loc)
 
 
 def _live_status_presentation(
@@ -1209,25 +1413,42 @@ def _live_status_presentation(
     *,
     details: dict[str, Any] | None,
     diag: dict[str, Any],
-    protocol: str,
+    proof: liveness.Proof,
+    state: str,
+    activity_at: datetime | None,
     loc: str,
-) -> tuple[str, str, bool, bool, dict[str, Any] | None]:
-    """Return live_status, label, verifiable, presence_only, freshness."""
+) -> dict[str, Any]:
+    """Verified live status fields for one session card."""
     verifiable = bool(diag.get("verifiable"))
-    verified_status = (row.last_verified_status or "").strip().lower() or None
-    presence_only = _presence_only_flag(row, details, diag, verifiable)
-    if verifiable:
-        status, label = _verifiable_live_badge(verified_status, loc)
-        return status, label, verifiable, presence_only, None
-    if presence_only:
-        return "presence", t("ACTIVITÉ SSO", loc), verifiable, presence_only, None
-    if row.kind == KIND_USER:
-        status, label, freshness = _user_registry_live_badge(
-            row, protocol=protocol, loc=loc
-        )
-        return status, label, verifiable, presence_only, freshness
-    live_status = row.status if row.status != "isolated" else "isolated"
-    return live_status, (row.status or "active").upper(), verifiable, presence_only, None
+    presence_only = bool(diag.get("presence_only")) or (
+        row.kind == KIND_APP and not verifiable and bool((details or {}).get("presence_only"))
+    )
+    verification = liveness.proof_payload(proof, state=state)
+    method = verification["method"]
+    verification["method_label"] = t(_METHOD_LABELS.get(method, method), loc)
+    verification["summary"] = _verification_summary(proof, method, loc)
+    return {
+        "live_status": state,
+        "live_status_label": t(_STATE_LABELS.get(state, state.upper()), loc),
+        "live_status_title": t(_STATE_TITLES.get(state, ""), loc),
+        "verifiable": verifiable,
+        "presence_only": presence_only,
+        "verification": verification,
+        "activity_at": activity_at.isoformat() if activity_at else None,
+    }
+
+
+def _single_row_proof(
+    row: ActiveSession, db: Session | None
+) -> tuple[liveness.Proof, str, datetime | None]:
+    now = utcnow()
+    db = db or object_session(row)
+    if db is None:
+        proof = liveness.Proof(liveness.VERDICT_UNKNOWN, liveness.METHOD_NONE)
+    else:
+        proof = liveness.RegistryVerifier(db, [row], now=now).proof(row)
+    state, activity = liveness.classify(row, proof, now=now)
+    return proof, state, activity
 
 
 def _identity_binding_for_row(
@@ -1308,8 +1529,13 @@ def _row_to_dict(
     db: Session | None = None,
     *,
     locale: str | None = None,
+    proof: liveness.Proof | None = None,
+    state: str | None = None,
+    activity_at: datetime | None = None,
 ) -> dict[str, Any]:
     loc = locale or DEFAULT_LOCALE
+    if proof is None or state is None:
+        proof, state, activity_at = _single_row_proof(row, db)
     details = row.details if isinstance(row.details, dict) else None
     diag = _diagnostics_summary(details)
     protocol = (row.protocol or "").upper()
@@ -1325,10 +1551,14 @@ def _row_to_dict(
     client_ip_display, client_ip_note, client_ip_is_infra = _client_ip_presentation(
         raw_ip, loc
     )
-    live_status, live_status_label, verifiable, presence_only, freshness = (
-        _live_status_presentation(
-            row, details=details, diag=diag, protocol=protocol, loc=loc
-        )
+    live = _live_status_presentation(
+        row,
+        details=details,
+        diag=diag,
+        proof=proof,
+        state=state,
+        activity_at=activity_at,
+        loc=loc,
     )
     return {
         "id": row.id,
@@ -1355,11 +1585,7 @@ def _row_to_dict(
         ),
         "duration": _format_duration(row.started_at, utcnow()),
         "status": row.status,
-        "live_status": live_status,
-        "live_status_label": live_status_label,
-        "verifiable": verifiable,
-        "presence_only": presence_only,
-        "freshness": freshness,
+        **live,
         "sso_logout": _sso_logout_for_family(auth_family, details),
         "last_verified_at": _iso_or_none(row.last_verified_at),
         "last_verified_status": (row.last_verified_status or "").strip().lower() or None,
@@ -1475,6 +1701,7 @@ def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any
         g["auth_families"] = families
         # Disconnect = revoke-all apps + Keycloak logout — not for break-glass-only users
         g["show_disconnect"] = bool(g["has_oidc"] or g["has_app"])
+        _apply_group_live_status(g)
         if not portal_ua:
             continue
         for s in g["sessions"]:
@@ -1489,6 +1716,27 @@ def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any
                 if portal_ua_raw:
                     s["user_agent"] = portal_ua_raw
     return list(groups.values())
+
+
+def _apply_group_live_status(g: dict[str, Any]) -> None:
+    """Rail headline: the most alive member wins (online > idle > unverified …)."""
+    members = g.get("sessions") or []
+    best = None
+    for s in members:
+        st = s.get("live_status")
+        if best is None or liveness.STATE_PRIORITY.get(st, 9) < liveness.STATE_PRIORITY.get(
+            best.get("live_status"), 9
+        ):
+            best = s
+    g["live_status"] = (best or {}).get("live_status") or liveness.STATE_UNVERIFIED
+    g["live_status_label"] = (best or {}).get("live_status_label") or g["live_status"].upper()
+    g["online_count"] = sum(
+        1 for s in members if s.get("live_status") == liveness.STATE_ONLINE
+    )
+    activity = [
+        dt for dt in (_parse_iso_dt(s.get("activity_at")) for s in members) if dt
+    ]
+    g["activity_at"] = max(activity).isoformat() if activity else None
 
 
 def _canonical_email_map(sessions: list[dict[str, Any]]) -> dict[tuple[str, str], str]:
@@ -1607,7 +1855,28 @@ def get_active_sessions(
             email = (viewer.email or viewer.username or "").strip().lower()
             q = q.filter(ActiveSession.user_email == email)
         rows = q.order_by(ActiveSession.last_seen_at.desc()).all()
-        return [_row_to_dict(r, db=db, locale=locale) for r in rows]
+        now = utcnow()
+        verifier = liveness.RegistryVerifier(db, rows, now=now)
+        out: list[dict[str, Any]] = []
+        ended: list[ActiveSession] = []
+        for r in rows:
+            proof = verifier.proof(r)
+            state, activity = liveness.classify(r, proof, now=now)
+            if state == liveness.STATE_ENDED:
+                ended.append(r)
+                continue
+            out.append(
+                _row_to_dict(
+                    r,
+                    db=db,
+                    locale=locale,
+                    proof=proof,
+                    state=state,
+                    activity_at=activity,
+                )
+            )
+        _purge_ended_rows(db, ended, verifier=verifier)
+        return out
     except Exception:
         logger.exception("get_active_sessions failed")
         try:
@@ -1642,6 +1911,7 @@ def count_active_sessions(db: Session, *, kind: str | None = None) -> int:
     """Count active registry rows; optional ``kind`` is ``user`` or ``app``."""
     try:
         expire_stale_sessions(db)
+        purge_ended_sessions(db)
         q = db.query(ActiveSession).filter(ActiveSession.status == "active")
         if kind in (KIND_USER, KIND_APP):
             q = q.filter(ActiveSession.kind == kind)
@@ -1910,6 +2180,7 @@ def list_sessions(
 
     locale = get_request_locale(request)
     payload: dict[str, Any] = sessions_view(db, viewer=user, kind=kind, locale=locale)
+    payload["server_time"] = utcnow().isoformat()
     # Temporary diagnostic for IP capture (admins only) — remove once validated.
     if user.is_admin:
         payload["ip_probe"] = client_ip_probe(request)
@@ -1962,8 +2233,153 @@ async def live_verify_sessions(
     return {
         "verified": verified,
         "revoked": [v["id"] for v in verified if v.get("revoked")],
+        "server_time": utcnow().isoformat(),
         **sessions_view(db, viewer=user, kind=kind, locale=locale),
     }
+
+
+# Live stream (/sessions): the server re-verifies every tick and pushes a
+# snapshot only when something an admin can see changed; relative times are
+# ticked client-side from the ISO timestamps + server clock.
+STREAM_TICK_SECONDS = 2.0
+STREAM_PING_SECONDS = 15.0
+# Bounded so a revoked viewer loses the feed quickly: EventSource reconnects and
+# the reconnect goes through auth again.
+STREAM_MAX_SECONDS = 300.0
+STREAM_PROBE_SECONDS = 15.0
+_VOLATILE_SESSION_KEYS = frozenset(
+    {"duration", "last_seen_ago", "last_seen_label", "last_verified_ago"}
+)
+
+
+def _snapshot_fingerprint(view: dict[str, Any]) -> str:
+    def stable(session: dict[str, Any]) -> dict[str, Any]:
+        return {k: v for k, v in session.items() if k not in _VOLATILE_SESSION_KEYS}
+
+    groups = [
+        {
+            **{k: v for k, v in g.items() if k not in ("sessions", "duration")},
+            "sessions": [stable(x) for x in g.get("sessions") or []],
+        }
+        for g in view.get("groups") or []
+    ]
+    raw = json.dumps(
+        {"groups": groups, "counts": view.get("counts")},
+        sort_keys=True,
+        default=str,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _stream_payload(view: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "groups": view.get("groups") or [],
+        "counts": view.get("counts") or {},
+        "total": len(view.get("sessions") or []),
+        "users": len(view.get("groups") or []),
+        "server_time": utcnow().isoformat(),
+        "online_window_seconds": int(liveness.ONLINE_WINDOW.total_seconds()),
+    }
+
+
+def _stream_snapshot(
+    viewer: UserContext, kind: str | None, locale: str
+) -> tuple[dict[str, Any], str]:
+    from app import database
+
+    db = database.SessionLocal()
+    try:
+        view = sessions_view(db, viewer=viewer, kind=kind, locale=locale)
+    finally:
+        db.close()
+    return _stream_payload(view), _snapshot_fingerprint(view)
+
+
+def _sse(event: str, data: dict[str, Any], *, event_id: int | None = None) -> str:
+    head = f"id: {event_id}\n" if event_id is not None else ""
+    body = json.dumps(data, ensure_ascii=False, default=str)
+    return f"{head}event: {event}\ndata: {body}\n\n"
+
+
+async def _session_events(
+    request: Request,
+    *,
+    viewer: UserContext,
+    kind: str | None,
+    locale: str,
+    max_seconds: float | None = None,
+):
+    from app.web.session_verify import verify_due_driven_sessions
+
+    max_seconds = STREAM_MAX_SECONDS if max_seconds is None else max_seconds
+
+    probe_scope = (
+        None if viewer.is_admin else (viewer.email or viewer.username or "").strip().lower()
+    )
+    started = time.monotonic()
+    last_fp: str | None = None
+    last_sent = started
+    last_probe = started - STREAM_PROBE_SECONDS
+    seq = 0
+    wake = asyncio.Event()
+    yield "retry: 3000\n\n"
+    while time.monotonic() - started < max_seconds:
+        if await request.is_disconnected():
+            break
+        if time.monotonic() - last_probe >= STREAM_PROBE_SECONDS:
+            last_probe = time.monotonic()
+            try:
+                await verify_due_driven_sessions(user_email=probe_scope)
+            except Exception:
+                logger.exception("sessions stream: background probe failed")
+        try:
+            payload, fp = await asyncio.to_thread(_stream_snapshot, viewer, kind, locale)
+        except Exception:
+            logger.exception("sessions stream: snapshot failed")
+            yield _sse("degraded", {"server_time": utcnow().isoformat()})
+            payload, fp = None, None
+        now_mono = time.monotonic()
+        if payload is not None and fp != last_fp:
+            seq += 1
+            last_fp, last_sent = fp, now_mono
+            yield _sse("snapshot", payload, event_id=seq)
+        elif now_mono - last_sent >= STREAM_PING_SECONDS:
+            last_sent = now_mono
+            yield _sse("ping", {"server_time": utcnow().isoformat()})
+        try:
+            await asyncio.wait_for(wake.wait(), timeout=STREAM_TICK_SECONDS)
+        except TimeoutError:
+            pass
+    yield _sse("timeout", {})
+
+
+@router.get("/api/sessions/stream")
+async def stream_sessions(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_user),
+    settings: Settings = Depends(get_settings),
+    kind: str | None = Query(None),
+):
+    """Server-sent events: verified session snapshots, pushed on change."""
+    from app.auth.mfa_gate import elevate_portal_admin_mfa
+    from app.i18n.middleware import get_request_locale
+
+    viewer = elevate_portal_admin_mfa(request, user, db, settings)
+    locale = get_request_locale(request)
+    kind_n = kind if kind in (KIND_USER, KIND_APP) else None
+    # The generator opens its own short sessions per tick.
+    db.close()
+    return StreamingResponse(
+        _session_events(request, viewer=viewer, kind=kind_n, locale=locale),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @admin_router.post("/admin/sessions/{session_id}/revoke", responses=RESP_404)

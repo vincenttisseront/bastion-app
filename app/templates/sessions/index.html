@@ -2,11 +2,12 @@
 {% block title %}{{ _('Sessions Actives') }}{% endblock %}
 {% block breadcrumb %}Sessions{% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-sessions.css?v=20260803-compact">
+<link rel="stylesheet" href="/static/css/bastion-sessions.css?v=20261107-live">
 {% endblock %}
 
 {% block content %}
 {% set groups = session_groups | default([]) %}
+{% set state_class = {'online': 'ok', 'idle': 'muted', 'unverified': 'warn', 'invalid': 'err', 'isolated': 'warn'} %}
 {% set first = groups[0] if groups else none %}
 <div class="page" id="sessions-page"
      data-kind="{{ session_kind | default('all') }}"
@@ -20,7 +21,12 @@
       <p class="page-sub"><span id="sessions-count">{{ sessions | length }}</span> {{ _('connexion(s) ·') }} <span id="sessions-users-count">{{ groups | length }}</span> {{ _('utilisateur(s)') }}</p>
       {% endif %}
     </div>
-    <div class="live-pill"><span class="live-dot"></span>Live</div>
+    {% if not sessions_unavailable %}
+    <div class="live-pill is-stale" id="sessions-live-pill" data-mode="connecting" role="status" aria-live="polite"
+         title="{{ _('Flux temps réel interrompu : reconnexion en cours') }}">
+      <span class="live-dot"></span><span id="sessions-live-label">{{ _('Connexion…') }}</span>
+    </div>
+    {% endif %}
   </div>
 
   {% if sessions_unavailable %}
@@ -67,7 +73,7 @@
           <div class="user-avatar sessions-user-avatar">{{ g.user[0] | upper }}</div>
           <div class="sessions-user-meta">
             <div class="sessions-user-name">{{ g.user }}</div>
-            <div class="sessions-user-sub mono">{{ g.realm }} · {{ g.session_count }}</div>
+            <div class="sessions-user-sub mono">{% if g.realm %}{{ g.realm }} · {% endif %}{{ g.session_count }} {{ _('session(s)') }}</div>
             <div class="sessions-user-families">
               {% for f in g.auth_families | default([]) %}
               <span class="sessions-family-chip sessions-family-{{ f }}">{% if f == 'oidc' %}OIDC{% elif f == 'breakglass' %}BG{% elif f == 'app' %}APP{% else %}{{ f }}{% endif %}</span>
@@ -77,7 +83,7 @@
             <div class="sessions-user-logout mono" title="{{ g.sso_logout.residual_note or '' }}">{{ g.sso_logout.label }}</div>
             {% endif %}
           </div>
-          <span class="sessions-user-status badge badge-{{ 'ok' if g.status == 'active' else 'warn' }}">{{ g.status | upper }}</span>
+          <span class="sessions-user-status badge badge-{{ state_class.get(g.live_status, 'muted') }} session-state session-state--{{ g.live_status }}">{% if g.live_status == 'online' %}<span class="live-dot live-dot-sm"></span> {% endif %}{{ g.live_status_label }}</span>
         </button>
         {% else %}
         <div class="sessions-user-empty empty-state" id="sessions-user-empty">
@@ -99,7 +105,7 @@
           <p class="sessions-detail-sub mono">{{ first.user_email }} · {{ first.realm }}</p>
         </div>
         <div class="session-actions-group">
-          <span class="badge badge-{{ 'ok' if first.status == 'active' else 'warn' }}">{{ first.session_count }} {{ _('session(s)') }}</span>
+          <span class="badge badge-{{ state_class.get(first.live_status, 'muted') }}">{{ first.session_count }} {{ _('session(s)') }}</span>
           {% if is_admin and first.show_disconnect %}
           <button type="button" class="btn btn-danger btn-sm"
                   title="{{ _('Révoque sessions robotic/vault + session native portail + logout Keycloak. Hors break-glass. Cookie oauth2-proxy résiduel ~1h possible.') }}"
@@ -141,9 +147,9 @@
               <span class="badge badge-{{ 'warn' if family == 'breakglass' else ('ok' if s.kind == 'app' else 'info') }}">{{ s.type_label }}</span>
               <span class="proto-tag {{ s.protocol | lower }}">{{ s.protocol }}</span>
             </span>
-            <span class="session-row-status badge badge-{{ 'ok' if s.live_status == 'active' else ('err' if s.live_status == 'invalid' else ('info' if s.live_status == 'declarative' else 'warn')) }}"
-                  title="{% if s.verifiable %}{{ _('Statut vérifié auprès de l’app cible (live)') }}{% elif s.freshness %}{{ s.freshness.note }}{% else %}{{ _('Statut déclaratif côté bastion') }}{% endif %}">
-              {% if s.live_status == 'active' %}<span class="live-dot live-dot-sm"></span>{% endif %}
+            <span class="session-row-status badge badge-{{ state_class.get(s.live_status, 'muted') }} session-state session-state--{{ s.live_status }}"
+                  title="{{ s.live_status_title }}{% if s.verification and s.verification.summary %} — {{ s.verification.summary }}{% endif %}">
+              {% if s.live_status == 'online' %}<span class="live-dot live-dot-sm"></span>{% endif %}
               {{ s.live_status_label }}
             </span>
             <span class="session-row-meta mono" title="{{ _('Durée') }}">{{ s.duration }}</span>
@@ -199,6 +205,7 @@
 <script>
   window.__SESSIONS_IS_ADMIN__ = {{ 'true' if is_admin else 'false' }};
   window.__SESSIONS_BOOT__ = {{ session_groups | default([]) | tojson }};
+  window.__SESSIONS_SERVER_TIME__ = {{ sessions_server_time | default('') | tojson }};
 </script>
-<script src="/static/js/bastion-sessions.js?v=20261007-kind-filter"></script>
+<script src="/static/js/bastion-sessions.js?v=20261107-live"></script>
 {% endblock %}

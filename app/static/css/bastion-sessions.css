@@ -669,3 +669,73 @@ body.session-detail-open {
     gap: 0.25rem;
   }
 }
+
+/* ── Verified live status (stream) ─────────────────────────────────── */
+
+.session-state {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Idle rows: credential still valid, nobody on it right now. */
+.session-row--idle .session-row-title,
+.session-row--idle .session-row-icon {
+  opacity: 0.72;
+}
+
+.session-row.is-updated {
+  animation: session-row-flash 1.6s ease-out 1;
+}
+
+@keyframes session-row-flash {
+  0% { box-shadow: 0 0 0 2px var(--accent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.session-verify {
+  margin: var(--sp-3) 0 var(--sp-4);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-3);
+  border-radius: var(--r-md);
+  background: var(--bg-tertiary);
+}
+
+.session-verify--online { border-left-color: var(--ok); }
+.session-verify--idle { border-left-color: var(--text-3); }
+.session-verify--unverified,
+.session-verify--isolated { border-left-color: var(--warn); }
+.session-verify--invalid { border-left-color: var(--err); }
+
+.session-verify-title {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.live-pill[data-mode='polling'] .live-dot {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-row.is-updated { animation: none; }
+}
+
+.sessions-user-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.sessions-user-seen {
+  font-size: 0.625rem;
+  color: var(--text-3);
+  white-space: nowrap;
+}

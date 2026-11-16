@@ -110,18 +110,20 @@ def test_oidc_and_breakglass_distinct_actions_in_api(client, db_session: Session
 
     assert oidc["auth_family"] == "oidc"
     assert oidc["type_label"] == "Portail OIDC"
-    assert oidc["live_status"] == "declarative"
-    assert oidc["live_status_label"] == "REGISTRE"
+    # No native jti / oauth2 anchor to read: fresh authenticated touch only.
+    assert oidc["live_status"] == "online"
+    assert oidc["live_status_label"] == "EN LIGNE"
     assert oidc["verifiable"] is False
-    assert oidc["freshness"]["mode"] == "declarative"
-    assert "cookie_refresh" in oidc["freshness"]["policy_label"]
+    assert oidc["verification"]["method"] == "traffic"
+    assert "freshness" not in oidc
     assert oidc["can_rotate"] is False
     assert oidc["can_revoke"] is True
 
     assert bg["auth_family"] == "breakglass"
     assert bg["type_label"] == "Break-glass"
     assert bg["jti"] == "jti-abc-12345678"
-    assert bg["live_status_label"] == "REGISTRE"
+    assert bg["live_status_label"] == "EN LIGNE"
+    assert bg["verification"]["reason"] == "jti_not_found"
     assert bg["can_rotate"] is False
     assert "jti" in bg["action_titles"]["revoke"].lower() or "break-glass" in bg[
         "action_titles"

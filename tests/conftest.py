@@ -100,6 +100,7 @@ def _isolate_fernet_key_store(tmp_path, monkeypatch):
 
     clear_admin_token_cache()
     monkeypatch.setattr(sessions_service, "_last_satellite_purge", None)
+    sessions_service.reset_live_state_for_tests()
     keys = tmp_path / "vault-keys"
     keys.mkdir()
     monkeypatch.setenv("VAULT_KEYS_DIR", str(keys))

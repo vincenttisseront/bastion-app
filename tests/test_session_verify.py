@@ -134,8 +134,10 @@ def test_live_verify_updates_status(client: TestClient, db_session: Session):
 
     api = client.get("/api/sessions", headers=ADMIN_HEADERS).json()
     app_sess = next(s for s in api["sessions"] if s["id"] == row.id)
-    assert app_sess["live_status"] == "active"
-    assert app_sess["live_status_label"] == "ACTIVE"
+    assert app_sess["live_status"] == "online"
+    assert app_sess["live_status_label"] == "EN LIGNE"
+    assert app_sess["verification"]["method"] == "upstream_probe"
+    assert app_sess["verification"]["verdict"] == "valid"
 
 
 def test_live_verify_first_invalid_does_not_revoke(client: TestClient, db_session: Session):
