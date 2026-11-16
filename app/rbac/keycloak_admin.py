@@ -83,15 +83,38 @@ SSO_LOGOUT_RESIDUAL_NOTE = (
 )
 
 
+def _evict_cached_token(token: str) -> None:
+    """Drop a service-account token Keycloak just rejected (HTTP 401).
+
+    The cache trusts ``expires_in``, but Keycloak can invalidate a token earlier
+    (restart with lost sessions, realm not-before push, key rotation). Without
+    this, every admin call fails until the cached entry expires.
+    """
+    for key, (cached, _expiry) in list(_TOKEN_CACHE.items()):
+        if cached == token:
+            _TOKEN_CACHE.pop(key, None)
+
+
 async def _admin_get(
     realm: RealmConfig, settings: Settings, path: str, *, token: str | None = None
 ) -> httpx.Response:
+    caller_token = bool(token)
     token = token or await get_admin_token(realm, settings)
     base, realm_name = _issuer_parts(realm.issuer_url)
     safe_path = _safe_admin_api_path(path)
     url = f"{base}/admin/realms/{realm_name}{safe_path}"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        return await client.get(url, headers={"Authorization": f"Bearer {token}"})
+
+    async def _get(bearer: str) -> httpx.Response:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            return await client.get(url, headers={"Authorization": f"Bearer {bearer}"})
+
+    resp = await _get(token)
+    if resp.status_code == 401:
+        _evict_cached_token(token)
+        if not caller_token:
+            # Token we minted ourselves: retry once with a fresh one.
+            resp = await _get(await get_admin_token(realm, settings))
+    return resp
 
 
 def _safe_admin_api_path(path: str) -> str:
@@ -118,18 +141,29 @@ async def _admin_send(
     ``token`` selects the service account: pass a provision token for writes
     (see get_provision_token); default falls back to the sync/admin account.
     """
+    caller_token = bool(token)
     token = token or await get_admin_token(realm, settings)
     base, realm_name = _issuer_parts(realm.issuer_url)
     safe_path = _safe_admin_api_path(path)
     url = f"{base}/admin/realms/{realm_name}{safe_path}"
-    try:
+
+    async def _send(bearer: str) -> httpx.Response:
         async with httpx.AsyncClient(timeout=10.0) as client:
             return await client.request(
                 method,
                 url,
                 json=json,
-                headers={"Authorization": f"Bearer {token}"},
+                headers={"Authorization": f"Bearer {bearer}"},
             )
+
+    try:
+        resp = await _send(token)
+        if resp.status_code == 401:
+            # 401 = rejected at authentication, before the write ran: safe to retry.
+            _evict_cached_token(token)
+            if not caller_token:
+                resp = await _send(await get_admin_token(realm, settings))
+        return resp
     except httpx.TimeoutException as exc:
         raise ValueError(
             f"Keycloak injoignable ou timeout lors de l'appel admin ({safe_path})"
