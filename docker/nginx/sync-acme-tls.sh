@@ -66,6 +66,7 @@ mkdir -p "$ACME_WEBROOT/.well-known/acme-challenge" 2>/dev/null \
   echo "server {"
   echo "    listen 0.0.0.0:80 default_server;"
   echo "    server_name _;"
+  echo "    include /etc/nginx/snippets/bastion_error_pages_edge.conf;"
   echo "    location ^~ /.well-known/acme-challenge/ {"
   echo "        root ${ACME_WEBROOT};"
   echo "        allow all;"
@@ -91,6 +92,8 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
 
     include /etc/nginx/includes/security-headers.conf;
+    # Branded pages for errors raised here (400/413/494, plain HTTP on :443…).
+    include /etc/nginx/snippets/bastion_error_pages_edge.conf;
 
     absolute_redirect off;
     port_in_redirect off;
@@ -217,6 +220,8 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
 
     include /etc/nginx/includes/security-headers.conf;
+    # Branded pages for errors raised here (400/413/494, plain HTTP on :443…).
+    include /etc/nginx/snippets/bastion_error_pages_edge.conf;
 EOF
   if [[ "$family" == "portal" ]]; then
     cat >> "$OUT" <<EOF

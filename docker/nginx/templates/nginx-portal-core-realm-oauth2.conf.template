@@ -13,4 +13,6 @@ location ~ ^/oauth2/${SSO_PORTAL_DEFAULT_REALM_SLUG}/(.*)$ {
     proxy_buffers 8 128k;
     proxy_busy_buffers_size 256k;
     proxy_read_timeout 120s;
+    # oauth2-proxy error pages (callback CSRF / state 403, 500…) → portal pages.
+    proxy_intercept_errors on;
 }

@@ -48,12 +48,9 @@ server {
     # them here on :8080 — duplicates appear as comma-joined values (audit F-09).
     # Keep only cache/rate headers in locations.
 
+    # Branded error pages: FastAPI /errors/* with a static fallback, static
+    # pages for gateway / request-level errors (snippets/error_pages.conf).
     include /etc/nginx/snippets/error_pages.conf;
-    error_page 403 = /__portal_err/403;
-    error_page 404 = /__portal_err/404;
-    error_page 500 502 504 = /__portal_err/500;
-    error_page 503 = /__portal_err/503;
-    error_page 429 = /__portal_err/429;
     # ModSecurity CRS — switch serveur (défaut off). Réactiver écrit
     # exports/modsecurity-portal-switch.conf (on) ; Couper / rollback → off.
     # Les « modsecurity off » ci-dessous restent pour health / auth / erreurs.
@@ -71,7 +68,9 @@ server {
     if ($bastion_unknown_host) {
         set $bastion_do_unknown 1;
     }
-    if ($uri ~ "^/(_portal_|__waf_sandbox)") {
+    # /__bastion_errors/: error_page redirects re-run this server rewrite —
+    # without the exemption an unknown Host loops back into the stub.
+    if ($uri ~ "^/(_portal_|__waf_sandbox|__bastion_errors/)") {
         set $bastion_do_unknown 0;
     }
     if ($bastion_do_unknown) {
@@ -84,6 +83,9 @@ server {
         modsecurity off;
         proxy_intercept_errors off;
         limit_req zone=portal_unknown_host burst=10 nodelay;
+        # Stay neutral when throttled or when bastion-app is down (no portal look).
+        recursive_error_pages off;
+        error_page 429 500 502 503 504 =403 /__bastion_errors/unknown-host.html;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
@@ -109,6 +111,10 @@ server {
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        # bastion-app down → same page from nginx (static, FR + EN).
+        proxy_intercept_errors off;
+        recursive_error_pages off;
+        error_page 500 502 503 504 =403 /__bastion_errors/403.html;
         proxy_pass http://$bastion_app_upstream/errors/403;
     }
 
@@ -119,17 +125,11 @@ server {
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        # bastion-app down → same page from nginx (static, FR + EN).
+        proxy_intercept_errors off;
+        recursive_error_pages off;
+        error_page 500 502 503 504 =404 /__bastion_errors/404.html;
         proxy_pass http://$bastion_app_upstream/errors/404;
-    }
-
-    location = /__portal_err/500 {
-        internal;
-        auth_request off;
-        modsecurity off;
-        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
-        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
-        proxy_pass http://$bastion_app_upstream/errors/500;
     }
 
     location = /__portal_err/429 {
@@ -141,6 +141,10 @@ server {
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        # bastion-app down → same page from nginx (static, FR + EN).
+        proxy_intercept_errors off;
+        recursive_error_pages off;
+        error_page 500 502 503 504 =429 /__bastion_errors/429.html;
         proxy_pass http://$bastion_app_upstream/errors/429;
     }
 
@@ -152,6 +156,10 @@ server {
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        # bastion-app down → same page from nginx (static, FR + EN).
+        proxy_intercept_errors off;
+        recursive_error_pages off;
+        error_page 500 502 503 504 =503 /__bastion_errors/503.html;
         proxy_pass http://$bastion_app_upstream/errors/503;
     }
 
@@ -225,6 +233,7 @@ server {
     location = /health {
         auth_request off;
         modsecurity off;
+        include /etc/nginx/snippets/bastion_error_pages_json.conf;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream/health;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -234,6 +243,7 @@ server {
     location = /api/health {
         auth_request off;
         modsecurity off;
+        include /etc/nginx/snippets/bastion_error_pages_json.conf;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream/api/health;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -312,6 +322,7 @@ server {
     # Exact locations beat ^~ /api/admin so auth_request is not applied here.
     location = /api/admin/breakglass/login {
         auth_request off;
+        include /etc/nginx/snippets/bastion_error_pages_json.conf;
         allow 127.0.0.0/8;
         allow 10.0.0.0/8;
         allow 172.16.0.0/12;
@@ -325,6 +336,7 @@ server {
     }
     location = /api/admin/breakglass/logout {
         auth_request off;
+        include /etc/nginx/snippets/bastion_error_pages_json.conf;
         allow 127.0.0.0/8;
         allow 10.0.0.0/8;
         allow 172.16.0.0/12;
@@ -412,6 +424,7 @@ server {
         include /etc/nginx/includes/limit_req_portal_api.conf;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
+        include /etc/nginx/snippets/bastion_error_pages_json.conf;
         proxy_intercept_errors off;
         modsecurity off;
 
@@ -438,6 +451,7 @@ server {
         include /etc/nginx/includes/limit_req_portal_api.conf;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
+        include /etc/nginx/snippets/bastion_error_pages_json.conf;
         add_header Cache-Control "no-store" always;
         # SSO requis ; CRS off pour ne pas bloquer l'administration.
         modsecurity off;
@@ -465,6 +479,7 @@ server {
         include /etc/nginx/includes/limit_req_portal_api.conf;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
+        include /etc/nginx/snippets/error_pages_portal_html.conf;
         # no-store : éviter de réutiliser un 403 CRS/auth en cache.
         add_header Cache-Control "no-store" always;
         # SSO requis ; CRS off pour ne pas bloquer l'administration.
@@ -495,6 +510,7 @@ server {
         include /etc/nginx/includes/limit_req_portal_api.conf;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
+        include /etc/nginx/snippets/error_pages_portal_html.conf;
         add_header Cache-Control "no-store" always;
         modsecurity off;
 
@@ -544,6 +560,7 @@ server {
     location ^~ /api/internal/ {
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
+        include /etc/nginx/snippets/bastion_error_pages_json.conf;
 
         auth_request_set $auth_user      $upstream_http_x_auth_request_user;
         auth_request_set $auth_email     $upstream_http_x_auth_request_email;
@@ -571,6 +588,7 @@ server {
         include /etc/nginx/includes/limit_req_portal_standard.conf;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
+        include /etc/nginx/snippets/error_pages_portal_html.conf;
 
         auth_request_set $auth_user      $upstream_http_x_auth_request_user;
         auth_request_set $auth_email     $upstream_http_x_auth_request_email;

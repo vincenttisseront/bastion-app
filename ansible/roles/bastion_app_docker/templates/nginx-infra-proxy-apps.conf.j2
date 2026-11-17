@@ -15,6 +15,24 @@ server {
 
     set $infra_upstream {{ vhost.upstream_url }};
 
+    # Branded pages for errors raised by nginx itself (upstream down, body /
+    # header too large). Upstream answers pass through untouched. Inline (no
+    # snippet include) so an older bastion-nginx image still passes nginx -t.
+    proxy_intercept_errors off;
+    error_page 400 401 403 404 405 408 413 414 429 500 502 503 504 /__bastion_errors/$status.html;
+    error_page 494 /__bastion_errors/494.html;
+    error_page 495 /__bastion_errors/495.html;
+    error_page 496 /__bastion_errors/496.html;
+    location ^~ /__bastion_errors/ {
+        internal;
+        alias /var/www/nginx-errors/;
+        modsecurity off;
+        recursive_error_pages off;
+        charset utf-8;
+        charset_types text/html text/plain application/json;
+        add_header Cache-Control "no-store" always;
+    }
+
     location = /healthz {
         proxy_pass $infra_upstream/;
         proxy_redirect off;

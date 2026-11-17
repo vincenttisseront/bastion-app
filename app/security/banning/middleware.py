@@ -21,6 +21,11 @@ from app.security.banning.engine import (
     is_sensitive_path,
     rate_limit_retry_after,
 )
+from app.web.static_error_pages import (
+    STATIC_ERROR_PAGES,
+    static_error_html_bytes,
+    wants_html_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +125,32 @@ def _pre_check(*, ip: str, path: str, method: str, username: str) -> Response | 
         db.close()
 
 
+def _as_browser_page(request: Request, response: Response) -> Response:
+    """Ban / throttle answers are JSON; a browser navigation gets the branded page.
+
+    Same status and ``Retry-After``; API, XHR and fetch() clients keep the JSON body.
+    """
+    status = response.status_code
+    if str(status) not in STATIC_ERROR_PAGES or not wants_html_error(
+        path=request.url.path,
+        accept=request.headers.get("accept"),
+        sec_fetch_mode=request.headers.get("sec-fetch-mode"),
+        sec_fetch_dest=request.headers.get("sec-fetch-dest"),
+        x_requested_with=request.headers.get("x-requested-with"),
+    ):
+        return response
+    headers = {"Cache-Control": "no-store"}
+    retry_after = response.headers.get("retry-after")
+    if retry_after:
+        headers["Retry-After"] = retry_after
+    return Response(
+        content=static_error_html_bytes(status),
+        status_code=status,
+        headers=headers,
+        media_type="text/html; charset=utf-8",
+    )
+
+
 class SecurityBanMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
@@ -137,7 +168,7 @@ class SecurityBanMiddleware(BaseHTTPMiddleware):
             _pre_check, ip=ip, path=path, method=method, username=username
         )
         if isinstance(outcome, Response):
-            return outcome
+            return _as_browser_page(request, outcome)
         tracked = outcome
 
         try:

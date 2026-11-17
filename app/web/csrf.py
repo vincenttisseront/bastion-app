@@ -15,6 +15,8 @@ from http.cookies import SimpleCookie
 from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.web.static_error_pages import static_error_html_bytes, wants_html_error
+
 CSRF_COOKIE = "bastion_csrf"
 _STATE_KEY = "csrf_nonce"
 _NONCE_BYTES = 32
@@ -164,14 +166,28 @@ class CrossOriginWriteMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http" and is_cross_origin_browser_write(scope):
-            body = b'{"detail":"Cross-origin request blocked"}'
+            # A cross-site <form> POST is a top-level navigation: show the
+            # branded 403 page instead of raw JSON; fetch()/API keep JSON.
+            if wants_html_error(
+                path=scope.get("path", ""),
+                accept=_header(scope, b"accept"),
+                sec_fetch_mode=_header(scope, b"sec-fetch-mode"),
+                sec_fetch_dest=_header(scope, b"sec-fetch-dest"),
+                x_requested_with=_header(scope, b"x-requested-with"),
+            ):
+                body = static_error_html_bytes(403)
+                content_type = b"text/html; charset=utf-8"
+            else:
+                body = b'{"detail":"Cross-origin request blocked"}'
+                content_type = b"application/json"
             await send(
                 {
                     "type": "http.response.start",
                     "status": 403,
                     "headers": [
-                        (b"content-type", b"application/json"),
+                        (b"content-type", content_type),
                         (b"content-length", str(len(body)).encode("ascii")),
+                        (b"cache-control", b"no-store"),
                     ],
                 }
             )
