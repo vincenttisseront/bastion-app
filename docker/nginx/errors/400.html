@@ -1,0 +1,48 @@
+<!DOCTYPE html><html lang="fr" data-bastion-error="400">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>400 · Requête invalide / Bad request</title>
+<style>
+:root{color-scheme:dark;--bg:#020d18;--card:#0c1f35;--border:#1e3a5f;--text:#e2e8f0;--text-2:#94a3b8;--accent:#10b981;--accent-h:#34d399;--on-accent:#022c22;--glow:rgba(16,185,129,.08);--err:#ef4444;--err-bg:rgba(239,68,68,.12);--warn:#f59e0b;--warn-bg:rgba(245,158,11,.12);--shadow:0 8px 32px rgba(0,0,0,.65)}
+@media (prefers-color-scheme:light){:root{color-scheme:light;--bg:#f5f6f8;--card:#fff;--border:#e2e8f0;--text:#0f172a;--text-2:#475569;--accent:#059669;--accent-h:#047857;--on-accent:#fff;--glow:rgba(16,185,129,.06);--err:#dc2626;--err-bg:rgba(220,38,38,.08);--warn:#d97706;--warn-bg:rgba(217,119,6,.08);--shadow:0 12px 32px rgba(15,23,42,.10)}}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem;background:var(--bg) radial-gradient(ellipse 60% 45% at 50% 35%,var(--glow) 0%,transparent 70%);color:var(--text);font:400 1rem/1.6 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+.card{width:100%;max-width:30rem;background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);padding:2rem 2rem 1.5rem;text-align:center}
+.brand{display:inline-flex;width:40px;height:40px;margin-bottom:1.25rem}
+.icon{width:72px;height:72px;margin:0 auto 1rem;border-radius:16px;display:flex;align-items:center;justify-content:center;color:var(--tone);background:var(--tone-bg);border:1px solid color-mix(in srgb,var(--tone) 30%,transparent)}
+.code{margin:0;font:800 2.25rem/1 ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;letter-spacing:-.04em;color:var(--tone)}
+h1{margin:.75rem 0 .35rem;font-size:1.35rem;line-height:1.3;font-weight:700;letter-spacing:-.02em}
+h2{margin:0 0 .25rem;font-size:1rem;font-weight:600;color:var(--text-2)}
+p{margin:0;color:var(--text-2)}
+.en{margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border);font-size:.9rem}
+.actions{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;margin-top:1.5rem}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.3em;min-height:2.5rem;padding:.5rem 1.1rem;border-radius:8px;border:1px solid var(--border);color:var(--text);text-decoration:none;font-weight:600;font-size:.9rem}
+.btn:hover{border-color:var(--accent);color:var(--accent-h)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn-primary:hover{background:var(--accent-h);border-color:var(--accent-h);color:var(--on-accent)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.err{--tone:var(--err);--tone-bg:var(--err-bg)}
+.warn{--tone:var(--warn);--tone-bg:var(--warn-bg)}
+</style>
+</head>
+<body class="warn">
+<main class="card">
+<svg class="brand" viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0b1220"/><path d="M16 4L6 8v8c0 6.627 4.373 12.373 10 14 5.627-1.627 10-7.373 10-14V8L16 4z" fill="#10b981"/><path d="M16 4v24c5.627-1.627 10-7.373 10-14V8L16 4z" fill="#059669" opacity=".55"/></svg>
+<div class="icon" aria-hidden="true"><svg width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+<p class="code">400</p>
+<h1>Requête invalide</h1>
+<p>La requête envoyée par votre navigateur est incorrecte ou incomplète.</p>
+<div class="en" lang="en">
+<h2>Bad request</h2>
+<p>Your browser sent a request that is malformed or incomplete.</p>
+</div>
+<nav class="actions">
+<a class="btn btn-primary" href="">Réessayer <span lang="en">· Retry</span></a>
+<a class="btn" href="/">Accueil <span lang="en">· Home</span></a>
+</nav>
+</main>
+</body>
+</html>

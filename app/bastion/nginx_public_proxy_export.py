@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app import re_safe
 from app.access_modes import normalize_access_mode
+from app.bastion.nginx_error_pages import server_error_pages_lines
 from app.bastion.upstream_proxy import upstream_origin
 from app.bastion.upstream_tls import (
     nginx_proxy_ssl_verify_directive,
@@ -127,6 +128,8 @@ def generate_public_proxy_server_block(app: App) -> str:
         '    set $auth_preferred "";',
         "",
         f'    set $app_upstream "{origin_esc}";',
+        "",
+        *server_error_pages_lines(auth_request_off=False),
         "",
         "    # Optional health probe — no auth",
         "    location = /healthz {",

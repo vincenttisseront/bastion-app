@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app import re_safe
 from app.audit import log_action
+from app.bastion.nginx_error_pages import server_error_pages_lines
 from app.bastion.nginx_known_hosts_export import normalize_hostname
 from app.models import PortalSettings, utcnow
 from app.portal_settings_service import ensure_portal_settings
@@ -209,6 +210,8 @@ def generate_nginx_mta_sts_conf(
             # Logging scanners (/favicon, /administrator/…) here would pollute Accès apps.
             "    access_log off;",
             "    error_log  /var/log/nginx/apps/mta-sts.error.log warn;",
+            "",
+            *server_error_pages_lines(auth_request_off=False),
             "",
             "    # Static policy — no auth, no upstream.",
             "    location = /.well-known/mta-sts.txt {",

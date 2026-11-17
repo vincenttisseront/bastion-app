@@ -18,6 +18,7 @@ from app import re_safe
 from app.access_modes import normalize_access_mode
 from app.bastion.bastion_fields import normalize_sso_bridge
 from app.bastion.m2m_policy import bypass_paths_for_app
+from app.bastion.nginx_error_pages import error_page_lines, server_error_pages_lines
 from app.bastion.upstream_proxy import upstream_origin
 from app.bastion.upstream_tls import (
     nginx_proxy_ssl_verify_directive,
@@ -69,6 +70,12 @@ _NGX_AUTH_SET_USER = "        auth_request_set $auth_user $upstream_http_x_auth_
 _NGX_AUTH_SET_APP = "        auth_request_set $auth_app $upstream_http_x_auth_app;"
 _NGX_AUTH_SET_SOURCE = "        auth_request_set $auth_source $upstream_http_x_auth_source;"
 _NGX_PROXY_REDIRECT_OFF = "        proxy_redirect off;"
+# fetch()/XHR 401 body — same shape as app/api_errors.py. No single quote (it
+# sits in a single-quoted nginx string) and no "$" (nginx variable).
+_UNAUTH_FETCH_BODY = (
+    '{"code":"unauthorized","message":"Authentification requise : '
+    'reconnectez-vous sur le portail."}'
+)
 _NGX_RETURN_CRUSH_UI = "        return 302 /WebInterface/new-ui/index.html;"
 
 
@@ -137,6 +144,13 @@ _AUTH_COOKIE_CAPTURE_LINES = (
 )
 
 
+# Mobile / M2M clients never get HTML; 401 keeps its WWW-Authenticate handler.
+_EAS_ERROR_PAGE_LINES = error_page_lines("txt", indent="        ", exclude=(401,))
+_M2M_ERROR_PAGE_LINES = error_page_lines("txt", indent="        ")
+# Browser locations that map 401/403/503 to the portal redirect.
+_GATED_ERROR_PAGE_LINES = error_page_lines("html", indent="        ", exclude=(401, 403, 503))
+
+
 def _activesync_locations(
     slug: str,
     *,
@@ -167,6 +181,8 @@ def _activesync_locations(
         "        auth_request /internal/activesync-auth;",
         *_AUTH_REQUEST_DIAG_LINES,
         f"        error_page 401 = @activesync_unauthorized_{slug};",
+        # 429 (S2 limit), 500 (auth backend down), 502/504 (upstream): text/plain.
+        *_EAS_ERROR_PAGE_LINES,
         "",
         "        client_max_body_size 64m;",
         _NGX_PROXY_PASS_UPSTREAM,
@@ -202,6 +218,8 @@ def _activesync_locations(
         "        auth_request /internal/activesync-auth;",
         *_AUTH_REQUEST_DIAG_LINES,
         f"        error_page 401 = @activesync_unauthorized_{slug};",
+        # 429 (S2 limit), 500 (auth backend down), 502/504 (upstream): text/plain.
+        *_EAS_ERROR_PAGE_LINES,
         "",
         "        client_max_body_size 1m;",
         _NGX_PROXY_PASS_UPSTREAM,
@@ -284,6 +302,7 @@ def _crushftp_function_api_locations(
         *_AUTH_REQUEST_DIAG_LINES,
         *auth_request_set_user_lines,
         f"        error_page 401 403 503 = @portal_redirect_{slug};",
+        *_GATED_ERROR_PAGE_LINES,
         "        proxy_intercept_errors off;",
         f"        try_files /nonexistent {named};",
         "    }",
@@ -401,6 +420,7 @@ def _m2m_bypass_locations(
                 f"    location {loc_spec} {{",
                 _NGX_AUTH_REQUEST_OFF,
                 _NGX_MODSECURITY_OFF,
+                *_M2M_ERROR_PAGE_LINES,
                 *proxy,
                 "    }",
                 "",
@@ -700,6 +720,8 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "",
         "    include /etc/nginx/snippets/subdomain_auth_common.conf;",
         "",
+        *server_error_pages_lines(),
+        "",
         "    # Cookie hop — exact = beats any location ~ /\\. deny; never internal;",
         "    location = /.bastion/session-cookies {",
         _NGX_AUTH_REQUEST_OFF,
@@ -812,6 +834,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             *_AUTH_REQUEST_DIAG_LINES,
             *auth_request_set_user_lines,
             f"        error_page 401 403 503 = @portal_redirect_{slug};",
+            *_GATED_ERROR_PAGE_LINES,
             # Do not map CrushFTP/upstream 401 through @portal_redirect.
             "        proxy_intercept_errors off;",
             "",
@@ -845,6 +868,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             *_AUTH_REQUEST_DIAG_LINES,
             *auth_request_set_user_lines,
             f"        error_page 401 403 503 = @portal_redirect_{slug};",
+            *_GATED_ERROR_PAGE_LINES,
             "        proxy_intercept_errors off;",
             "",
             *proxy_body_lines,
@@ -858,8 +882,10 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             f"    location @portal_redirect_{slug} {{",
             # fetch()/XHR (Sec-Fetch-Mode: cors): stay on this Host with 401 — a 302
             # to portal /auth/login triggers cross-origin CORS preflight (405).
+            # JSON body: a bare `return 401` sends nginx's default HTML page.
+            "        default_type application/json;",
             "        if ($bastion_unauth_return_401 = 1) {",
-            "            return 401;",
+            f"            return 401 '{_UNAUTH_FETCH_BODY}';",
             "        }",
             # Portal session OK but upstream robotic cookie missing — vault impersonate
             # (same path as catalogue tile) instead of the upstream login page.

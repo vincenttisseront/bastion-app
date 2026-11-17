@@ -432,10 +432,19 @@ def test_docker_portal_admin_403_nostore_and_error_page():
         Path(__file__).resolve().parents[1]
         / "docker/nginx/templates/vhost_sso_portal.conf.template"
     ).read_text(encoding="utf-8")
-    assert "error_page 403 = /__portal_err/403;" in text
-    assert "error_page 429 = /__portal_err/429;" in text
-    assert "error_page 503 = /__portal_err/503;" in text
-    assert "error_page 500 502 504 = /__portal_err/500;" in text
+    snippets = Path(__file__).resolve().parents[1] / "docker/nginx/snippets"
+    portal_pages = (snippets / "error_pages_portal_html.conf").read_text(encoding="utf-8")
+    assert "include /etc/nginx/snippets/error_pages.conf;" in text
+    assert "error_pages_portal_html.conf" in (snippets / "error_pages.conf").read_text(
+        encoding="utf-8"
+    )
+    assert "error_page 403 = /__portal_err/403;" in portal_pages
+    assert "error_page 429 = /__portal_err/429;" in portal_pages
+    assert "error_page 503 = /__portal_err/503;" in portal_pages
+    # Gateway errors: static page from nginx (bastion-app is often the cause).
+    assert "error_page 400 405 408 413 414 500 502 504 /__bastion_errors/$status.html;" in (
+        portal_pages
+    )
     assert "location = /__portal_err/403" in text
     assert 'proxy_pass http://$bastion_app_upstream/errors/403;' in text
     assert 'proxy_pass http://$bastion_app_upstream/errors/429;' in text

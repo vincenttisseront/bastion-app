@@ -211,6 +211,9 @@ def generate_nginx_realms_conf(
         lines.append("    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;")
         lines.append("    proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;")
         lines.append("    proxy_set_header X-Forwarded-Host $host;")
+        # oauth2-proxy error pages (callback CSRF / state 403, 500…) → portal
+        # branded pages (portal vhost error_page list; its default is off).
+        lines.append("    proxy_intercept_errors on;")
         lines.append("}")
         lines.append("")
 

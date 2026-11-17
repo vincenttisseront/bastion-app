@@ -376,6 +376,8 @@ def _html_client_error_response(
         "errors/400.html",
         **ctx,
         error_message=message,
+        # Shown on the page: 405 / 413 / 422 … must not read "400".
+        error_code=status_code,
         status_code=status_code,
     )
 
