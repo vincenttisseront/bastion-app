@@ -1,0 +1,64 @@
+{% set ai = llm | default({}) %}
+<div class="form-section config-panel" id="llm" role="tabpanel" aria-labelledby="tab-llm" hidden>
+  <div class="form-section-header">
+    <div class="form-section-title">
+      {{ _('Assistant IA (LLM local)') }}
+      {% if ai.state == 'available' %}
+      <span class="badge badge-ok" id="llm-status-badge">{{ _('Assistant IA : disponible') }}</span>
+      {% elif ai.state == 'unavailable' %}
+      <span class="badge badge-err" id="llm-status-badge">{{ _('Assistant IA : indisponible') }}</span>
+      {% elif ai.state == 'unknown' %}
+      <span class="badge badge-warn" id="llm-status-badge">{{ _('Assistant IA : non vérifié') }}</span>
+      {% else %}
+      <span class="badge badge-muted" id="llm-status-badge">{{ _('Assistant IA : désactivé') }}</span>
+      {% endif %}
+    </div>
+    <div class="form-section-sub">
+      {{ _('Modèle local servi par Ollama, pour des aides en lecture seule (explications, résumés, suggestions).') }}
+      {{ _('Optionnel : le portail fonctionne à l’identique sans lui. Il n’intervient jamais dans le login, le MFA, le proxy, le WAF ni les bannissements.') }}
+      {{ _('Chaque proposition doit être validée par un administrateur ; les secrets sont masqués avant envoi.') }}
+    </div>
+  </div>
+
+  {% if not ai.env_enabled %}
+  <p class="form-help" id="llm-env-disabled">
+    {{ _('Désactivé au niveau du serveur : définissez') }} <span class="mono">LLM_ENABLED=true</span>
+    {{ _('(et') }} <span class="mono">OLLAMA_URL</span>, <span class="mono">LLM_MODEL</span>{{ _(') puis redémarrez le portail.') }}
+  </p>
+  {% endif %}
+
+  <form method="post" action="/admin/configuration/llm" id="llm-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-group">
+      <label class="form-label form-check-row">
+        <input type="checkbox" name="llm_enabled" value="on"
+               {% if ai.admin_enabled %}checked{% endif %}>
+        {{ _("Activer l'assistant IA") }}
+      </label>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <span class="form-label">{{ _('Serveur Ollama') }}</span>
+        <span class="mono">{{ ai.url or '—' }}</span>
+      </div>
+      <div class="form-group">
+        <span class="form-label">{{ _('Modèle') }}</span>
+        <span class="mono">{{ ai.model or '—' }}</span>
+      </div>
+    </div>
+    {% if ai.last_success %}
+    <p class="form-help">{{ _('Dernière réponse valide :') }} {{ ai.last_success }}</p>
+    {% endif %}
+    {% if ai.last_error %}
+    <p class="form-help" id="llm-last-error">{{ _('Dernière erreur :') }} <span class="mono">{{ ai.last_error }}</span></p>
+    {% endif %}
+    <div class="form-actions" style="margin-top:var(--sp-3);">
+      <button type="submit" class="btn btn-primary">{{ _('Enregistrer') }}</button>
+      <button type="submit" form="llm-probe-form" class="btn btn-secondary"
+              {% if not ai.env_enabled %}disabled{% endif %}>{{ _('Tester la connexion') }}</button>
+    </div>
+  </form>
+  <form method="post" action="/admin/configuration/llm/probe" id="llm-probe-form" hidden>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  </form>
+</div>

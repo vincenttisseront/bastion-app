@@ -178,6 +178,11 @@
                   <form method="post" action="/admin/access-requests/{{ r.id }}/reject">
                     <button type="submit" class="btn btn-ghost btn-sm">{{ _('Rejeter') }}</button>
                   </form>
+                  {% if llm_on %}
+                  <form method="post" action="/admin/assistant/access-requests/{{ r.id }}">
+                    <button type="submit" class="btn btn-ghost btn-sm" data-llm-action="access-request">{{ _('Avis IA') }}</button>
+                  </form>
+                  {% endif %}
                 </div>
                 {% elif r.bastion_account_id %}
                 <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ r.bastion_account_id }}">{{ _('Fiche compte') }}</a>
@@ -186,6 +191,23 @@
                 {% endif %}
               </td>
             </tr>
+            {% set ai = (llm_insights | default({})).get(r.id | string) %}
+            {% if ai %}
+            <tr class="ar-llm-row" id="ar-llm-{{ r.id }}">
+              <td colspan="20">
+                <div class="alert alert-info">
+                  <div class="alert-body">
+                    <span class="badge badge-muted">{{ _('Généré par IA') }}</span>
+                    <strong>{{ ai.payload.recommendation | replace('_', ' ') }}</strong> — {{ ai.payload.summary }}
+                    {% if ai.payload.justification %}<br>{{ ai.payload.justification }}{% endif %}
+                    {% if ai.payload.suggested_realm %}<br>{{ _('Realm suggéré :') }} <span class="mono">{{ ai.payload.suggested_realm }}</span>{% endif %}
+                    {% if ai.payload.suggested_applications %}<br>{{ _('Applications des pairs :') }} <span class="mono">{{ ai.payload.suggested_applications | join(', ') }}</span>{% endif %}
+                    {% if ai.payload.risks %}<br>{{ _('Points d’attention :') }} {{ ai.payload.risks | join(' · ') }}{% endif %}
+                  </div>
+                </div>
+              </td>
+            </tr>
+            {% endif %}
             {% endfor %}
           </tbody>
         </table>

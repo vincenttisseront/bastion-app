@@ -122,6 +122,18 @@
           {% endfor %}
         </div>
       </div>
+    {% if llm_on %}
+    <form class="bp-card-body" method="post" action="/admin/assistant/audit-search" id="audit-llm-search"
+          style="display:flex;gap:var(--sp-2);align-items:end;flex-wrap:wrap;">
+      <label class="logs-filter-field logs-filter-grow">
+        <span class="form-label">{{ _('Question en langage naturel (IA)') }}</span>
+        <input type="text" class="form-input" name="question" maxlength="500" required
+               placeholder="{{ _('ex. échecs de connexion admin depuis hier soir') }}">
+      </label>
+      <label class="form-check"><input type="checkbox" name="save_view" value="on"> {{ _('Enregistrer comme vue') }}</label>
+      <button type="submit" class="btn btn-secondary btn-sm">{{ _('Traduire en filtres') }}</button>
+    </form>
+    {% endif %}
     <form class="logs-filters bp-card-body" method="get" action="/admin/logs" id="audit-filters" data-live-search data-live-delay="400"
           data-bastion-busy-target="#audit-table-wrap" data-bastion-busy-label="{{ _('Chargement des journaux…') }}">
       <input type="hidden" name="columns" id="filter-columns" value="{{ visible_columns | join(',') }}">

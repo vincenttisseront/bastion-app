@@ -509,6 +509,47 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Optional local LLM assistant (Ollama). Off by default: with LLM_ENABLED
+    # unset, app.llm never opens a socket. Effective only when the admin toggle
+    # (PortalSettings.llm_enabled) is also on. Never used on a critical path.
+    llm_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("LLM_ENABLED", "llm_enabled"),
+    )
+    ollama_url: str = Field(
+        default="http://127.0.0.1:11434",
+        validation_alias=AliasChoices("OLLAMA_URL", "ollama_url"),
+    )
+    llm_model: str = Field(
+        default="qwen3:14b",
+        validation_alias=AliasChoices("LLM_MODEL", "llm_model"),
+    )
+    llm_connect_timeout_s: float = Field(
+        default=2.0,
+        validation_alias=AliasChoices("LLM_CONNECT_TIMEOUT_S", "llm_connect_timeout_s"),
+    )
+    llm_timeout_s: float = Field(
+        default=45.0,
+        validation_alias=AliasChoices("LLM_TIMEOUT_S", "llm_timeout_s"),
+    )
+    # Ollama context window (tokens). Its default is small and silently truncates prompts.
+    llm_num_ctx: int = Field(
+        default=8192,
+        validation_alias=AliasChoices("LLM_NUM_CTX", "llm_num_ctx"),
+    )
+    llm_max_concurrency: int = Field(
+        default=1,
+        validation_alias=AliasChoices("LLM_MAX_CONCURRENCY", "llm_max_concurrency"),
+    )
+    llm_breaker_failures: int = Field(
+        default=3,
+        validation_alias=AliasChoices("LLM_BREAKER_FAILURES", "llm_breaker_failures"),
+    )
+    llm_breaker_cooldown_s: float = Field(
+        default=300.0,
+        validation_alias=AliasChoices("LLM_BREAKER_COOLDOWN_S", "llm_breaker_cooldown_s"),
+    )
+
     @field_validator("portal_admin_groups", mode="before")
     @classmethod
     def parse_portal_admin_groups(cls, value: Any) -> list[str]:

@@ -115,7 +115,26 @@ def admin_dependencies_page(
         inventory_stale=inventory_stale,
         inventory_age_hours=round(inventory_age_hours, 1) if inventory_age_hours is not None else None,
         has_snapshots=bool(rows),
+        **_llm_dependencies_context(db, settings),
     )
+
+
+def _llm_dependencies_context(db: Session, settings: Settings) -> dict:
+    """Optional AI review shown above the inventory; never alters it."""
+    from app.llm.ui import llm_ui_context
+    from app.models import LlmInsight
+
+    ctx = llm_ui_context(db, settings)
+    try:
+        ctx["llm_dependency_review"] = (
+            db.query(LlmInsight)
+            .filter(LlmInsight.kind == "dependency_review")
+            .order_by(LlmInsight.id.desc())
+            .first()
+        ) if ctx["llm_on"] else None
+    except Exception:  # noqa: BLE001 — optional block, page renders without it
+        ctx["llm_dependency_review"] = None
+    return ctx
 
 
 @router.post("/admin/dependencies/refresh")

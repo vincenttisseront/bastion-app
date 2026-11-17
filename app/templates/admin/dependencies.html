@@ -38,9 +38,40 @@
         <button type="submit" class="btn btn-primary btn-sm">{{ _('Actualiser') }}</button>
       </form>
       <a href="/admin/dependencies/export.json?status=outdated" class="btn btn-secondary btn-sm">{{ _('Export MAJ (JSON)') }}</a>
+      {% if llm_on %}
+      <form method="post" action="/admin/assistant/dependencies" style="margin:0;">
+        <button type="submit" class="btn btn-secondary btn-sm" data-llm-action="dependencies">{{ _('Synthèse IA') }}</button>
+      </form>
+      {% endif %}
       <a href="/admin/dependencies/export.json" class="btn btn-ghost btn-sm">{{ _('Export tout (JSON)') }}</a>
     </div>
   </div>
+
+  {% set review = llm_dependency_review | default(none) %}
+  {% if review %}
+  <details class="form-section" id="dep-llm-review" style="max-width:64rem;">
+    <summary class="form-section-title">
+      {{ _('Synthèse IA des mises à jour') }} <span class="badge badge-muted">{{ _('Généré par IA') }}</span>
+      <span class="form-help">{{ review.created_at.strftime('%Y-%m-%d %H:%M UTC') if review.created_at else '' }} · {{ review.model }}</span>
+    </summary>
+    <p>{{ review.payload.summary }}</p>
+    <p class="form-help">{{ _('Sans données de vulnérabilité : priorités fondées sur l’exposition et le retard de version, pas sur des CVE.') }}</p>
+    {% if review.payload.priorities %}
+    <table class="table">
+      <thead><tr><th>{{ _('Priorité') }}</th><th>{{ _('Paquet') }}</th><th>{{ _('Version') }}</th><th>{{ _('Raison') }}</th></tr></thead>
+      <tbody>
+      {% for p in review.payload.priorities %}
+      <tr><td>{{ p.priority }}</td><td class="mono">{{ p.ecosystem }}:{{ p.name }}</td><td class="mono">{{ p.from_version }} → {{ p.to_version }}</td><td>{{ p.reason }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    <div class="form-label">{{ _('Brouillon de PR') }}</div>
+    <pre class="mono" style="white-space:pre-wrap;" id="dep-llm-pr">{{ review.payload.pr_title }}
+
+{{ review.payload.pr_body }}</pre>
+  </details>
+  {% endif %}
 
   <div class="metrics-grid dep-metrics" aria-label="{{ _('Synthèse des dépendances') }}">
     <div class="metric-card info">

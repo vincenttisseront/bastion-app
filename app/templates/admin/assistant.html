@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Assistant IA') }}{% endblock %}
+{% block breadcrumb %}Admin / {{ _('Assistant IA') }}{% endblock %}
+
+{% block content %}
+<div class="page" id="assistant-page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{{ _('Assistant IA') }}</h1>
+      <p class="page-sub">
+        {{ _('Analyses et propositions du modèle local. Elles ne modifient rien : chaque proposition attend la décision d’un administrateur.') }}
+      </p>
+    </div>
+    <div style="display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;">
+      {% if llm.state == 'available' %}
+      <span class="badge badge-ok" id="llm-status-badge">{{ _('Assistant IA : disponible') }}</span>
+      {% elif llm.state == 'unavailable' %}
+      <span class="badge badge-err" id="llm-status-badge">{{ _('Assistant IA : indisponible') }}</span>
+      {% elif llm.state == 'unknown' %}
+      <span class="badge badge-warn" id="llm-status-badge">{{ _('Assistant IA : non vérifié') }}</span>
+      {% else %}
+      <span class="badge badge-muted" id="llm-status-badge">{{ _('Assistant IA : désactivé') }}</span>
+      {% endif %}
+      <a href="/admin/configuration#llm" class="btn btn-secondary btn-sm">{{ _('Configuration') }}</a>
+    </div>
+  </div>
+
+  {% if llm.state == 'disabled' %}
+  <div class="alert alert-info" style="max-width:52rem;">
+    <div class="alert-body">{{ _('Assistant désactivé : le portail fonctionne normalement, sans analyses IA.') }}</div>
+  </div>
+  {% endif %}
+
+  {% if llm.state != 'disabled' %}
+  <div class="form-section" id="assistant-actions">
+    <div class="form-section-header">
+      <div class="form-section-title">{{ _('Analyses à la demande') }}</div>
+      <div class="form-section-sub">{{ _('Chaque analyse tourne en arrière-plan sur le modèle local ; le résultat apparaît ci-dessous.') }}</div>
+    </div>
+    <div class="form-actions" style="flex-wrap:wrap;gap:var(--sp-2);">
+      {% for action in actions %}
+      <form method="post" action="{{ action.url }}" style="margin:0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-secondary btn-sm">{{ _(action.label) }}</button>
+      </form>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <p class="form-help" id="assistant-recert-raw">
+    {{ _('Revue des permissions, données brutes (sans IA) :') }}
+    <a href="/admin/assistant/recertification.csv">{{ _('export CSV') }}</a>
+  </p>
+
+  <form method="get" action="/admin/assistant" class="form-row" id="assistant-filters" style="margin:var(--sp-4) 0;">
+    <div class="form-group">
+      <label class="form-label" for="kind">{{ _('Type') }}</label>
+      <select id="kind" name="kind" class="form-input">
+        <option value="">{{ _('Tous') }}</option>
+        {% for key, label in kind_labels.items() %}
+        <option value="{{ key }}" {% if kind == key %}selected{% endif %}>{{ _(label) }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="status">{{ _('Statut') }}</label>
+      <select id="status" name="status" class="form-input">
+        <option value="">{{ _('Tous') }}</option>
+        {% for key in ['proposed', 'accepted', 'rejected', 'info'] %}
+        <option value="{{ key }}" {% if status == key %}selected{% endif %}>{{ _(status_labels[key]) }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group" style="align-self:end;">
+      <button type="submit" class="btn btn-secondary btn-sm">{{ _('Filtrer') }}</button>
+    </div>
+  </form>
+
+  {% if not insights %}
+  <p class="form-help" id="assistant-empty">{{ _('Aucune analyse pour le moment.') }}</p>
+  {% endif %}
+
+  {% for ins in insights %}
+  {% include "admin/_llm_insight_card.html" %}
+  {% endfor %}
+</div>
+{% endblock %}

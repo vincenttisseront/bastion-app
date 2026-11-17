@@ -52,7 +52,7 @@
       + (bastion_accounts_count | int)
     )) | int %}
     {% set pending_nav_open = path.startswith('/admin/pending-hosts') or path.startswith('/admin/pending-users') or path.startswith('/admin/pending-devices') or path.startswith('/admin/access-requests') %}
-    {% set general_open = path.startswith('/admin/branding') or path.startswith('/admin/configuration') or path.startswith('/admin/setup-wizard') %}
+    {% set general_open = path.startswith('/admin/branding') or path.startswith('/admin/configuration') or path.startswith('/admin/setup-wizard') or path.startswith('/admin/assistant') %}
     {% set access_open = path.startswith('/admin/realms') or path.startswith('/admin/rbac') or path == '/admin/security' or path.startswith('/admin/security/waf') or path.startswith('/admin/acme') %}
     {% set content_open = path.startswith('/admin/apps') or path.startswith('/admin/files') or path.startswith('/files') or pending_nav_open %}
     {% set infra_open = path.startswith('/admin/infrastructure') or path.startswith('/admin/dependencies') or path.startswith('/admin/logs') or path == '/admin/health' %}
@@ -72,6 +72,10 @@
     <a href="/admin/configuration" class="nav-item{% if path.startswith('/admin/configuration') %} active{% endif %}" data-nav-label="Configuration">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       Configuration
+    </a>
+    <a href="/admin/assistant" class="nav-item{% if path.startswith('/admin/assistant') %} active{% endif %}" data-nav-label="{{ _('Assistant IA') }}">
+      <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 1.9 1.9.8-1.9.8L19 20.4l-.8-1.9-1.9-.8 1.9-.8z"/></svg>
+      {{ _('Assistant IA') }}
     </a>
     {% endcall %}
 

@@ -541,9 +541,12 @@ def admin_logs_page(
     )
     catalog_codes = sorted(EVENTS.keys())
     ctx = base_template_context(request, settings, APP_VERSION)
+    from app.llm.ui import llm_ui_context
+
     return render(
         "admin/logs.html",
         **ctx,
+        **llm_ui_context(db, settings),
         entries=entries,
         logs_unavailable=logs_unavailable,
         total=total,
