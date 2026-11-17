@@ -341,7 +341,9 @@
               {% if realm.last_groups_sync_status == 'ok' %}
                 {{ _('Dernière sync') }} : {{ realm.last_groups_sync_at or '—' }}
               {% elif realm.last_groups_sync_status == 'error' %}
-                {{ _('Dernière sync en erreur') }} : {{ realm.last_groups_sync_error or '—' }}
+                {{ _('Dernière sync en erreur') }}{% if sync_failure %} ({{ sync_failure.created_at | format_datetime }}){% endif %} : {{ realm.last_groups_sync_error or '—' }}
+                {% if sync_failure %}· <a href="/admin/logs?id={{ sync_failure.id }}">{{ _("Voir l'entrée d'audit") }}</a>{% endif %}
+                {% if realm.last_groups_sync_at %}<br>{{ _('Dernière sync réussie') }} : {{ realm.last_groups_sync_at | format_datetime }}{% endif %}
               {% else %}
                 {{ _('Jamais synchronisé') }}
               {% endif %}

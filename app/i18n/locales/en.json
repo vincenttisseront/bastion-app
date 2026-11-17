@@ -3036,6 +3036,8 @@
   "Importer les groupes Keycloak et relire les effectifs (users)": "Import Keycloak groups and refresh member counts (users)",
   "Configurer le compte de service Keycloak": "Configure the Keycloak service account",
   "Dernière sync en erreur": "Last sync failed",
+  "Dernière sync réussie": "Last successful sync",
+  "Voir l'entrée d'audit": "Open the audit entry",
   "Version déployée": "Deployed version",
   "24 h · aucune activité CRS enregistrée (mesure effectuée — RelevantOnly)": "24 h · no CRS activity recorded (measured — RelevantOnly)",
   "Déduit de la chaîne Include ModSecurity du dépôt / image — pas une sonde runtime": "Derived from the ModSecurity Include chain in the repo / image — not a runtime probe",

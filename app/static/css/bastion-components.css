@@ -1083,6 +1083,7 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 .users-row-actions form{display:inline;margin:0}
 .realms-slug-cell{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .realms-row-actions{flex-wrap:nowrap}
+.realms-sync-fail-link{display:inline-flex;text-decoration:none;border-radius:999px}
 .acme-config-form .form-label{margin-bottom:var(--sp-1);font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.04em;color:var(--text-3,var(--text-2))}
 .acme-config-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--sp-3);align-items:end}
 .acme-token-row{display:flex;gap:var(--sp-3);align-items:flex-end;grid-template-columns:unset}

@@ -9,11 +9,10 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.admin.throttling import check_sync_rate_limit
-from app.audit import log_action
 from app.database import get_db
 from app.models import RBACGroup, RealmConfig
 from app.rbac.groups_service import GroupNotEmptyError, delete_empty_rbac_group
-from app.rbac.keycloak_admin import sync_keycloak_groups
+from app.rbac.groups_sync_service import run_groups_sync
 from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
 from app.web.flash import flash_redirect
@@ -132,48 +131,14 @@ async def admin_rbac_groups_sync(
         msg = f"Trop de synchronisations — réessayez dans {wait:.0f}s"
         return _sync_error_response(request, settings, msg=msg, status_code=429)
 
-    try:
-        result = await sync_keycloak_groups(realm, db, settings)
-        db.commit()
-        from app.rbac.users_stats_service import clear_user_stats_cache
-
-        clear_user_stats_cache()
-    except ValueError as exc:
-        db.rollback()
-        msg = str(exc) or "Erreur de synchronisation"
-        realm.last_groups_sync_status = "error"
-        realm.last_groups_sync_error = msg
-        db.commit()
-        return _sync_error_response(request, settings, msg=msg, status_code=400)
-    except Exception:
-        db.rollback()
-        logger.exception("RBAC groups sync failed")
-        msg = "Erreur serveur pendant la synchronisation des groupes"
-        realm.last_groups_sync_status = "error"
-        realm.last_groups_sync_error = msg
-        db.commit()
-        return _sync_error_response(request, settings, msg=msg, status_code=500)
-
-    log_action(
-        db,
-        actor=user.email,
-        action="rbac.groups.sync",
-        target=realm.slug,
-        details={
-            k: result.get(k)
-            for k in (
-                "status",
-                "fetched",
-                "imported",
-                "updated",
-                "orphaned",
-                "skipped",
-                "members_refreshed",
-                "members_total",
-            )
-        },
-        ip_address=_client_ip(request),
+    outcome = await run_groups_sync(
+        db, realm, settings, actor=user.email, ip_address=_client_ip(request)
     )
+    if not outcome.ok:
+        return _sync_error_response(
+            request, settings, msg=outcome.message, status_code=outcome.http_status
+        )
+    result = outcome.result
 
     if _wants_json(request):
         return JSONResponse({"ok": True, **result})
@@ -191,10 +156,16 @@ async def admin_rbac_groups_sync(
             f" · effectifs Keycloak : {result.get('members_total', 0)} membre(s) "
             f"sur {result.get('members_refreshed')} groupe(s)"
         )
-    else:
+    elif not result.get("members_failed"):
         members_bit = (
             " · effectifs non relus (renseignez le filtre « Groupes à synchroniser » "
             "sur la fiche realm pour compter les membres)"
+        )
+
+    if result.get("members_failed"):
+        members_bit += (
+            f" · effectifs non relus pour {result['members_failed']} groupe(s) : "
+            f"{result.get('members_error') or 'erreur Keycloak'}"
         )
 
     # Empty groups are hidden on /admin/rbac by default — show them after sync.

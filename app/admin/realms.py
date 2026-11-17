@@ -369,9 +369,13 @@ def admin_realms_list(
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
+    from app.rbac.groups_sync_service import last_sync_failures
+
     schema_error: str | None = None
+    sync_failures: dict = {}
     try:
         realms = db.query(RealmConfig).order_by(RealmConfig.slug).all()
+        sync_failures = last_sync_failures(db, realms)
     except SQLAlchemyError:
         logger.exception("Realm list query failed — schema migration likely pending")
         realms = []
@@ -386,6 +390,7 @@ def admin_realms_list(
             request,
             settings,
             realms=realms,
+            sync_failures=sync_failures,
             schema_error=schema_error,
             encryption_error=encryption_error,
         ),
@@ -790,6 +795,8 @@ def admin_realms_edit(
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
+    from app.rbac.groups_sync_service import last_sync_failures
+
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if not realm:
         raise HTTPException(status_code=404)
@@ -799,6 +806,7 @@ def admin_realms_edit(
             request,
             settings,
             realm=realm,
+            sync_failure=last_sync_failures(db, [realm]).get(realm.slug),
             form_values=_realm_form_values(realm),
             errors={},
             encryption_error=_guard_encryption(settings),
@@ -1285,6 +1293,11 @@ def _groups_sync_flash(result: dict) -> str:
             f" · {result.get('members_total', 0)} utilisateur(s) "
             f"sur {result.get('members_refreshed')} groupe(s)"
         )
+    if result.get("members_failed"):
+        members_bit += (
+            f" · effectifs non relus pour {result['members_failed']} groupe(s) : "
+            f"{result.get('members_error') or 'erreur Keycloak'}"
+        )
     return f"Synchronisation groupes/users OK ({', '.join(parts)}){members_bit}."
 
 
@@ -1303,8 +1316,7 @@ async def admin_realms_force_sync(
 ):
     """Force Keycloak groups (+ member counts) import for one realm."""
     from app.admin.throttling import check_sync_rate_limit
-    from app.rbac.keycloak_admin import sync_keycloak_groups
-    from app.rbac.users_stats_service import clear_user_stats_cache
+    from app.rbac.groups_sync_service import run_groups_sync
 
     _require_csrf(request, settings, csrf_token)
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
@@ -1321,54 +1333,17 @@ async def admin_realms_force_sync(
         flash_redirect(response, msg, "error", secret)
         return response
 
-    try:
-        result = await sync_keycloak_groups(realm, db, settings)
-        db.commit()
-        clear_user_stats_cache()
-    except ValueError as exc:
-        db.rollback()
-        msg = str(exc) or "Erreur de synchronisation"
-        realm.last_groups_sync_status = "error"
-        realm.last_groups_sync_error = msg
-        db.commit()
-        if resp := _error_response(request, 400, msg):
+    outcome = await run_groups_sync(
+        db, realm, settings, actor=user.email, ip_address=_client_ip(request)
+    )
+    if not outcome.ok:
+        if resp := _error_response(request, outcome.http_status, outcome.message):
             return resp
         response = RedirectResponse(url=dest, status_code=302)
-        flash_redirect(response, msg, "error", secret)
-        return response
-    except Exception:
-        db.rollback()
-        logger.exception("Realm groups/users sync failed")
-        msg = "Erreur serveur pendant la synchronisation des groupes"
-        realm.last_groups_sync_status = "error"
-        realm.last_groups_sync_error = msg
-        db.commit()
-        if resp := _error_response(request, 500, msg):
-            return resp
-        response = RedirectResponse(url=dest, status_code=302)
-        flash_redirect(response, msg, "error", secret)
+        flash_redirect(response, outcome.message, "error", secret)
         return response
 
-    log_action(
-        db,
-        actor=user.email,
-        action="rbac.groups.sync",
-        target=realm.slug,
-        details={
-            k: result.get(k)
-            for k in (
-                "status",
-                "fetched",
-                "imported",
-                "updated",
-                "orphaned",
-                "skipped",
-                "members_refreshed",
-                "members_total",
-            )
-        },
-        ip_address=_client_ip(request),
-    )
+    result = outcome.result
     if _wants_json(request):
         return JSONResponse({"ok": True, **result})
     response = RedirectResponse(url=dest, status_code=302)

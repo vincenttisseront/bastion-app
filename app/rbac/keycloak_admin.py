@@ -101,13 +101,39 @@ def _unverified_claims(token: str | None) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _admin_401_hint(token: str | None, called_url: str | None) -> str:
-    """Explain a 401 from the Admin API using what the rejected token says."""
+class KeycloakAdminError(ValueError):
+    """Keycloak Admin API / token endpoint failure, with the facts logs need.
+
+    Still a ValueError, so every existing ``except ValueError`` keeps working.
+    ``url`` never carries the query string (user searches) and nothing here
+    carries a token or a secret: ``token_scope`` is the token's scope claim.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        cause: str,
+        status: int | None = None,
+        url: str | None = None,
+        client_id: str | None = None,
+        token_scope: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.cause = cause
+        self.status = status
+        self.url = (url or "").split("?", 1)[0] or None
+        self.client_id = client_id or None
+        self.token_scope = token_scope or None
+
+
+def _admin_401_diagnosis(token: str | None, called_url: str | None) -> tuple[str, str]:
+    """(cause, explanation) for a 401 from the Admin API, from the rejected token."""
     claims = _unverified_claims(token)
     client = str(claims.get("azp") or "").strip()
     who = f"du client « {client} »" if client else "du compte de service"
     if claims and KC_ADMIN_API_SCOPE not in str(claims.get("scope") or "").split():
-        return (
+        return "missing_admin_api_scope", (
             f"le token {who} ne porte pas le client scope « {KC_ADMIN_API_SCOPE} » : "
             "depuis Keycloak 26.8.2, l'Admin REST API refuse un tel token. Dans "
             f"Keycloak, ajoutez « {KC_ADMIN_API_SCOPE} » aux client scopes par défaut "
@@ -127,20 +153,35 @@ def _admin_401_hint(token: str | None, called_url: str | None) -> str:
         expected = f"{base}/realms/{unquote(rest.split('/', 1)[0].split('?', 1)[0])}"
         if issuer != expected:
             hint += f" Issuer du token : {issuer} ; realm appelé : {expected}."
-    return hint
+    return "token_rejected", hint
 
 
-def _admin_failure(label: str, resp: httpx.Response) -> ValueError:
+def _admin_error(
+    label: str, status: int, token: str | None, url: str | None
+) -> KeycloakAdminError:
+    """Error for an Admin API call that answered ``status`` (>= 400)."""
+    claims = _unverified_claims(token)
+    facts = {
+        "status": status,
+        "url": url,
+        "client_id": str(claims.get("azp") or ""),
+        "token_scope": str(claims.get("scope") or ""),
+    }
+    if status != 401:
+        return KeycloakAdminError(f"{label} (HTTP {status})", cause="http_error", **facts)
+    cause, hint = _admin_401_diagnosis(token, url)
+    return KeycloakAdminError(f"{label} (HTTP 401) : {hint}", cause=cause, **facts)
+
+
+def _admin_failure(label: str, resp: httpx.Response) -> KeycloakAdminError:
     """Error for a failed Admin API call; a 401 says why Keycloak refused it."""
-    if resp.status_code != 401:
-        return ValueError(f"{label} (HTTP {resp.status_code})")
     try:
         request = resp.request
     except RuntimeError:  # response built without a request (stubs)
-        return ValueError(f"{label} (HTTP 401) : {_admin_401_hint(None, None)}")
+        return _admin_error(label, resp.status_code, None, None)
     scheme, _, bearer = request.headers.get("Authorization", "").partition(" ")
     token = bearer.strip() if scheme.lower() == "bearer" else None
-    return ValueError(f"{label} (HTTP 401) : {_admin_401_hint(token, str(request.url))}")
+    return _admin_error(label, resp.status_code, token, str(request.url))
 
 
 def _evict_cached_token(token: str) -> None:
@@ -1040,9 +1081,18 @@ async def _client_credentials_token(
     content_type = resp.headers.get("content-type", "")
     body = resp.json() if content_type.startswith("application/json") else {}
     if resp.status_code >= 400:
+        facts = {"status": resp.status_code, "url": token_endpoint, "client_id": client_id}
         if body.get("error") == "invalid_client":
-            raise ValueError("Client ID ou secret du compte de service invalide")
-        raise ValueError(f"Échec récupération token admin (HTTP {resp.status_code})")
+            raise KeycloakAdminError(
+                "Client ID ou secret du compte de service invalide",
+                cause="invalid_client",
+                **facts,
+            )
+        raise KeycloakAdminError(
+            f"Échec récupération token admin (HTTP {resp.status_code})",
+            cause="token_endpoint_error",
+            **facts,
+        )
     token = body.get("access_token")
     if not token:
         raise ValueError("Réponse token admin invalide (access_token manquant)")
@@ -1204,16 +1254,18 @@ async def _fetch_keycloak_groups_with_token(
     async with httpx.AsyncClient(timeout=_GROUPS_TREE_TIMEOUT) as client:
         status, roots = await _paginate_group_collection(client, groups_base, headers)
         if status == 403:
-            raise ValueError(_MSG_QUERY_GROUPS)
+            raise KeycloakAdminError(
+                _MSG_QUERY_GROUPS,
+                cause="missing_role",
+                status=403,
+                url=groups_base,
+                client_id=realm.keycloak_admin_client_id,
+            )
         if status == 401:
             # Next sync mints a fresh token instead of reusing the rejected one.
             _evict_cached_token(token)
-            raise ValueError(
-                "Échec lecture groupes Keycloak (HTTP 401) : "
-                f"{_admin_401_hint(token, groups_base)}"
-            )
         if status >= 400:
-            raise ValueError(f"Échec lecture groupes Keycloak (HTTP {status})")
+            raise _admin_error("Échec lecture groupes Keycloak", status, token, groups_base)
         return await _hydrate_group_tree(client, groups_base, headers, roots)
 
 
@@ -1292,10 +1344,13 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
 
     try:
         raw = await fetch_keycloak_groups(realm, settings)
-    except httpx.TimeoutException as exc:
-        raise ValueError(f"Keycloak injoignable depuis le serveur : {exc}") from exc
-    except httpx.RequestError as exc:
-        raise ValueError(f"Keycloak injoignable depuis le serveur : {exc}") from exc
+    except httpx.RequestError as exc:  # timeouts included
+        raise KeycloakAdminError(
+            f"Keycloak injoignable depuis le serveur : {exc or type(exc).__name__}",
+            cause="unreachable",
+            url=realm.issuer_url,
+            client_id=realm.keycloak_admin_client_id,
+        ) from exc
 
     groups = _flatten_groups(raw if isinstance(raw, list) else [])
     fetched = len(groups)
@@ -1354,32 +1409,47 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
     db.flush()
 
     rows_to_refresh = [row for row in synced_rows if row.keycloak_group_id]
+    members_failed = 0
+    members_error: str | None = None
     if rows_to_refresh:
         sem = asyncio.Semaphore(_MEMBER_REFRESH_CONCURRENCY)
-        results: list[tuple[RBACGroup, int | None]] = []
 
-        async def _refresh_one(row: RBACGroup) -> tuple[RBACGroup, int | None]:
+        async def _refresh_one(row: RBACGroup) -> tuple[RBACGroup, int | None, str | None]:
             async with sem:
                 try:
                     members = await fetch_group_members(
                         realm, row.keycloak_group_id, settings
                     )
-                    return row, len(members)
-                except Exception:
+                    return row, len(members), None
+                except ValueError as exc:  # Admin API answer: one summary line below
+                    return row, None, str(exc)
+                except Exception as exc:
                     logger.exception(
                         "Failed to refresh members for group %s (%s)",
                         row.name,
                         row.keycloak_group_id,
                     )
-                    return row, None
+                    return row, None, type(exc).__name__
 
         results = await asyncio.gather(*[_refresh_one(r) for r in rows_to_refresh])
-        for row, count in results:
+        for row, count, error in results:
             if count is None:
+                members_failed += 1
+                members_error = members_error or error
                 continue
             row.member_count = count
             members_refreshed += 1
             members_total += count
+        if members_failed:
+            logger.warning(
+                "Keycloak member counts not refreshed realm=%s client=%s "
+                "failed=%d/%d first_error=%s",
+                realm.slug,
+                realm.keycloak_admin_client_id,
+                members_failed,
+                len(rows_to_refresh),
+                members_error,
+            )
 
     # Orphans: groups in DB for this realm not refreshed this run.
     # Use equality check on the run timestamp to avoid timezone/SQLite quirks.
@@ -1407,6 +1477,8 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
         "skipped": skipped,
         "members_refreshed": members_refreshed,
         "members_total": members_total,
+        "members_failed": members_failed,
+        "members_error": members_error,
         "synced_at": now.isoformat(),
     }
 
