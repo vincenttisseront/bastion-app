@@ -1072,6 +1072,10 @@ class PortalSettings(Base):
     app_credential_renewal_interval_minutes = Column(Integer, nullable=False, default=60)
     app_credential_renewal_last_run_at = Column(UTCDateTime, nullable=True)
 
+    # Optional local LLM assistant (Ollama) — admin toggle, ANDed with env
+    # LLM_ENABLED. Off by default; nothing in the portal depends on it.
+    llm_enabled = Column(Boolean, nullable=False, default=False)
+
     # Site identity (Admin setup wizard) — preferred over .env when set.
     portal_domain = Column(String, nullable=True)
     default_realm_slug = Column(String, nullable=True)
@@ -1783,3 +1787,32 @@ class DependencySnapshot(Base):
     check_error = Column(String, nullable=True)
     # e.g. unlocked constraint when npm lockfile is missing
     notes = Column(String, nullable=True)
+
+
+class LlmInsight(Base):
+    """Output of the optional LLM assistant — never a source of truth.
+
+    Stored apart from the record it is about (``subject_type`` / ``subject_id``),
+    which stays untouched. ``status`` tracks the human decision on proposals:
+    ``info`` (read-only explanation), ``proposed`` → ``accepted`` | ``rejected``.
+    """
+
+    __tablename__ = "llm_insights"
+    __table_args__ = (
+        Index("ix_llm_insights_subject", "kind", "subject_type", "subject_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    kind = Column(String(64), nullable=False, index=True)
+    subject_type = Column(String(64), nullable=False)
+    subject_id = Column(String(255), nullable=False)
+    status = Column(String(16), nullable=False, default="info", index=True)
+    payload = Column(JSON, nullable=False, default=dict)
+    model = Column(String(128), nullable=True)
+    prompt_sha256 = Column(String(64), nullable=True)
+    generated_by = Column(String(64), nullable=False, default="llm")
+    requested_by = Column(String, nullable=True)
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow, index=True)
+    decided_by = Column(String, nullable=True)
+    decided_at = Column(UTCDateTime, nullable=True)
+    decision_note = Column(Text, nullable=True)

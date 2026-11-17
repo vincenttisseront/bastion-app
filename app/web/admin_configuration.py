@@ -18,7 +18,7 @@ from app.sso_settings import Settings, get_settings
 from app.web.admin_infrastructure import host_apply_wait_redirect
 from app.web.constants import APP_VERSION
 from app.web.csrf import portal_signing_secret
-from app.web.flash import base_template_context, flash_redirect
+from app.web.flash import base_template_context, flash_i18n, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
 
@@ -31,6 +31,7 @@ _CONFIG_ACCOUNTS = "/admin/configuration#accounts"
 _CONFIG_SIEM = "/admin/configuration#siem"
 _CONFIG_HOT_STORE = "/admin/configuration#hot-store"
 _CONFIG_MTA_STS = "/admin/configuration#mta-sts"
+_CONFIG_LLM = "/admin/configuration#llm"
 
 
 def _form_bool(value: str | None) -> bool:
@@ -55,13 +56,13 @@ def admin_configuration_page(
     user=Depends(require_admin),
 ):
     from app.db.hot_store import get_hot_store_status
+    from app.llm.service import llm_public_status
     from app.mail.mta_sts_service import mta_sts_public_status
+    from app.rbac.account_lifecycle_service import lifecycle_public_status
+    from app.rbac.app_credential_renewal_service import renewal_public_status
     from app.siem.ca_service import get_ca_api_status
     from app.siem.settings_service import ensure_siem_settings
     from app.siem.settings_service import public_status as siem_public_status
-
-    from app.rbac.account_lifecycle_service import lifecycle_public_status
-    from app.rbac.app_credential_renewal_service import renewal_public_status
 
     row = ensure_portal_settings(db, settings)
     siem_settings = ensure_siem_settings(db)
@@ -99,6 +100,7 @@ def admin_configuration_page(
         siem_ca=siem_ca,
         hot_store=get_hot_store_status(db, settings),
         mta_sts=mta_sts_public_status(db, settings),
+        llm=llm_public_status(settings, row),
     )
     return render("admin/configuration.html", **ctx)
 
@@ -836,3 +838,66 @@ def admin_hot_store_realign(
         audit_target="postgres",
         audit_source="hot_store.realign",
     )
+
+
+@router.post("/admin/configuration/llm")
+def admin_configuration_llm_save(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    llm_enabled: str | None = Form(None),
+):
+    from app.llm.service import update_llm_settings
+
+    token = portal_signing_secret(settings)
+    response = RedirectResponse(url=_CONFIG_LLM, status_code=302)
+    update_llm_settings(
+        db,
+        settings,
+        actor=admin_actor(user),
+        ip_address=client_ip_from_request(request),
+        enabled=_form_bool(llm_enabled),
+    )
+    flash_i18n(request, response, "Paramètres de l'assistant IA enregistrés.", "success", token)
+    return response
+
+
+@router.post("/admin/configuration/llm/probe")
+async def admin_configuration_llm_probe(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Explicit admin action: light GET /api/tags on Ollama (never on a hot path)."""
+    from app.llm.service import probe_llm
+
+    token = portal_signing_secret(settings)
+    response = RedirectResponse(url=_CONFIG_LLM, status_code=302)
+    result = await probe_llm(
+        settings,
+        db,
+        actor=admin_actor(user),
+        ip_address=client_ip_from_request(request),
+    )
+    if result.ok:
+        flash_i18n(
+            request,
+            response,
+            "Assistant IA disponible ({model}, {ms} ms).",
+            "success",
+            token,
+            model=settings.llm_model,
+            ms=result.duration_ms,
+        )
+    else:
+        flash_i18n(
+            request,
+            response,
+            "Assistant IA indisponible : {error}",
+            "warn",
+            token,
+            error=result.error or "?",
+        )
+    return response

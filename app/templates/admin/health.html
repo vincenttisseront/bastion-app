@@ -95,8 +95,31 @@
               <td class="mono" data-field="latency_ms">{% if p.latency_ms is not none %}{{ p.latency_ms }} ms{% else %}—{% endif %}</td>
               <td>
                 <button type="button" class="btn btn-secondary btn-sm probe-btn" data-app-id="{{ p.app_id }}">{{ _('Tester') }}</button>
+                {% if llm_on and p.status == 'error' %}
+                <form method="post" action="/admin/assistant/incidents/{{ p.app_id }}" class="inline-form">
+                  <button type="submit" class="btn btn-ghost btn-sm" data-llm-action="incident">{{ _('Analyser la panne (IA)') }}</button>
+                </form>
+                {% endif %}
               </td>
             </tr>
+            {% set ai = (llm_insights | default({})).get(p.app_id | string) %}
+            {% if ai and p.status == 'error' %}
+            <tr class="health-llm-row" id="health-llm-{{ p.app_id }}">
+              <td colspan="7">
+                <div class="alert alert-info">
+                  <div class="alert-body">
+                    <span class="badge badge-muted">{{ _('Généré par IA') }}</span>
+                    <strong>{{ _('Cause probable :') }}</strong> {{ ai.payload.probable_cause }}
+                    <br>{{ ai.payload.summary }}
+                    {% if ai.payload.next_steps %}
+                    <ul>{% for step in ai.payload.next_steps %}<li>{{ step }}</li>{% endfor %}</ul>
+                    {% endif %}
+                    <span class="form-help">{{ ai.created_at.strftime('%Y-%m-%d %H:%M UTC') if ai.created_at else '' }} · {{ ai.model }}</span>
+                  </div>
+                </div>
+              </td>
+            </tr>
+            {% endif %}
             {% else %}
             <tr>
               <td colspan="7">

@@ -61,6 +61,19 @@ templates.env.filters["format_datetime"] = _format_datetime
 templates.env.filters["tojson"] = _tojson
 templates.env.globals["app_launch_url"] = app_launch_url
 templates.env.globals["app_driver_badge_label"] = app_driver_badge_label
+
+
+def _llm_env_enabled() -> bool:
+    """Cheap env-level check for optional AI buttons (no DB, no network)."""
+    try:
+        from app.sso_settings import get_settings
+
+        return bool(get_settings().llm_enabled)
+    except Exception:  # noqa: BLE001 — a template helper must never break a page
+        return False
+
+
+templates.env.globals["llm_env_enabled"] = _llm_env_enabled
 # Default no-op until render() binds the request locale (keeps import-time safe).
 templates.env.globals["_"] = _make_gettext(DEFAULT_LOCALE)
 templates.env.globals["t"] = templates.env.globals["_"]

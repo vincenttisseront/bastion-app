@@ -656,6 +656,16 @@
                      href="/admin/security/waf?exclude_rule={{ a.rule_id }}&amp;exclude_host={{ (a.host if a.host != '—' else '') | urlencode }}&amp;exclude_uri={{ (a.uri if a.uri != '—' else '') | urlencode }}&amp;exclude_scope={{ (a.matched_scope_kind or 'args') | urlencode }}&amp;exclude_target={{ (a.matched_target_name or '') | urlencode }}&amp;exclude_reason={{ ('FP depuis bilan — règle ' ~ a.rule_id) | urlencode }}#exclusions"
                      data-waf-exclude-refine>Affiner…</a>
                   {% endif %}
+                  {% if llm_on %}
+                  <form method="post" action="/admin/assistant/waf/explain" class="inline-form waf-action-form">
+                    {% for f in ['timestamp', 'client_ip', 'host', 'uri', 'rule_id', 'message', 'score', 'matched_scope_kind', 'matched_target_name'] %}
+                    <input type="hidden" name="{{ f }}" value="{{ a[f] if a[f] is not none else '' }}">
+                    {% endfor %}
+                    <input type="hidden" name="all_rule_ids" value="{{ (a.all_rule_ids or [a.rule_id]) | join(',') }}">
+                    <input type="hidden" name="blocked" value="{{ '1' if a.blocked else '' }}">
+                    <button type="submit" class="btn btn-ghost btn-sm" data-llm-action="waf-explain">{{ _('Expliquer (IA)') }}</button>
+                  </form>
+                  {% endif %}
                   {% if not a.banned and a.can_ban %}
                   <button type="button" class="btn btn-ghost btn-sm"
                           data-waf-ban-ip="{{ a.client_ip }}"
@@ -665,6 +675,42 @@
                   {% endif %}
                 </td>
               </tr>
+              {% set ai = (llm_insights | default({})).get(a.llm_key) if a.llm_key else none %}
+              {% if ai %}
+              {% set pe = ai.payload.proposed_exclusion %}
+              <tr class="sentinel-feed-llm" id="waf-llm-{{ a.llm_key }}">
+                <td colspan="7">
+                  <div class="alert alert-info">
+                    <div class="alert-body">
+                      <span class="badge badge-muted">{{ _('Généré par IA') }}</span>
+                      <strong>{{ ai.payload.legitimacy | replace('_', ' ') }}</strong> ({{ ai.payload.confidence }}) — {{ ai.payload.rule_summary }}
+                      <br>{{ ai.payload.explanation }}
+                      {% if ai.payload.risks %}<br>{{ _('Risques :') }} {{ ai.payload.risks | join(' · ') }}{% endif %}
+                      {% if pe %}
+                      <br>{{ _('Exclusion proposée :') }}
+                      <span class="mono">{{ pe.crs_rule_id }} · {{ pe.host }} · {{ pe.uri_match }} {{ pe.uri_pattern }}{% if pe.target_name %} · {{ pe.scope_kind }}:{{ pe.target_name }}{% endif %}</span>
+                      {% if ai.status == 'proposed' %}
+                      <form method="post" action="/admin/assistant/insights/{{ ai.id }}/decide" class="inline-form">
+                        <input type="hidden" name="next" value="/admin/security/waf#bilan">
+                        <button type="submit" name="decision" value="accept" class="btn btn-primary btn-sm">{{ _('Accepter') }}</button>
+                        <button type="submit" name="decision" value="reject" class="btn btn-ghost btn-sm">{{ _('Rejeter') }}</button>
+                      </form>
+                      {% elif ai.status == 'accepted' %}
+                      <form method="post" action="/admin/security/waf/actions/exclude-rule" class="inline-form waf-action-form">
+                        {% for f in ['crs_rule_id', 'host', 'uri_pattern', 'uri_match', 'scope_kind', 'target_name', 'reason'] %}
+                        <input type="hidden" name="{{ f }}" value="{{ pe[f] }}">
+                        {% endfor %}
+                        <button type="submit" class="btn btn-secondary btn-sm">{{ _('Créer l’exclusion proposée') }}</button>
+                      </form>
+                      {% elif ai.status == 'rejected' %}
+                      <span class="badge badge-err">{{ _('Rejetée') }}</span>
+                      {% endif %}
+                      {% endif %}
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              {% endif %}
               {% else %}
               <tr><td colspan="7" class="muted" style="padding:1rem">{{ _('Aucun blocage récent.') }}</td></tr>
               {% endfor %}

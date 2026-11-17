@@ -137,9 +137,24 @@ def admin_waf_page(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    return render(
-        "admin/waf.html",
-        **_ctx(request, settings, **_waf_page_context(db, settings, page="unified")),
+    page_ctx = _waf_page_context(db, settings, page="unified")
+    page_ctx.update(_llm_waf_context(db, settings, page_ctx))
+    return render("admin/waf.html", **_ctx(request, settings, **page_ctx))
+
+
+def _llm_waf_context(db: Session, settings: Settings, page_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Optional AI explanations per recent event; never alters the WAF data."""
+    from app.llm.features.waf_explain import event_key
+    from app.llm.ui import llm_ui_context
+
+    recent = (page_ctx.get("attack_controls") or {}).get("recent") or []
+    keys = []
+    for row in recent:
+        if isinstance(row, dict):
+            row["llm_key"] = event_key(row)
+            keys.append(row["llm_key"])
+    return llm_ui_context(
+        db, settings, kind="waf_explain", subject_type="waf_event", subject_ids=keys
     )
 
 

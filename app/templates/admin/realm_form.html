@@ -525,6 +525,64 @@
         '<div class="alert-body">' + (statusIcon[c.status] || '•') +
         ' <strong>' + c.name + '</strong> — ' + c.message + '</div></div>';
     }).join('');
+    if (LLM_ON && result.status !== 'ok') addLlmDiagnosis(result);
+  }
+
+  const LLM_ON = {{ 'true' if llm_env_enabled() else 'false' }};
+
+  function addLlmDiagnosis(result) {
+    const box = document.createElement('div');
+    box.className = 'mt-2';
+    box.id = 'oidc-llm-diagnosis';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-secondary btn-sm';
+    btn.textContent = 'Diagnostic IA';
+    const out = document.createElement('div');
+    box.appendChild(btn);
+    box.appendChild(out);
+    checksEl.appendChild(box);
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      out.className = 'alert alert-info mt-2';
+      out.textContent = 'Analyse en cours…';
+      try {
+        const resp = await fetch('/admin/assistant/oidc/diagnose', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({
+            issuer_url: document.getElementById('issuer_url').value,
+            client_id: document.getElementById('client_id').value,
+            realm_id: realmId,
+            checks: result.checks || []
+          })
+        });
+        const data = await resp.json();
+        out.textContent = '';
+        if (!data.ok) {
+          out.className = 'alert alert-warn mt-2';
+          out.textContent = 'Assistant indisponible — voir les messages techniques ci-dessus.';
+          return;
+        }
+        const d = data.diagnosis || {};
+        const head = document.createElement('div');
+        head.textContent = '[Généré par IA] Cause probable : ' + (d.probable_cause || '') +
+          (d.field_to_check ? ' (à vérifier : ' + d.field_to_check + ')' : '');
+        out.appendChild(head);
+        const list = document.createElement('ul');
+        (d.fix_steps || []).forEach(function (step) {
+          const li = document.createElement('li');
+          li.textContent = step;
+          list.appendChild(li);
+        });
+        out.appendChild(list);
+      } catch (err) {
+        out.className = 'alert alert-warn mt-2';
+        out.textContent = 'Assistant indisponible.';
+      } finally {
+        btn.disabled = false;
+      }
+    });
   }
 
   if (testBtn) {

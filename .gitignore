@@ -36,3 +36,4 @@ data/sso-portal/uploads/
 # Audit reports name real infra — they live in the private bastion-docs repo
 /rapport-audit-*
 
+tests/_llm_drafts/

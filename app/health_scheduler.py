@@ -19,9 +19,22 @@ scheduler = AsyncIOScheduler()
 async def _probe_cycle() -> None:
     db = SessionLocal()
     try:
-        await probe_all_enabled_apps(db)
+        result = await probe_all_enabled_apps(db)
     finally:
         db.close()
+    _start_outage_summaries(result.get("transitions") or [])
+
+
+def _start_outage_summaries(transitions: list[dict]) -> None:
+    """Optional LLM incident notes, detached from the probe cycle (never delays it)."""
+    if not transitions:
+        return
+    try:
+        from app.llm.features.incidents import start_outage_summaries
+
+        start_outage_summaries(transitions)
+    except Exception:
+        logger.debug("outage summaries not started", exc_info=True)
 
 
 def _run_probe_cycle_in_thread() -> None:
@@ -188,6 +201,39 @@ def start_health_scheduler(settings: Settings) -> None:
     logger.info(
         "Monthly compliance PDF scheduled (1st of month 06:30 Europe/Paris)"
     )
+
+    _schedule_llm_jobs(settings)
+
+
+def _schedule_llm_jobs(settings: Settings) -> None:
+    """Optional LLM assistant jobs. Not registered at all when LLM_ENABLED is off;
+    each run also re-checks the admin toggle and no-ops when it is off."""
+    if not getattr(settings, "llm_enabled", False):
+        return
+    from app.llm.features.jobs import run_llm_job_async
+    from app.llm.features.login_anomalies import login_anomaly_job_body
+    from app.llm.features.siem_enrichment import siem_enrichment_job_body
+
+    async def _login_anomalies() -> None:
+        await run_llm_job_async(login_anomaly_job_body)
+
+    async def _siem_enrichment() -> None:
+        await run_llm_job_async(siem_enrichment_job_body)
+
+    for fn, minutes, job_id in (
+        (_login_anomalies, 30, "llm_login_anomalies"),
+        (_siem_enrichment, 2, "llm_siem_enrichment"),
+    ):
+        scheduler.add_job(
+            fn,
+            "interval",
+            minutes=minutes,
+            id=job_id,
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+    logger.info("LLM assistant jobs scheduled (login anomalies 30 min, SIEM enrichment 2 min)")
 
 
 def stop_health_scheduler() -> None:

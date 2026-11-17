@@ -302,6 +302,7 @@ async def _probe_single_enabled_app(
     summary: dict[str, int],
     results: list[dict[str, Any]],
     apps: list[App],
+    transitions: list[dict[str, Any]] | None = None,
 ) -> None:
     from app.database import release_db_connection
 
@@ -309,6 +310,7 @@ async def _probe_single_enabled_app(
     if app is None:
         return
     slug = app.slug
+    previous_status = app.last_probe_status
     try:
         url = probe_target_url(app)
         if not url:
@@ -336,6 +338,10 @@ async def _probe_single_enabled_app(
         apply_probe_result(app, result)
         db.commit()
         key = result["status"]
+        if transitions is not None and key == "error" and previous_status in ("ok", "warn"):
+            transitions.append(
+                {"app_id": app_id, "slug": slug, "previous": previous_status, "status": key}
+            )
         if key in summary:
             summary[key] += 1
         results.append(probe_result_payload(app))
@@ -374,6 +380,7 @@ async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
     summary = {"ok": 0, "warn": 0, "error": 0, "unknown": 0, "skipped": 0}
     results: list[dict[str, Any]] = []
     apps: list[App] = []
+    transitions: list[dict[str, Any]] = []
 
     try:
         app_ids = [
@@ -389,7 +396,8 @@ async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
 
         for app_id in app_ids:
             await _probe_single_enabled_app(
-                db, app_id, summary=summary, results=results, apps=apps
+                db, app_id, summary=summary, results=results, apps=apps,
+                transitions=transitions,
             )
 
         no_url_count = sum(
@@ -417,4 +425,6 @@ async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
         "results": results,
         "status_counts": status_counts,
         "health_score": compute_health_score(status_counts, total),
+        # up → down transitions of this cycle (consumed by the optional LLM summary).
+        "transitions": transitions,
     }

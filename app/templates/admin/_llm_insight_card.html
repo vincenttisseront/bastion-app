@@ -1,0 +1,64 @@
+{# One LLM insight. Expects `ins` (LlmInsight) and `csrf_token`; `insight_next` optional redirect. #}
+{% set p = ins.payload or {} %}
+<div class="form-section llm-insight" id="llm-insight-{{ ins.id }}" data-kind="{{ ins.kind }}">
+  <div class="form-section-header">
+    <div class="form-section-title">
+      {{ _(kind_labels.get(ins.kind, ins.kind)) if kind_labels is defined else ins.kind }}
+      <span class="badge badge-muted">{{ _('Généré par IA') }}</span>
+      {% if ins.status == 'proposed' %}
+      <span class="badge badge-warn">{{ _('À valider') }}</span>
+      {% elif ins.status == 'accepted' %}
+      <span class="badge badge-ok">{{ _('Acceptée') }}</span>
+      {% elif ins.status == 'rejected' %}
+      <span class="badge badge-err">{{ _('Rejetée') }}</span>
+      {% endif %}
+    </div>
+    <div class="form-section-sub mono">
+      {{ ins.subject_type }}:{{ ins.subject_id }} · {{ ins.model or '—' }}
+      · {{ ins.created_at.strftime('%Y-%m-%d %H:%M UTC') if ins.created_at else '' }}
+      {% if ins.requested_by %}· {{ ins.requested_by }}{% endif %}
+    </div>
+  </div>
+
+  {% if p.summary %}<p>{{ p.summary }}</p>{% endif %}
+  {% if p.explanation %}<p>{{ p.explanation }}</p>{% endif %}
+  {% if p.recommendation %}<p><strong>{{ _('Recommandation :') }}</strong> {{ p.recommendation }}</p>{% endif %}
+
+  {% set skip = ['summary', 'explanation', 'recommendation'] %}
+  <dl class="llm-insight-fields">
+    {% for key, value in p.items() if key not in skip %}
+    <dt class="form-label">{{ key }}</dt>
+    <dd>
+      {% if value is mapping %}
+      <pre class="mono" style="white-space:pre-wrap;">{{ value | tojson }}</pre>
+      {% elif value is iterable and value is not string %}
+      <ul>
+        {% for item in value %}
+        <li>{% if item is mapping %}<span class="mono">{{ item | tojson }}</span>{% else %}{{ item }}{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      {% if key in ('code', 'content') %}<pre class="mono" style="white-space:pre-wrap;">{{ value }}</pre>{% else %}{{ value }}{% endif %}
+      {% endif %}
+    </dd>
+    {% endfor %}
+  </dl>
+
+  {% if ins.status == 'proposed' %}
+  <form method="post" action="/admin/assistant/insights/{{ ins.id }}/decide" class="form-row" style="align-items:end;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% if insight_next is defined and insight_next %}<input type="hidden" name="next" value="{{ insight_next }}">{% endif %}
+    <div class="form-group" style="flex:1;">
+      <label class="form-label" for="note-{{ ins.id }}">{{ _('Note (facultatif)') }}</label>
+      <input type="text" id="note-{{ ins.id }}" name="note" class="form-input" maxlength="1000">
+    </div>
+    <div class="form-actions">
+      <button type="submit" name="decision" value="accept" class="btn btn-primary btn-sm">{{ _('Accepter') }}</button>
+      <button type="submit" name="decision" value="reject" class="btn btn-secondary btn-sm">{{ _('Rejeter') }}</button>
+    </div>
+  </form>
+  <p class="form-help">{{ _('Accepter enregistre votre décision ; appliquez ensuite le changement depuis l’écran habituel.') }}</p>
+  {% elif ins.decided_by %}
+  <p class="form-help">{{ _('Décision :') }} {{ ins.decided_by }} · {{ ins.decided_at.strftime('%Y-%m-%d %H:%M UTC') if ins.decided_at else '' }}{% if ins.decision_note %} — {{ ins.decision_note }}{% endif %}</p>
+  {% endif %}
+</div>

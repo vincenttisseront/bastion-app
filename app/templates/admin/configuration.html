@@ -87,6 +87,17 @@
       <span class="badge badge-warn tab-badge">!</span>
       {% endif %}
     </a>
+    <a href="#llm" class="tab" role="tab" data-tab="llm" id="tab-llm" aria-selected="false">
+      {{ _('Assistant IA') }}
+      {% set ai_tab = llm | default({}) %}
+      {% if ai_tab.state == 'available' %}
+      <span class="badge badge-ok tab-badge">ON</span>
+      {% elif ai_tab.state == 'unavailable' %}
+      <span class="badge badge-err tab-badge">!</span>
+      {% elif ai_tab.state == 'unknown' %}
+      <span class="badge badge-warn tab-badge">?</span>
+      {% endif %}
+    </a>
   </div>
 
   <div class="form-section config-panel" id="smtp" role="tabpanel" aria-labelledby="tab-smtp">
@@ -535,13 +546,14 @@
 
   {% include "admin/_mta_sts_panel.html" %}
   {% include "admin/_hot_store_panel.html" %}
+  {% include "admin/_llm_panel.html" %}
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 (function () {
-  var VALID = ['smtp', 'siem', 'mta-sts', 'hot-store'];
+  var VALID = ['smtp', 'accounts', 'siem', 'mta-sts', 'hot-store', 'llm'];
   var DEFAULT = 'smtp';
 
   function currentTab() {

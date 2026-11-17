@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.llm.ui import llm_ui_context
 from app.access_modes import (
     activesync_flags_for,
     normalize_access_mode,
@@ -2147,6 +2148,10 @@ def admin_access_requests_list(
             status_filter=status_filter,
             pending_count=pending_count,
             approve_realms=realms_for_access_request_approve(db),
+            **llm_ui_context(
+                db, settings, kind="access_request", subject_type="access_request",
+                subject_ids=[r.id for r in rows],
+            ),
         ),
     )
 
@@ -4265,5 +4270,9 @@ def admin_health(
             probes=probes,
             status_counts=status_counts,
             health_score=health_score,
+            **llm_ui_context(
+                db, settings, kind="incident_summary", subject_type="app",
+                subject_ids=[a.id for a in apps],
+            ),
         ),
     )
