@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
+import respx
 from sqlalchemy.orm import Session
 
 from app.admin.session_alignment import (
     TARGET_COOKIE_EXPIRE,
     _evaluate_coherent,
     build_session_alignment_report,
+    fetch_realm_session_timeouts,
     parse_oauth2_cookie_settings,
 )
 from app.models import RealmConfig
@@ -113,3 +116,51 @@ async def test_build_report_uses_keycloak_timeouts(db_session: Session, tmp_path
     assert rows[0].cookie_expire_export == TARGET_COOKIE_EXPIRE
     assert rows[0].sso_session_max_lifespan_s == 43200
     assert rows[0].coherent is True
+
+
+async def test_fetch_realm_session_timeouts_reads_realm_representation():
+    """Real call: token endpoint, then GET /admin/realms/{realm} (no path suffix)."""
+    settings = _settings()
+    realm = RealmConfig(
+        slug="example-corp",
+        issuer_url="https://kc.example.com/realms/EXAMPLE-CORP",
+        keycloak_admin_client_id="admin-cli",
+        keycloak_admin_client_secret_encrypted=encrypt_secret("admin-secret", settings),
+    )
+    with respx.mock(assert_all_called=True) as router:
+        token_route = router.post(
+            "https://kc.example.com/realms/EXAMPLE-CORP/protocol/openid-connect/token"
+        ).mock(
+            return_value=httpx.Response(
+                200, json={"access_token": "svc-token", "expires_in": 300}
+            )
+        )
+        realm_route = router.get(
+            "https://kc.example.com/admin/realms/EXAMPLE-CORP"
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "realm": "EXAMPLE-CORP",
+                    "ssoSessionMaxLifespan": 43200,
+                    "ssoSessionIdleTimeout": 1800,
+                    "clientSessionMaxLifespan": 0,
+                    "clientSessionIdleTimeout": 0,
+                    "accessTokenLifespan": 300,
+                },
+            )
+        )
+        timeouts = await fetch_realm_session_timeouts(realm, settings)
+
+    assert token_route.call_count == 1
+    assert realm_route.call_count == 1
+    sent = realm_route.calls.last.request
+    assert sent.headers["authorization"] == "Bearer svc-token"
+    assert timeouts == {
+        "realm": "EXAMPLE-CORP",
+        "ssoSessionMaxLifespan": 43200,
+        "ssoSessionIdleTimeout": 1800,
+        "clientSessionMaxLifespan": 0,
+        "clientSessionIdleTimeout": 0,
+        "accessTokenLifespan": 300,
+    }
