@@ -112,7 +112,7 @@ async def _admin_get(
     caller_token = bool(token)
     token = token or await get_admin_token(realm, settings)
     base, realm_name = _issuer_parts(realm.issuer_url)
-    safe_path = _safe_admin_api_path(path)
+    safe_path = _safe_admin_api_path(path, allow_realm_root=True)
     url = f"{base}/admin/realms/{realm_name}{safe_path}"
 
     async def _get(bearer: str) -> httpx.Response:
@@ -128,8 +128,15 @@ async def _admin_get(
     return resp
 
 
-def _safe_admin_api_path(path: str) -> str:
-    """Reject traversal / absolute URLs in Keycloak Admin API path suffixes."""
+def _safe_admin_api_path(path: str, *, allow_realm_root: bool = False) -> str:
+    """Reject traversal / absolute URLs in Keycloak Admin API path suffixes.
+
+    ``allow_realm_root`` accepts exactly ``""``: the realm itself
+    (``GET /admin/realms/{realm}``, realm representation). Only reads opt in;
+    writes keep requiring a sub-path so none can target the realm by accident.
+    """
+    if allow_realm_root and path == "":
+        return ""
     text = (path or "").strip()
     if not text.startswith("/") or text.startswith("//"):
         raise ValueError("invalid Keycloak admin API path")
