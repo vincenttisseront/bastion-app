@@ -11,8 +11,9 @@
     </div>
     <div class="page-header-actions">
       {% if not preview.control_enabled %}
+      {% set enable_confirm = _('Activer le contrôle ? Les appareils en attente listés ici seront approuvés ; tout nouvel appareil sera refusé jusqu’à validation par un administrateur.') if preview.admin_approval_only else _('Activer le contrôle ? Les appareils en attente listés ici seront approuvés ; tout nouvel appareil sera refusé jusqu’à validation dans le portail.') %}
       <form method="post" action="/admin/apps/{{ app.slug }}/activesync/devices/enable"
-            onsubmit="return confirm({{ _('Activer le contrôle ? Les appareils en attente listés ici seront approuvés ; tout nouvel appareil sera refusé jusqu’à validation dans le portail.')|tojson }});">
+            onsubmit="return confirm({{ enable_confirm|tojson }});">
         <button type="submit" class="btn btn-primary btn-sm">{{ _('Activer le contrôle') }}</button>
       </form>
       {% else %}
@@ -55,9 +56,42 @@
       </ul>
       {% if not preview.control_enabled %}
       <div class="alert alert-warn">
+        {% if preview.admin_approval_only %}
+        {{ _('Tout appareil hors inventaire sera refusé à l’activation (validation par un administrateur requise).') }}
+        {% else %}
         {{ _('Tout appareil hors inventaire sera refusé à l’activation (validation portail requise).') }}
+        {% endif %}
       </div>
       {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">{{ _('Approbation des nouveaux appareils') }}</span>
+      {% if preview.admin_approval_only %}
+      <span class="badge badge-warn">{{ _('Administrateurs uniquement') }}</span>
+      {% else %}
+      <span class="badge">{{ _('Par l’utilisateur') }}</span>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      <form method="post" action="/admin/apps/{{ app.slug }}/activesync/devices/approval-mode" class="form-body">
+        <label class="form-check">
+          <input type="radio" name="admin_only" value="0"{% if not preview.admin_approval_only %} checked{% endif %}>
+          {{ _('L’utilisateur approuve ses appareils depuis son profil (défaut)') }}
+        </label>
+        <label class="form-check">
+          <input type="radio" name="admin_only" value="1"{% if preview.admin_approval_only %} checked{% endif %}>
+          {{ _('Seul un administrateur approuve (file Appareils)') }}
+        </label>
+        <p class="form-help">
+          {{ _('Dans les deux cas, l’utilisateur peut refuser un appareil inconnu ou révoquer le sien. Les appareils déjà approuvés ne changent pas.') }}
+        </p>
+        <div class="form-footer form-footer-flush">
+          <button type="submit" class="btn btn-secondary btn-sm">{{ _('Enregistrer') }}</button>
+        </div>
+      </form>
     </div>
   </div>
 
