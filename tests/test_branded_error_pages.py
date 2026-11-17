@@ -278,7 +278,11 @@ def test_tls_edge_servers_include_error_pages():
     edge = _read(NGINX / "snippets" / "bastion_error_pages_edge.conf")
     assert "error_page 497 =301 https://$host$request_uri;" in edge
     assert "bastion_error_pages_html.conf" in edge
-    assert "bastion_error_pages_location.conf" in edge
+    # Own location: its add_header must not drop HSTS / nosniff / XFO.
+    location = edge.split("location ^~ /__bastion_errors/ {", 1)[1]
+    assert "include /etc/nginx/includes/security-headers.conf;" in location
+    assert "alias /var/www/nginx-errors/;" in location
+    assert "internal;" in location
 
 
 def test_nginx_hides_version():
