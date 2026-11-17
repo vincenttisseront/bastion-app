@@ -115,7 +115,16 @@
                 {% elif realm.last_groups_sync_status == 'ok' %}
                   {{ status_ico('ok', _('Sync OK') ~ ' — ' ~ (realm.last_groups_sync_at or ''), kind='tri') }}
                 {% elif realm.last_groups_sync_status == 'error' %}
-                  {{ status_ico('error', _('Échec sync') ~ ' — ' ~ (realm.last_groups_sync_error or ''), kind='tri') }}
+                  {% set sync_fail = (sync_failures or {}).get(realm.slug) %}
+                  {% set sync_title = _('Échec sync')
+                       ~ ((' — ' ~ (sync_fail.created_at | format_datetime)) if sync_fail else '')
+                       ~ ' — ' ~ (realm.last_groups_sync_error or '')
+                       ~ ((' — ' ~ _('Dernière sync réussie') ~ ' : ' ~ (realm.last_groups_sync_at | format_datetime)) if realm.last_groups_sync_at else '') %}
+                  {% if sync_fail %}
+                  <a href="/admin/logs?id={{ sync_fail.id }}" class="realms-sync-fail-link">{{ status_ico('error', sync_title, kind='tri') }}</a>
+                  {% else %}
+                  {{ status_ico('error', sync_title, kind='tri') }}
+                  {% endif %}
                 {% else %}
                   {{ status_ico('none', _('Jamais synchronisé'), kind='tri') }}
                 {% endif %}
