@@ -126,6 +126,31 @@
             <option value="">{{ _('Testez la connexion pour lister les modèles') }}</option>
           </select>
           {% endif %}
+
+          <label class="form-label" for="llm_timeout_s" style="margin-top:var(--sp-4);">{{ _('Délai maximal de réponse (secondes)') }}</label>
+          <input type="number" id="llm_timeout_s" name="llm_timeout_s" class="form-input"
+                 min="10" max="300" step="5" value="{{ ai.timeout_s }}">
+          <p class="form-help">{{ _('Au-delà, l’analyse est abandonnée. Le compagnon attend au plus 110 s (limite du proxy du portail). Augmentez-le si le serveur Ollama est partagé et souvent occupé.') }}</p>
+
+          <label class="form-label" for="llm_num_ctx" style="margin-top:var(--sp-3);">{{ _('Fenêtre de contexte') }}</label>
+          <select id="llm_num_ctx" name="llm_num_ctx" class="form-input">
+            {% for n in ai.num_ctx_choices %}
+            <option value="{{ n }}" {% if n == ai.num_ctx %}selected{% endif %}>
+              {% if n == 0 %}{{ _('Auto (contexte déjà chargé par le serveur)') }}{% else %}{{ n }} {{ _('jetons') }}{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+          <p class="form-help">{{ _('Ollama recharge le modèle à chaque requête qui demande une autre taille de contexte que celle chargée : sur un serveur partagé avec d’autres clients, choisissez « Auto » ou la même valeur qu’eux.') }}</p>
+          {% set loaded = ai.loaded_models | default([]) %}
+          {% if loaded %}
+          <p class="form-help" id="llm-loaded-models">
+            {{ _('Chargé sur le serveur au dernier test :') }}
+            {% for m in loaded %}<span class="mono">{{ m.name }}</span>{% if m.context_length %} · {{ m.context_length }} {{ _('jetons') }}{% endif %}{% if m.size_vram_gb %} · {{ m.size_vram_gb }} Go VRAM{% endif %}{% if not loop.last %} ; {% endif %}{% endfor %}
+          </p>
+          {% for m in loaded if ai.num_ctx and m.context_length and m.name == ai.model and m.context_length != ai.num_ctx %}
+          <p class="form-error" id="llm-ctx-mismatch">{{ _('Le modèle est chargé avec un contexte de') }} {{ m.context_length }} {{ _('jetons, Bastion en demande') }} {{ ai.num_ctx }} : {{ _('chaque alternance avec un autre client provoque un rechargement (réponses très lentes).') }}</p>
+          {% endfor %}
+          {% endif %}
         </div>
         <div class="form-group">
           <span class="form-label">{{ _('Activation') }}</span>

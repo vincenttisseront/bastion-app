@@ -66,7 +66,10 @@ MAX_REPLY_STEPS = 5
 MAX_STEP_CHARS = 220
 MAX_APPS_IN_FACTS = 40
 # The user is waiting: give up before the generic client timeout and fall back.
-COMPANION_TIMEOUT_S = 40.0
+COMPANION_TIMEOUT_S = 40.0  # floor; the admin timeout (Assistant IA panel) raises it
+# The portal's nginx cuts FastAPI responses at 120 s (proxy_portal_fastapi.conf):
+# stay under it so the user gets our own reply, not a gateway error.
+COMPANION_TIMEOUT_MAX_S = 110.0
 
 TOPIC_ACCESS = "acces"
 TOPIC_SECURITY = "securite"
@@ -407,17 +410,31 @@ def muted_reply(branding: dict[str, Any], locale: str, minutes: int) -> Companio
     )
 
 
-def fallback_reply(branding: dict[str, Any], locale: str) -> CompanionReply:
+def companion_wait_s(timeout_s: float, connect_timeout_s: float) -> float:
+    """How long the chat waits for the model: admin timeout, within nginx's limit."""
+    return max(COMPANION_TIMEOUT_S, min(COMPANION_TIMEOUT_MAX_S, timeout_s + connect_timeout_s + 2.0))
+
+
+def fallback_reply(branding: dict[str, Any], locale: str, *, slow: bool = False) -> CompanionReply:
     """Static, model-free answer: the assistant is off, busy, slow or invalid."""
     company = str(branding.get("company_name") or "").strip() or "la société"
-    return CompanionReply(
-        answer=t(
+    if slow:
+        answer = t(
+            "L'assistant est très sollicité et n'a pas répondu à temps. Réessayez dans "
+            "un instant, ou utilisez les liens ci-dessous et les coordonnées de {company}.",
+            locale,
+            company=company,
+        )
+    else:
+        answer = t(
             "L'assistant n'est pas disponible pour le moment. Vous pouvez consulter vos "
             "applications et la sécurité de votre compte avec les liens ci-dessous, ou "
             "contacter {company}.",
             locale,
             company=company,
-        ),
+        )
+    return CompanionReply(
+        answer=answer,
         topic=TOPIC_CONTACT,
         source=SOURCE_FALLBACK,
         links=_links(["apps", "security"], locale),
@@ -544,6 +561,7 @@ async def ask(
 
     reply: CompanionReply | None = None
     signal, detector, confidence = responder.SIGNAL_NONE, "model", "faible"
+    slow = False
     try:
         local = responder.detect_local(question)
         if local is not None:
@@ -558,6 +576,10 @@ async def ask(
                 "historique": clean_history(history),
                 "question_utilisateur": question,
             }
+            from app.llm.service import get_llm_client
+
+            config = get_llm_client(settings, db).config
+            wait_s = companion_wait_s(config.timeout_s, config.connect_timeout_s)
             result = await asyncio.wait_for(
                 run_task(
                     TASK,
@@ -569,8 +591,10 @@ async def ask(
                     actor=_actor(user),
                     audience=AUDIENCE_USER,
                 ),
-                timeout=COMPANION_TIMEOUT_S,
+                timeout=wait_s,
             )
+            if result is not None and result.outcome in ("timeout", "busy"):
+                slow = True
             if result is not None and result.outcome == "ok" and result.value:
                 signal = str(result.value.get("signal") or responder.SIGNAL_NONE)
                 confidence = str(result.value.get("confidence") or "faible")
@@ -578,10 +602,13 @@ async def ask(
                     result.value, branding, locale, allowed_email,
                     known_apps=facts.get("applications_accessibles") or [],
                 )
-    except Exception:  # noqa: BLE001 — includes timeout/cancel of our own wait
+    except TimeoutError:
+        slow = True
+        logger.info("companion: model did not answer within the wait limit")
+    except Exception:  # noqa: BLE001 — includes cancel of our own wait
         logger.warning("companion ask failed", exc_info=True)
     if reply is None:
-        reply = fallback_reply(branding, locale)
+        reply = fallback_reply(branding, locale, slow=slow)
 
     # Refusals and flagged messages feed one abuse counter (10 min window).
     if signal in (responder.SIGNAL_NONE, responder.SIGNAL_ABUSE) and (

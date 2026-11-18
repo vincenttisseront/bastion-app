@@ -334,3 +334,63 @@ def test_waf_page_shows_threats_and_ban_flow(client, db_engine):
 def test_waf_threats_route_off_redirects(client):
     r = client.post("/admin/assistant/waf/threats", headers=ADMIN, follow_redirects=False)
     assert r.status_code == 302 and r.headers["location"] == "/admin/security/waf#llm-threats"
+
+
+# ── timeout / context window (shared, busy Ollama servers) ──────────────────
+
+
+def test_num_ctx_auto_is_not_sent(monkeypatch):
+    import asyncio
+
+    seen = {}
+
+    def handler(request):
+        if request.url.path == "/api/chat":
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"message": {"content": json.dumps({"ok": True})}})
+        return httpx.Response(200, json={"models": []})
+
+    schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+    for num_ctx, expect in ((0, None), (8192, 8192)):
+        llm = LlmClient(LlmConfig(url="http://o", model="m", num_ctx=num_ctx), transport=httpx.MockTransport(handler))
+        asyncio.run(llm.generate_json(task="t", instructions="i", data="d", schema=schema))
+        assert seen["body"]["options"].get("num_ctx") == expect
+
+
+def test_admin_overrides_timeout_and_context(db_session):
+    settings = _settings(llm_timeout_s=45, llm_num_ctx=8192)
+    row = ensure_portal_settings(db_session, settings)
+    cfg = service_mod.effective_config(settings, row)
+    assert cfg.timeout_s == 45 and cfg.num_ctx == 8192  # env defaults
+    service_mod.update_llm_settings(db_session, settings, actor="a", enabled=False, timeout_s=120, num_ctx=0)
+    cfg = service_mod.effective_config(settings, row)
+    assert cfg.timeout_s == 120 and cfg.num_ctx == 0
+    with pytest.raises(ValueError):
+        service_mod.update_llm_settings(db_session, settings, actor="a", enabled=False, timeout_s=5)
+    with pytest.raises(ValueError):
+        service_mod.update_llm_settings(db_session, settings, actor="a", enabled=False, num_ctx=12345)
+
+
+def test_probe_records_loaded_models_and_flags_context_mismatch(client, db_engine, monkeypatch):
+    class PsServer(Server):
+        def __call__(self, request):
+            if request.url.path.endswith("/api/ps"):
+                return httpx.Response(200, json={"models": [
+                    {"name": "qwen3:14b", "context_length": 4096, "size_vram": 11_200_000_000}]})
+            return super().__call__(request)
+
+    _route_through(monkeypatch, PsServer())
+    client.post("/admin/configuration/llm/connection",
+                data={"llm_base_url": "http://ollama.lab:11434"}, headers=ADMIN, follow_redirects=False)
+    client.post("/admin/configuration/llm", data={"llm_model": "qwen3:14b", "llm_timeout_s": "90",
+                                                   "llm_num_ctx": "8192"}, headers=ADMIN, follow_redirects=False)
+    with Session(db_engine) as db:
+        row = db.get(PortalSettings, 1)
+        assert row.llm_server_info["loaded"][0]["context_length"] == 4096
+        assert row.llm_timeout_s == 90 and row.llm_num_ctx == 8192
+    page = client.get("/admin/configuration", headers=ADMIN).text
+    assert 'id="llm-loaded-models"' in page and "11.2 Go VRAM" in page
+    assert 'id="llm-ctx-mismatch"' in page  # 4096 loaded vs 8192 requested → reloads
+    client.post("/admin/configuration/llm", data={"llm_model": "qwen3:14b", "llm_num_ctx": "0"},
+                headers=ADMIN, follow_redirects=False)
+    assert 'id="llm-ctx-mismatch"' not in client.get("/admin/configuration", headers=ADMIN).text

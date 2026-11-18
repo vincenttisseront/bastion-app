@@ -851,6 +851,8 @@ def admin_configuration_llm_save(
     llm_waf_auto_enabled: str | None = Form(None),
     llm_companion_enabled: str | None = Form(None),
     llm_auto_response_enabled: str | None = Form(None),
+    llm_timeout_s: int | None = Form(None),
+    llm_num_ctx: int | None = Form(None),
 ):
     from app.llm.service import update_llm_settings
 
@@ -867,6 +869,8 @@ def admin_configuration_llm_save(
             waf_auto=_form_bool(llm_waf_auto_enabled),
             companion=_form_bool(llm_companion_enabled),
             auto_response=_form_bool(llm_auto_response_enabled),
+            timeout_s=llm_timeout_s,
+            num_ctx=llm_num_ctx,
         )
     except ValueError as exc:
         flash_redirect(response, str(exc), "error", token)
