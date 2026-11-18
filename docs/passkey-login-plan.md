@@ -119,8 +119,15 @@ Contrôles d'accès avant d'émettre la session, en **fail closed** :
    - Événements d'audit catalogués : `BST-AUTH-0010` (succès) et `BST-AUTH-2010` (échec, raison dans `details.reason`).
    - Les deux routes sont ajoutées à `PUBLIC_ROUTES_ALLOWLIST` et aux chemins de login du moteur de bannissement (fail closed). Rien à changer côté nginx : `location ^~ /auth/` est déjà public et limité par `portal_login`.
    - Le MFA admin n'est **pas** encore satisfait par une connexion passkey (décision 2 ouverte) : un admin repasse par son 2ᵉ facteur, comme aujourd'hui.
-2. **Profil** : enrôlement et gestion des clés, ré-auth récente, JS, templates.
-3. **UX login** : conditional UI, bouton, écran intermédiaire après login par mot de passe.
+2. **Profil** — *fait (`feat/passkey-login-e2e`)* : `app/auth/passkey_profile.py`, section « Clés d'accès » du profil, `app/static/js/bastion-passkey.js`.
+   - `POST /profile/passkeys/register/options|verify` (JSON, `X-CSRF-Token`) et `POST /profile/passkeys/{id}/delete` (formulaire, révocation douce).
+   - Le titulaire vient de la `bastion_session` validée (`sub` + realm), jamais d'un champ ; refus si les en-têtes nginx désignent un autre `sub`.
+   - Ré-auth récente : la session doit dater de moins de 10 min (`OidcSession.issued_at`), sinon 401 `{reauth: true}` et lien « Se reconnecter ». Pas de re-saisie du mot de passe : avec un OTP actif, `verify_keycloak_password()` ne vérifie que le mot de passe, plus faible qu'un login complet.
+   - Refusé aux sessions break-glass et à toute identité `@breakglass.local` ; limite de 10 clés et de 20 options/min par utilisateur ; audit `profile.passkey_registered` (`BST-AUTH-1012`) et `profile.passkey_removed` (`BST-AUTH-1013`).
+   - Renommage non fait (le nom se saisit à la création).
+3. **UX login** — *bouton et conditional UI faits* : `autocomplete="username webauthn"`, bouton « Se connecter avec une clé d'accès » (masqué si le navigateur ne gère pas WebAuthn). L'écran intermédiaire après un login par mot de passe reste à faire.
+   - Durcissement du chemin de login : identité `@breakglass.local` refusée (nom stocké, puis nom et e-mail Keycloak, `reason=reserved_identity_domain`) ; ban SQL vérifié aussi sur le nom Keycloak courant s'il a changé.
+   - Décision 2 tranchée pour l'instant : la passkey ne pose **pas** `bastion_mfa_ok`, un admin repasse par son 2ᵉ facteur (`admin_mfa_satisfied`), test de non-régression à l'appui.
 4. **Admin et exploitation** : toggle realm, vue et révocation admin, révocation à la désactivation, E2E, runbook.
 
 ## 9. Décisions à valider
