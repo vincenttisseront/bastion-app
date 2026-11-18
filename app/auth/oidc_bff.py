@@ -57,6 +57,7 @@ from app.testing_framework.throttle import (
 from app.web.csrf import portal_signing_secret, verify_csrf_token
 from app.web.openapi_responses import RESP_401, RESP_403, RESP_503
 from app.web.templates import render
+from app.web.user_context import is_breakglass_email
 
 _AUTH_LOGIN_TEMPLATE = "auth/login.html"
 
@@ -71,6 +72,8 @@ _NATIVE_DISABLED = "Authentification native non activée pour ce realm."
 _NATIVE_NOT_CONFIGURED = "OIDC natif non configuré pour ce realm."
 _AUTH_UNAVAILABLE = "Authentification temporairement indisponible."
 _CSRF_EXPIRED = "Session expirée — rechargez la page et réessayez."
+# The break-glass domain is reserved for local emergency accounts (/breakglass).
+_REASON_RESERVED = "reserved_identity_domain"
 _MFA_DISABLED = (
     "Configuration OTP demandée par l'IdP, mais le MFA est désactivé "
     "pour ce realm dans Bastion. Activez le MFA (Admin → Realms) "
@@ -703,6 +706,15 @@ def _resolve_login_realm(ctx: _LoginCtx) -> None:
         raise _LoginRejected(403, _NATIVE_DISABLED)
 
 
+def _reject_reserved_identity(ctx: _LoginCtx, *values: str | None) -> None:
+    """Refuse a ``@breakglass.local`` identity with the generic failure (counts as one)."""
+    if is_reserved_identity(*values):
+        logger.warning(
+            "security.reserved_identity_domain_rejected path=password realm=%s", ctx.realm_slug
+        )
+        raise _failure_rejection(ctx, reason=_REASON_RESERVED, action="oidc_login_failed")
+
+
 def _check_login_allowed(ctx: _LoginCtx) -> None:
     # SecurityBan decision (SQL, cross-worker) — independent from the 429 throttle.
     pre = evaluate_login_attempt(ctx.db, ip=ctx.client_ip, username=ctx.username, success=True)
@@ -879,6 +891,8 @@ async def _complete_login(ctx: _LoginCtx, step: LoginStepResult):
     session_email = (tokens.email or "").strip() or None
     if not session_email and display_username and "@" in display_username:
         session_email = display_username
+    # Keycloak's own name / e-mail may differ from the typed login (rename, e-mail login).
+    _reject_reserved_identity(ctx, display_username, session_email, tokens.preferred_username)
 
     identity = NativeLoginIdentity(
         sub=tokens.sub,
@@ -899,6 +913,21 @@ async def _complete_login(ctx: _LoginCtx, step: LoginStepResult):
         html_mode=ctx.html_mode,
         audit_action="oidc_login_otp_success" if ctx.otp_step else "oidc_login_success",
     )
+
+
+class ReservedIdentityError(PermissionError):
+    """An IdP identity carries the reserved break-glass domain."""
+
+
+def is_reserved_identity(*values: str | None) -> bool:
+    """True when any name / e-mail is a ``@breakglass.local`` identity.
+
+    That domain belongs to the local break-glass accounts only: an IdP account
+    renamed into it (editable username, unverified e-mail) must never receive a
+    native ``bastion_session`` — upstream apps behind ``auth_request`` would see
+    the reserved identity in their headers.
+    """
+    return any(is_breakglass_email(v) for v in values)
 
 
 @dataclass(frozen=True, slots=True)
@@ -933,7 +962,14 @@ def finalize_native_login(
     Shared by every native login path (password/OTP, passkey) so session shape,
     audience, lifetime and counter resets cannot drift between them.
     ``login_username`` is the throttle / ban key the caller checked before.
+
+    Raises :class:`ReservedIdentityError` (fail closed) for a ``@breakglass.local``
+    identity — callers refuse those earlier with their own generic response;
+    this is the last line so no future path can issue such a session.
     """
+    if is_reserved_identity(identity.username, identity.email, login_username):
+        logger.warning("security.reserved_identity_domain_rejected path=finalize")
+        raise ReservedIdentityError(_REASON_RESERVED)
     try:
         from app.rbac.account_lifecycle_service import touch_bastion_login
 
@@ -1029,6 +1065,9 @@ async def oidc_login(
             raise _LoginRejected(403, _CSRF_EXPIRED)
         _resolve_login_realm(ctx)
         _check_login_allowed(ctx)
+        if not ctx.otp_step:
+            # Break-glass accounts sign in at /breakglass/login, never here.
+            _reject_reserved_identity(ctx, ctx.username)
         step = await _run_login_step(ctx, password)
         return await _complete_login(ctx, step)
     except _LoginRejected as exc:
