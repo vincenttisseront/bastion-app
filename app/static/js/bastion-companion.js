@@ -110,8 +110,49 @@
     log.appendChild(wrap);
   }
 
+  function addBotReply(data) {
+    // Structured reply: short answer, app chips, numbered steps (textContent only).
+    var el = document.createElement("div");
+    el.className = "companion-msg companion-msg--bot companion-msg--rich";
+    var answer = String((data && data.answer) || "").trim();
+    if (answer) {
+      var p = document.createElement("p");
+      p.className = "companion-answer";
+      p.textContent = answer;
+      el.appendChild(p);
+    }
+    var apps = (data && data.apps) || [];
+    if (apps.length) {
+      var list = document.createElement("ul");
+      list.className = "companion-apps";
+      list.setAttribute("aria-label", "Applications");
+      apps.forEach(function (app) {
+        if (!app || !app.label) return;
+        var li = document.createElement("li");
+        li.className = "companion-app" + (app.openable === false ? " companion-app--locked" : "");
+        li.textContent = String(app.label);
+        if (app.openable === false) li.title = "Accès en lecture seule";
+        list.appendChild(li);
+      });
+      el.appendChild(list);
+    }
+    var steps = (data && data.steps) || [];
+    if (steps.length) {
+      var ol = document.createElement("ol");
+      ol.className = "companion-steps";
+      steps.forEach(function (step) {
+        var li = document.createElement("li");
+        li.textContent = String(step);
+        ol.appendChild(li);
+      });
+      el.appendChild(ol);
+    }
+    if (!el.childNodes.length) return;
+    log.appendChild(el);
+  }
+
   function renderReply(data) {
-    addMessage("bot", String((data && data.answer) || ""));
+    addBotReply(data);
     addNotices(data && data.notices);
     addLinks(data && data.links);
     addContact(data && data.contact);
@@ -158,7 +199,11 @@
         } else if (r.status === 200) {
           renderReply(r.body);
           history.push({ role: "user", content: text });
-          history.push({ role: "assistant", content: String(r.body.answer || "").slice(0, 500) });
+          var said = String(r.body.answer || "");
+          var appNames = (r.body.apps || []).map(function (a) { return a && a.label; }).filter(Boolean);
+          if (appNames.length) said += " Applications : " + appNames.join(", ") + ".";
+          if ((r.body.steps || []).length) said += " Étapes : " + r.body.steps.join(" ; ");
+          history.push({ role: "assistant", content: said.slice(0, 500) });
           history = history.slice(-MAX_HISTORY);
         } else {
           addMessage("bot", String((r.body && r.body.message) || attr("data-msg-error")));

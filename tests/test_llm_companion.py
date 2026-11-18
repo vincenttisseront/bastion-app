@@ -626,3 +626,76 @@ def test_update_settings_persists_both_toggles(db_session):
     assert row.llm_companion_enabled is True and row.llm_auto_response_enabled is True
     status = service_mod.llm_public_status(s, row)
     assert status["companion"] is True and status["auto_response"] is True
+
+
+# ── structured reply (answer + app chips + numbered steps) ──────────────────
+
+
+def _grant_app(db: Session, slug: str, label: str, kc: str = "kc-user-1", level: str = "launch") -> None:
+    app = App(slug=slug, label=label, upstream_url=f"https://{slug}.example.com/", enabled=True,
+              access_mode="sso_gate")
+    db.add(app)
+    db.commit()
+    db.refresh(app)
+    create_grant(db, AccessGrantCreate(
+        subject_type="user", keycloak_user_id=kc, resource_type="application",
+        application_id=app.id, access_level=level), "admin")
+    db.commit()
+
+
+def test_reply_apps_keeps_only_the_users_real_applications():
+    known = [{"nom": "Dolibarr", "ouvrable": True}, {"nom": "Wiki", "ouvrable": False}]
+    out = companion.reply_apps(["dolibarr", "Paie RH", "Wiki", "Dolibarr", ""], known)
+    assert out == [{"label": "Dolibarr", "openable": True}, {"label": "Wiki", "openable": False}]
+
+
+def test_reply_steps_are_cleaned_unnumbered_and_capped():
+    raw = ["1. Ouvrez **Mes applications**", "- Cliquez sur https://evil.example", "", "3) Réessayez"] + ["x"] * 9
+    steps = companion.reply_steps(raw)
+    assert steps[:3] == ["Ouvrez Mes applications", "Cliquez sur", "Réessayez"]
+    assert len(steps) == companion.MAX_REPLY_STEPS
+    assert all("http" not in s and "**" not in s for s in steps)
+
+
+async def test_structured_reply_lists_apps_as_chips_and_steps(db_session, on, fake_llm):
+    _grant_app(db_session, "dolibarr", "Dolibarr")
+    _grant_app(db_session, "wiki", "Wiki")
+    fake = fake_llm(_answer(
+        answer="Vous avez accès à deux applications.",
+        apps=["Dolibarr", "Wiki", "Paie RH"],  # Paie RH is not granted: must be dropped
+        steps=["1. Ouvrez Mes applications", "2. Cliquez sur la tuile de l'application"],
+    ))
+    reply = await companion.ask(db_session, on, _user(), "Quelles applications ai-je ?")
+    assert reply.source == "assistant"
+    assert reply.answer == "Vous avez accès à deux applications."
+    assert [a["label"] for a in reply.apps] == ["Dolibarr", "Wiki"]
+    assert reply.steps == ["Ouvrez Mes applications", "Cliquez sur la tuile de l'application"]
+    assert "Mise en forme" in fake.system()  # the model is told how to split its answer
+    as_json = reply.to_dict()
+    assert as_json["apps"][0] == {"label": "Dolibarr", "openable": True} and len(as_json["steps"]) == 2
+
+
+async def test_long_intro_is_shortened_when_a_list_follows(db_session, on, fake_llm):
+    _grant_app(db_session, "wiki", "Wiki")
+    long_intro = "Voici vos accès. " + ("Détail inutile qui allonge la réponse. " * 20)
+    fake_llm(_answer(answer=long_intro, apps=["Wiki"], steps=[]))
+    reply = await companion.ask(db_session, on, _user(), "Mes applications ?")
+    assert len(reply.answer) <= companion.MAX_INTRO_CHARS + 1
+    assert reply.answer.startswith("Voici vos accès.")
+    assert [a["label"] for a in reply.apps] == ["Wiki"]
+
+
+async def test_reply_without_structured_fields_still_works(db_session, on, fake_llm):
+    fake_llm(_answer())  # older-style output: answer only, no apps / steps
+    reply = await companion.ask(db_session, on, _user(), "Bonjour")
+    assert reply.source == "assistant" and reply.answer and reply.apps == [] and reply.steps == []
+
+
+def test_api_returns_apps_and_steps(client, db_engine, fake_llm):
+    _enable_for_client(client, db_engine)
+    with Session(db_engine) as db:
+        _grant_app(db, "dolibarr", "Dolibarr")
+    fake_llm(_answer(answer="Une application.", apps=["Dolibarr"], steps=["Ouvrez Mes applications"]))
+    body = _post(client).json()
+    assert body["apps"] == [{"label": "Dolibarr", "openable": True}]
+    assert body["steps"] == ["Ouvrez Mes applications"]
