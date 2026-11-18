@@ -6,9 +6,14 @@ parsing), keeps only those newer than the last analysed one, groups them by
 client IP with ban/rate context, and asks the model to qualify each source:
 category (SQL injection, XSS, command injection, traversal, scan, credential
 stuffing, business abuse / fraud, bot, false positive…), severity and the
-recommended action. A ban is only ever a *proposal*: the admin accepts it,
-then applies it with the existing WAF "ban IP" form. Fallback: the WAF works
-exactly as before, the analysis simply does not appear.
+recommended action. By default a ban is only a *proposal*: the admin
+accepts it, then applies it with the existing WAF "ban IP" form. With the
+admin option "réponse automatique" on, a recommended ban is applied without
+validation **only after raw-event verification** (``app.llm.responder.verify_waf_ban``:
+fresh, blocked and critical ModSecurity events in sufficient number, several
+rules, IP not known to the app, not allowlisted, hourly cap); a refused
+verification leaves the proposal for the admin, with the reasons. Fallback: the
+WAF works exactly as before, the analysis simply does not appear.
 """
 
 from __future__ import annotations
@@ -21,7 +26,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.llm.insights import STATUS_INFO, STATUS_PROPOSED, latest_insight
+from app.llm.insights import STATUS_ACCEPTED, STATUS_INFO, STATUS_PROPOSED, latest_insight
 from app.llm.service import run_task
 from app.models import LlmInsight, PortalSettings, SecurityBan, SecurityRateEvent, utcnow
 from app.sso_settings import Settings, get_settings
@@ -210,11 +215,12 @@ async def analyse_waf_threats(
     force: bool = False,
 ) -> list[LlmInsight]:
     """Analyse WAF events since the last run. Empty list when off or quiet."""
-    from app.llm.service import llm_enabled
+    from app.llm.service import auto_response_enabled, llm_enabled
 
     settings = settings or get_settings()
     if not llm_enabled(settings, db):
         return []
+    auto = auto_response_enabled(settings, db)
     row = db.get(PortalSettings, 1)
     if row is None or (not force and not row.llm_waf_auto_enabled):
         return []
@@ -269,21 +275,39 @@ async def analyse_waf_threats(
                 "dernier": source["dernier"],
             },
         }
+        status = STATUS_PROPOSED if propose else STATUS_INFO
+        decided: dict[str, Any] = {}
         if propose:
             payload["proposed_ban"] = {
                 "ip": source["client_ip"],
                 "ban_minutes": int(item.get("ban_minutes") or 1440),
                 "reason": f"IA (validé) — {item.get('category')}, gravité {item.get('severity')}",
             }
+            if auto:
+                from app.llm.responder import apply_verified_waf_ban
+
+                applied, refusals = apply_verified_waf_ban(db, source, item)
+                if applied:
+                    payload["auto_applied"] = {
+                        "ip": source["client_ip"],
+                        "ban_minutes": min(int(item.get("ban_minutes") or 60), 1440),
+                        "verified_on": "événements ModSecurity bruts",
+                    }
+                    payload.pop("proposed_ban", None)  # already applied: nothing to validate
+                    status = STATUS_ACCEPTED
+                    decided = {"decided_by": "system:llm", "decided_at": utcnow()}
+                else:
+                    payload["auto_refused"] = refusals  # stays a proposal for the admin
         row_insight = LlmInsight(
             kind=KIND,
             subject_type="ip",
             subject_id=source["client_ip"],
-            status=STATUS_PROPOSED if propose else STATUS_INFO,
+            status=status,
             payload=payload,
             model=result.model,
             prompt_sha256=result.prompt_sha256,
             requested_by=requested_by,
+            **decided,
         )
         db.add(row_insight)
         stored.append(row_insight)

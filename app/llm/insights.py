@@ -36,6 +36,7 @@ KIND_LABELS: dict[str, str] = {
     "siem_enrichment": "Enrichissement SIEM",
     "dependency_review": "Synthèse dépendances",
     "test_generation": "Génération de tests",
+    "companion_alert": "Alerte du compagnon IA",
 }
 
 

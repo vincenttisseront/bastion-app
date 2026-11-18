@@ -1,0 +1,44 @@
+{# Companion IA — logged-in users only (companion_on is false for anonymous and break-glass).
+   Scope: access, security, company contact. Plain-text rendering only (see bastion-companion.js). #}
+{% if current_user and companion_on %}
+<div class="companion" id="companion" data-endpoint="/api/companion/messages"
+     data-max-chars="600"
+     data-msg-error="{{ _('Le compagnon est momentanément indisponible. Réessayez plus tard.') }}"
+     data-msg-expired="{{ _('Votre session a expiré : reconnectez-vous pour continuer.') }}"
+     data-msg-thinking="{{ _('Je réfléchis…') }}"
+     data-msg-you="{{ _('Vous') }}"
+     data-msg-companion="{{ _('Compagnon') }}">
+  <button type="button" class="companion-fab" data-companion-toggle aria-expanded="false"
+          aria-controls="companion-panel" aria-label="{{ _('Ouvrir le compagnon') }}" title="{{ _('Compagnon') }}">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    </svg>
+  </button>
+  <section class="companion-panel" id="companion-panel" data-companion-panel role="dialog"
+           aria-label="{{ _('Compagnon Bastion') }}" hidden>
+    <header class="companion-head">
+      <h2 class="companion-title">{{ _('Compagnon Bastion') }}</h2>
+      <button type="button" class="icon-btn" data-companion-close aria-label="{{ _('Fermer') }}">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </header>
+    <div class="companion-log" data-companion-log role="log" aria-live="polite" aria-relevant="additions">
+      <p class="companion-hello">{{ _('Bonjour ! Je peux vous aider sur vos accès, la sécurité de votre compte et la façon de nous contacter.') }}</p>
+    </div>
+    <div class="companion-chips" data-companion-chips>
+      <button type="button" class="companion-chip" data-companion-chip>{{ _('Quelles applications puis-je ouvrir ?') }}</button>
+      <button type="button" class="companion-chip" data-companion-chip>{{ _('Comment sécuriser mon compte ?') }}</button>
+      <button type="button" class="companion-chip" data-companion-chip>{{ _('Comment contacter le support ?') }}</button>
+    </div>
+    <form class="companion-form" data-companion-form autocomplete="off">
+      <label class="visually-hidden" for="companion-input">{{ _('Votre message') }}</label>
+      <textarea id="companion-input" class="form-input companion-input" data-companion-input rows="1"
+                maxlength="600" placeholder="{{ _('Posez votre question…') }}"></textarea>
+      <button type="submit" class="btn btn-primary companion-send" data-companion-send>{{ _('Envoyer') }}</button>
+    </form>
+    <p class="companion-scope">{{ _('Accès, sécurité et contact uniquement. Ne saisissez jamais de mot de passe ni de code.') }}</p>
+  </section>
+</div>
+{% endif %}

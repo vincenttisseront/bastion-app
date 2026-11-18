@@ -73,6 +73,29 @@ def llm_enabled(settings: Settings | None = None, db: Session | None = None) -> 
     return bool(getattr(row, "llm_enabled", False))
 
 
+def companion_enabled(settings: Settings | None = None, db: Session | None = None) -> bool:
+    """End-user companion: needs the assistant on AND its own admin toggle (off by default).
+
+    Same kill switch as everything else: ``LLM_ENABLED=false`` returns before any DB read.
+    """
+    settings = settings or get_settings()
+    if not env_allows(settings):
+        return False
+    row = _read_row(db)
+    return bool(getattr(row, "llm_enabled", False) and getattr(row, "llm_companion_enabled", False))
+
+
+def auto_response_enabled(settings: Settings | None = None, db: Session | None = None) -> bool:
+    """Autonomous response (alert / revoke own sessions / temporary ban): its own admin toggle."""
+    settings = settings or get_settings()
+    if not env_allows(settings):
+        return False
+    row = _read_row(db)
+    return bool(
+        getattr(row, "llm_enabled", False) and getattr(row, "llm_auto_response_enabled", False)
+    )
+
+
 def effective_config(settings: Settings, row: PortalSettings | None) -> LlmConfig:
     """Env defaults overridden by the admin-configured connection."""
     config = LlmConfig.from_settings(settings)
@@ -160,6 +183,7 @@ async def run_task(
     settings: Settings | None = None,
     actor: str = _ACTOR,
     think: bool = False,
+    audience: str = "admin",
 ) -> LlmCallResult | None:
     """Like :func:`generate_json` but returns the full call result (model, hash).
 
@@ -173,7 +197,8 @@ async def run_task(
         if not client.config.model:
             return None  # connection tested but no model chosen yet
         result = await client.generate_json(
-            task=task, instructions=instructions, data=data, schema=schema, think=think
+            task=task, instructions=instructions, data=data, schema=schema,
+            think=think, audience=audience,
         )
         _audit_call(db, actor, result)
         return result
@@ -307,6 +332,8 @@ def update_llm_settings(
     enabled: bool,
     model: str | None = None,
     waf_auto: bool | None = None,
+    companion: bool | None = None,
+    auto_response: bool | None = None,
     ip_address: str | None = None,
 ) -> PortalSettings:
     row = ensure_portal_settings(db, settings)
@@ -321,6 +348,10 @@ def update_llm_settings(
     row.llm_enabled = bool(enabled)
     if waf_auto is not None:
         row.llm_waf_auto_enabled = bool(waf_auto)
+    if companion is not None:
+        row.llm_companion_enabled = bool(companion)
+    if auto_response is not None:
+        row.llm_auto_response_enabled = bool(auto_response)
     db.commit()
     log_action(
         db,
@@ -331,6 +362,8 @@ def update_llm_settings(
             "enabled": bool(enabled),
             "model": row.llm_model,
             "waf_auto": bool(row.llm_waf_auto_enabled),
+            "companion": bool(row.llm_companion_enabled),
+            "auto_response": bool(row.llm_auto_response_enabled),
             "env_kill_switch": not env_allows(settings),
         },
         ip_address=ip_address,
@@ -366,6 +399,8 @@ def llm_public_status(settings: Settings, row: PortalSettings | None) -> dict[st
         "models": models,
         "model_missing": bool(config.model and models and config.model not in models),
         "waf_auto": bool(getattr(row, "llm_waf_auto_enabled", True)),
+        "companion": bool(getattr(row, "llm_companion_enabled", False)),
+        "auto_response": bool(getattr(row, "llm_auto_response_enabled", False)),
         "last_probe": _fmt(getattr(row, "llm_last_probe_at", None)),
         "last_probe_ok": getattr(row, "llm_last_probe_ok", None),
         "last_probe_error": getattr(row, "llm_last_probe_error", None),
