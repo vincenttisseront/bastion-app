@@ -1,64 +1,79 @@
-{# One LLM insight. Expects `ins` (LlmInsight) and `csrf_token`; `insight_next` optional redirect. #}
+{# One LLM insight row. Expects `ins` (LlmInsight), `csrf_token`; optional `kind_labels`, `insight_next`. #}
 {% set p = ins.payload or {} %}
-<div class="form-section llm-insight" id="llm-insight-{{ ins.id }}" data-kind="{{ ins.kind }}">
-  <div class="form-section-header">
-    <div class="form-section-title">
-      {{ _(kind_labels.get(ins.kind, ins.kind)) if kind_labels is defined else ins.kind }}
-      <span class="badge badge-muted">{{ _('Généré par IA') }}</span>
-      {% if ins.status == 'proposed' %}
-      <span class="badge badge-warn">{{ _('À valider') }}</span>
-      {% elif ins.status == 'accepted' %}
-      <span class="badge badge-ok">{{ _('Acceptée') }}</span>
-      {% elif ins.status == 'rejected' %}
-      <span class="badge badge-err">{{ _('Rejetée') }}</span>
-      {% endif %}
+{% set sev = p.severity or p.suggested_severity or '' %}
+{% if ins.status == 'proposed' %}{% set tone = 'warn' %}
+{% elif ins.status == 'accepted' %}{% set tone = 'ok' %}
+{% elif ins.status == 'rejected' %}{% set tone = 'muted' %}
+{% elif sev in ('critique', 'elevee', 'CRITICAL', 'ERROR') %}{% set tone = 'err' %}
+{% elif sev in ('moyenne', 'WARNING') %}{% set tone = 'warn' %}
+{% else %}{% set tone = 'info' %}{% endif %}
+{% set lead = p.summary or p.explanation or p.probable_cause or '' %}
+{% set fact_keys = ['category', 'severity', 'suggested_severity', 'confidence', 'score', 'pattern', 'legitimacy', 'recommendation', 'recommended_action', 'field_to_check'] %}
+{% set list_keys = ['evidence', 'next_steps', 'fix_steps', 'risks', 'recommendations', 'dormant_findings', 'risky_combinations', 'suggested_applications'] %}
+<article class="ai-item" id="llm-insight-{{ ins.id }}" data-kind="{{ ins.kind }}" data-tone="{{ tone }}">
+  <div class="ai-item-head">
+    <div class="ai-item-title">
+      <span class="ai-item-kind">{{ _(kind_labels.get(ins.kind, ins.kind)) if kind_labels is defined else ins.kind }}</span>
+      <span class="ai-item-subject" title="{{ ins.subject_type }}:{{ ins.subject_id }}">{{ ins.subject_id }}</span>
+      {% if ins.status == 'proposed' %}<span class="badge badge-warn">{{ _('À valider') }}</span>
+      {% elif ins.status == 'accepted' %}<span class="badge badge-ok">{{ _('Acceptée') }}</span>
+      {% elif ins.status == 'rejected' %}<span class="badge badge-err">{{ _('Rejetée') }}</span>{% endif %}
     </div>
-    <div class="form-section-sub mono">
-      {{ ins.subject_type }}:{{ ins.subject_id }} · {{ ins.model or '—' }}
-      · {{ ins.created_at.strftime('%Y-%m-%d %H:%M UTC') if ins.created_at else '' }}
-      {% if ins.requested_by %}· {{ ins.requested_by }}{% endif %}
+    <div class="ai-item-meta">
+      {{ ins.created_at.strftime('%Y-%m-%d %H:%M') if ins.created_at else '' }}
+      · {{ ins.model or '—' }}{% if ins.requested_by %} · {{ ins.requested_by }}{% endif %}
     </div>
   </div>
 
-  {% if p.summary %}<p>{{ p.summary }}</p>{% endif %}
-  {% if p.explanation %}<p>{{ p.explanation }}</p>{% endif %}
-  {% if p.recommendation %}<p><strong>{{ _('Recommandation :') }}</strong> {{ p.recommendation }}</p>{% endif %}
+  {% if lead %}<p class="ai-item-summary">{{ lead }}</p>{% endif %}
+  {% if p.justification %}<p class="ai-item-reco">{{ p.justification }}</p>{% endif %}
+  {% if p.probable_cause and p.summary %}<p class="ai-item-reco"><strong>{{ _('Cause probable :') }}</strong> {{ p.probable_cause }}</p>{% endif %}
 
-  {% set skip = ['summary', 'explanation', 'recommendation'] %}
-  <dl class="llm-insight-fields">
-    {% for key, value in p.items() if key not in skip %}
-    <dt class="form-label">{{ key }}</dt>
-    <dd>
-      {% if value is mapping %}
-      <pre class="mono" style="white-space:pre-wrap;">{{ value | tojson }}</pre>
-      {% elif value is iterable and value is not string %}
-      <ul>
-        {% for item in value %}
-        <li>{% if item is mapping %}<span class="mono">{{ item | tojson }}</span>{% else %}{{ item }}{% endif %}</li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      {% if key in ('code', 'content') %}<pre class="mono" style="white-space:pre-wrap;">{{ value }}</pre>{% else %}{{ value }}{% endif %}
-      {% endif %}
-    </dd>
+  {% set facts = [] %}
+  {% for key in fact_keys if p[key] is defined and p[key] not in (none, '') %}{% if facts.append(key) %}{% endif %}{% endfor %}
+  {% if facts or p.proposed_ban or p.proposed_exclusion or p.suggested_realm %}
+  <div class="ai-facts">
+    {% for key in facts %}
+    <span class="ai-fact">{{ key | replace('_', ' ') }} <b>{{ p[key] | string | replace('_', ' ') }}</b></span>
     {% endfor %}
-  </dl>
+    {% if p.suggested_realm %}<span class="ai-fact">realm <b>{{ p.suggested_realm }}</b></span>{% endif %}
+    {% if p.proposed_ban %}<span class="ai-fact">{{ _('bannir') }} <b class="mono">{{ p.proposed_ban.ip or p.proposed_ban.target }}</b> · {{ p.proposed_ban.ban_minutes }} min</span>{% endif %}
+    {% if p.proposed_exclusion %}<span class="ai-fact">{{ _('exclusion') }} <b class="mono">{{ p.proposed_exclusion.crs_rule_id }} · {{ p.proposed_exclusion.host }}{{ p.proposed_exclusion.uri_pattern }}</b></span>{% endif %}
+  </div>
+  {% endif %}
+
+  {% for key in list_keys if p[key] %}
+  <ul class="ai-bullets" data-list="{{ key }}">
+    {% for item in p[key][:8] %}<li>{% if item is mapping %}<span class="mono">{{ item | tojson }}</span>{% else %}{{ item }}{% endif %}</li>{% endfor %}
+  </ul>
+  {% endfor %}
+
+  {% if p.priorities %}
+  <ul class="ai-bullets" data-list="priorities">
+    {% for pr in p.priorities[:10] %}<li><b>{{ pr.priority }}</b> · <span class="mono">{{ pr.name }} {{ pr.from_version }} → {{ pr.to_version }}</span> — {{ pr.reason }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+
+  <details class="ai-details">
+    <summary>{{ _('Détails bruts') }}</summary>
+    <pre class="mono">{{ p | tojson }}</pre>
+    {% if ins.prompt_sha256 %}<div class="ai-decided">prompt sha256 {{ ins.prompt_sha256[:16] }}…</div>{% endif %}
+  </details>
 
   {% if ins.status == 'proposed' %}
-  <form method="post" action="/admin/assistant/insights/{{ ins.id }}/decide" class="form-row" style="align-items:end;">
+  <form method="post" action="/admin/assistant/insights/{{ ins.id }}/decide" class="ai-decide">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     {% if insight_next is defined and insight_next %}<input type="hidden" name="next" value="{{ insight_next }}">{% endif %}
-    <div class="form-group" style="flex:1;">
-      <label class="form-label" for="note-{{ ins.id }}">{{ _('Note (facultatif)') }}</label>
-      <input type="text" id="note-{{ ins.id }}" name="note" class="form-input" maxlength="1000">
-    </div>
-    <div class="form-actions">
-      <button type="submit" name="decision" value="accept" class="btn btn-primary btn-sm">{{ _('Accepter') }}</button>
-      <button type="submit" name="decision" value="reject" class="btn btn-secondary btn-sm">{{ _('Rejeter') }}</button>
-    </div>
+    <label class="visually-hidden" for="note-{{ ins.id }}">{{ _('Note (facultatif)') }}</label>
+    <input type="text" id="note-{{ ins.id }}" name="note" class="form-input" maxlength="1000"
+           placeholder="{{ _('Note (facultatif)') }}">
+    <button type="submit" name="decision" value="accept" class="btn btn-primary btn-sm">{{ _('Accepter') }}</button>
+    <button type="submit" name="decision" value="reject" class="btn btn-ghost btn-sm">{{ _('Rejeter') }}</button>
+    <span class="form-help" style="margin:0;">{{ _('Accepter enregistre votre décision ; appliquez ensuite le changement depuis l’écran habituel.') }}</span>
   </form>
-  <p class="form-help">{{ _('Accepter enregistre votre décision ; appliquez ensuite le changement depuis l’écran habituel.') }}</p>
   {% elif ins.decided_by %}
-  <p class="form-help">{{ _('Décision :') }} {{ ins.decided_by }} · {{ ins.decided_at.strftime('%Y-%m-%d %H:%M UTC') if ins.decided_at else '' }}{% if ins.decision_note %} — {{ ins.decision_note }}{% endif %}</p>
+  <div class="ai-decided">
+    {{ _('Décision :') }} {{ ins.decided_by }} · {{ ins.decided_at.strftime('%Y-%m-%d %H:%M') if ins.decided_at else '' }}{% if ins.decision_note %} — {{ ins.decision_note }}{% endif %}
+  </div>
   {% endif %}
-</div>
+</article>

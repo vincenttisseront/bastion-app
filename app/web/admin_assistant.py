@@ -43,11 +43,82 @@ STATUS_LABELS = {
 }
 
 ACTIONS = [
-    {"url": "/admin/assistant/login-anomalies/scan", "label": "Analyser les connexions (dernière heure)"},
-    {"url": "/admin/assistant/recertification", "label": "Revue des permissions"},
-    {"url": "/admin/assistant/dependencies", "label": "Synthèse des dépendances"},
-    {"url": "/admin/assistant/siem/enrich", "label": "Enrichir les événements SIEM récents"},
+    {
+        "key": "waf",
+        "url": "/admin/assistant/waf/threats",
+        "title": "Menaces WAF",
+        "desc": "Qualifie par IP les derniers événements ModSecurity : injections, scans, abus, fraude.",
+        "button": "Analyser maintenant",
+        "kind": "waf_threat",
+    },
+    {
+        "key": "logins",
+        "url": "/admin/assistant/login-anomalies/scan",
+        "title": "Connexions suspectes",
+        "desc": "Force brute, password spraying et partage de compte sur la dernière heure.",
+        "button": "Analyser",
+        "kind": "login_anomaly",
+    },
+    {
+        "key": "recert",
+        "url": "/admin/assistant/recertification",
+        "title": "Revue des permissions",
+        "desc": "Droits dormants, rôles critiques et cumuls à risque, commentés pour l'audit.",
+        "button": "Lancer la revue",
+        "kind": "recertification",
+        "extra_url": "/admin/assistant/recertification.csv",
+        "extra_label": "Données brutes (CSV)",
+    },
+    {
+        "key": "deps",
+        "url": "/admin/assistant/dependencies",
+        "title": "Dépendances",
+        "desc": "Priorise les mises à jour selon l'exposition et prépare un brouillon de PR.",
+        "button": "Synthétiser",
+        "kind": "dependency_review",
+    },
+    {
+        "key": "siem",
+        "url": "/admin/assistant/siem/enrich",
+        "title": "Enrichissement SIEM",
+        "desc": "Résumé, catégorie et gravité suggérée pour les événements récents (envoyés à part).",
+        "button": "Enrichir",
+        "kind": "siem_enrichment",
+    },
 ]
+
+STATUS_FILTERS = [
+    ("", "Toutes"),
+    ("proposed", "À valider"),
+    ("accepted", "Acceptées"),
+    ("rejected", "Rejetées"),
+    ("info", "Information"),
+]
+
+
+def _assistant_stats(db: Session) -> dict[str, Any]:
+    """Counters for the metrics strip. Never raises (zeros on error)."""
+    from datetime import timedelta
+
+    from sqlalchemy import func
+
+    from app.models import LlmInsight, utcnow
+
+    out = {"proposed": 0, "waf_24h": 0, "week": 0, "last": ""}
+    try:
+        now = utcnow()
+        out["proposed"] = db.query(func.count(LlmInsight.id)).filter(
+            LlmInsight.status == "proposed").scalar() or 0
+        out["waf_24h"] = db.query(func.count(LlmInsight.id)).filter(
+            LlmInsight.kind == "waf_threat",
+            LlmInsight.created_at >= now - timedelta(hours=24)).scalar() or 0
+        out["week"] = db.query(func.count(LlmInsight.id)).filter(
+            LlmInsight.created_at >= now - timedelta(days=7)).scalar() or 0
+        last = db.query(func.max(LlmInsight.created_at)).scalar()
+        out["last"] = last.strftime("%Y-%m-%d %H:%M UTC") if last else ""
+    except Exception:  # cosmetic counters only
+        logger.debug("assistant stats failed", exc_info=True)
+    return out
 
 
 def _safe_next(value: str | None, default: str = _PAGE) -> str:
@@ -109,7 +180,9 @@ def admin_assistant_page(
         status=status,
         kind_labels=KIND_LABELS,
         status_labels=STATUS_LABELS,
+        status_filters=STATUS_FILTERS,
         actions=ACTIONS,
+        stats=_assistant_stats(db),
     )
     return render("admin/assistant.html", **ctx)
 

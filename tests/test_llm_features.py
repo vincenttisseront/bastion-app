@@ -548,8 +548,13 @@ def test_assistant_page_renders_disabled(client):
     r = client.get("/admin/assistant", headers=ADMIN)
     assert r.status_code == 200
     assert "Assistant IA : désactivé" in r.text
-    assert "/admin/assistant/recertification.csv" in r.text
-    assert 'id="assistant-actions"' not in r.text
+    assert "/admin/assistant/recertification.csv" in r.text  # raw fallback always offered
+    assert 'id="assistant-disabled"' in r.text
+    assert 'id="assistant-empty"' in r.text
+    import re
+
+    buttons = re.findall(r'<button type="submit" class="btn btn-secondary btn-sm"( disabled)?>', r.text)
+    assert len(buttons) == 5 and all(buttons)  # 5 on-demand analyses, all disabled
 
 
 def test_decision_is_recorded_and_audited(client, db_engine):
