@@ -1,8 +1,8 @@
 {% set ai = llm | default({}) %}
 <div class="form-section config-panel" id="llm" role="tabpanel" aria-labelledby="tab-llm" hidden>
   <div class="form-section-header">
-    <div class="form-section-title">
-      {{ _('Assistant IA (LLM local)') }}
+    <div class="form-section-title" style="display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;">
+      {{ _('Assistant IA (Ollama)') }}
       {% if ai.state == 'available' %}
       <span class="badge badge-ok" id="llm-status-badge">{{ _('Assistant IA : disponible') }}</span>
       {% elif ai.state == 'unavailable' %}
@@ -14,51 +14,140 @@
       {% endif %}
     </div>
     <div class="form-section-sub">
-      {{ _('Modèle local servi par Ollama, pour des aides en lecture seule (explications, résumés, suggestions).') }}
-      {{ _('Optionnel : le portail fonctionne à l’identique sans lui. Il n’intervient jamais dans le login, le MFA, le proxy, le WAF ni les bannissements.') }}
-      {{ _('Chaque proposition doit être validée par un administrateur ; les secrets sont masqués avant envoi.') }}
+      {{ _('Modèle servi par un serveur Ollama (local ou distant) pour analyser le WAF, les connexions et les journaux, et proposer des actions.') }}
+      {{ _('Optionnel : le portail fonctionne à l’identique sans lui. Il n’intervient jamais dans le login, le MFA, le proxy, le WAF ni les bannissements ; chaque proposition est validée par un administrateur et les secrets sont masqués avant envoi.') }}
     </div>
   </div>
 
-  {% if not ai.env_enabled %}
-  <p class="form-help" id="llm-env-disabled">
-    {{ _('Désactivé au niveau du serveur : définissez') }} <span class="mono">LLM_ENABLED=true</span>
-    {{ _('(et') }} <span class="mono">OLLAMA_URL</span>, <span class="mono">LLM_MODEL</span>{{ _(') puis redémarrez le portail.') }}
-  </p>
-  {% endif %}
+  <div class="form-body">
+    {% if not ai.env_enabled %}
+    <div class="alert alert-warn" id="llm-env-disabled">
+      <div class="alert-body">
+        {{ _('Coupé au niveau du serveur par') }} <span class="mono">LLM_ENABLED=false</span>.
+        {{ _('Retirez cette variable puis redémarrez le portail pour configurer l’assistant.') }}
+      </div>
+    </div>
+    {% endif %}
 
-  <form method="post" action="/admin/configuration/llm" id="llm-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div class="form-group">
-      <label class="form-label form-check-row">
-        <input type="checkbox" name="llm_enabled" value="on"
-               {% if ai.admin_enabled %}checked{% endif %}>
-        {{ _("Activer l'assistant IA") }}
-      </label>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <span class="form-label">{{ _('Serveur Ollama') }}</span>
-        <span class="mono">{{ ai.url or '—' }}</span>
-      </div>
-      <div class="form-group">
-        <span class="form-label">{{ _('Modèle') }}</span>
-        <span class="mono">{{ ai.model or '—' }}</span>
+    {# ── 1. Connexion ─────────────────────────────────────────────── #}
+    <div class="form-section-header">
+      <div class="form-section-title">{{ _('1. Connexion au serveur Ollama') }}</div>
+      <div class="form-section-sub">
+        {{ _('Adresse IP ou nom de domaine, avec le port (11434 par défaut). Jeton facultatif, envoyé en') }}
+        <span class="mono">Authorization: Bearer</span> {{ _('(reverse proxy devant Ollama).') }}
       </div>
     </div>
-    {% if ai.last_success %}
-    <p class="form-help">{{ _('Dernière réponse valide :') }} {{ ai.last_success }}</p>
-    {% endif %}
-    {% if ai.last_error %}
-    <p class="form-help" id="llm-last-error">{{ _('Dernière erreur :') }} <span class="mono">{{ ai.last_error }}</span></p>
-    {% endif %}
-    <div class="form-actions" style="margin-top:var(--sp-3);">
-      <button type="submit" class="btn btn-primary">{{ _('Enregistrer') }}</button>
-      <button type="submit" form="llm-probe-form" class="btn btn-secondary"
-              {% if not ai.env_enabled %}disabled{% endif %}>{{ _('Tester la connexion') }}</button>
+    <form method="post" action="/admin/configuration/llm/connection" id="llm-connection-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-group">
+        <label class="form-label" for="llm_base_url">{{ _('Adresse du serveur') }}</label>
+        <input type="text" id="llm_base_url" name="llm_base_url" class="form-input mono"
+               value="{{ ai.url if ai.url_configured else '' }}"
+               placeholder="https://ollama.example.com:11434 · http://10.0.0.20:11434"
+               autocomplete="off" spellcheck="false" required>
+        {% if not ai.url_configured %}
+        <p class="form-help">{{ _('Valeur par défaut du serveur :') }} <span class="mono">{{ ai.url }}</span></p>
+        {% endif %}
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="llm_api_token">{{ _('Jeton d’accès (facultatif)') }}</label>
+          <input type="password" id="llm_api_token" name="llm_api_token" class="form-input"
+                 value="" autocomplete="new-password"
+                 placeholder="{% if ai.token_configured %}••••••••{% else %}{{ _('Aucun jeton') }}{% endif %}">
+          <p class="form-help">{{ _('Laissez vide pour conserver le jeton actuel.') }}</p>
+        </div>
+        <div class="form-group">
+          <span class="form-label">{{ _('Sécurité TLS') }}</span>
+          <label class="form-check-row">
+            <input type="checkbox" name="llm_tls_verify" value="on" {% if ai.tls_verify %}checked{% endif %}>
+            {{ _('Vérifier le certificat TLS') }}
+          </label>
+          <p class="form-help">{{ _('Décochez pour un certificat auto-signé (connexion chiffrée, serveur non authentifié).') }}</p>
+          {% if ai.token_configured %}
+          <label class="form-check-row">
+            <input type="checkbox" name="llm_clear_token" value="on">
+            {{ _('Supprimer le jeton enregistré') }}
+          </label>
+          {% endif %}
+        </div>
+      </div>
+      {% if ai.plain_http_with_token %}
+      <div class="alert alert-warn"><div class="alert-body">
+        {{ _('Le jeton circule en clair sur http:// : préférez https://, même avec un certificat auto-signé.') }}
+      </div></div>
+      {% endif %}
+      {% if ai.last_probe %}
+      <div class="alert {% if ai.last_probe_ok %}alert-ok{% else %}alert-err{% endif %}" id="llm-last-probe">
+        <div class="alert-body">
+          {% if ai.last_probe_ok %}
+          {{ _('Dernier test réussi') }} · {{ ai.last_probe }} · {{ ai.models | length }} {{ _('modèle(s) disponible(s)') }}
+          {% else %}
+          {{ _('Dernier test en échec') }} · {{ ai.last_probe }} — {{ ai.last_probe_error }}
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+      <div class="form-actions" style="margin-top:var(--sp-3);">
+        <button type="submit" class="btn btn-primary"{% if not ai.env_enabled %} disabled{% endif %}>{{ _('Enregistrer et tester la connexion') }}</button>
+        {% if ai.url_configured %}
+        <button type="submit" form="llm-probe-form" class="btn btn-secondary"{% if not ai.env_enabled %} disabled{% endif %}>{{ _('Re-tester') }}</button>
+        {% endif %}
+      </div>
+    </form>
+    <form method="post" action="/admin/configuration/llm/probe" id="llm-probe-form" hidden>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    </form>
+
+    {# ── 2. Modèle et fonctionnalités ─────────────────────────────── #}
+    <div class="form-section-header mt-4">
+      <div class="form-section-title">{{ _('2. Modèle et fonctionnalités') }}</div>
+      <div class="form-section-sub">
+        {{ _('La liste des modèles provient du dernier test de connexion réussi. Recommandé : un modèle 14B ou plus (ex. qwen3:14b).') }}
+      </div>
     </div>
-  </form>
-  <form method="post" action="/admin/configuration/llm/probe" id="llm-probe-form" hidden>
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  </form>
+    <form method="post" action="/admin/configuration/llm" id="llm-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="llm_model">{{ _('Modèle') }}</label>
+          {% if ai.models %}
+          <select id="llm_model" name="llm_model" class="form-input mono">
+            <option value="">{{ _('— Choisir un modèle —') }}</option>
+            {% for m in ai.models %}
+            <option value="{{ m }}" {% if m == ai.model %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+          {% if ai.model_missing %}
+          <p class="form-error">{{ _('Le modèle enregistré n’existe plus sur ce serveur :') }} <span class="mono">{{ ai.model }}</span></p>
+          {% endif %}
+          {% else %}
+          <select id="llm_model" name="llm_model" class="form-input" disabled>
+            <option value="">{{ _('Testez la connexion pour lister les modèles') }}</option>
+          </select>
+          {% endif %}
+        </div>
+        <div class="form-group">
+          <span class="form-label">{{ _('Activation') }}</span>
+          <label class="form-check-row">
+            <input type="checkbox" name="llm_enabled" value="on"
+                   {% if ai.admin_enabled %}checked{% endif %}{% if not ai.models and not ai.admin_enabled %} disabled{% endif %}>
+            {{ _("Activer l'assistant IA") }}
+          </label>
+          <label class="form-check-row">
+            <input type="checkbox" name="llm_waf_auto_enabled" value="on" {% if ai.waf_auto %}checked{% endif %}>
+            {{ _('Analyse automatique du WAF (toutes les 10 min)') }}
+          </label>
+          <p class="form-help">{{ _('Injections, scans, abus et tentatives de fraude : les menaces détectées apparaissent dans Sécurité → WAF avec une proposition de bannissement à valider.') }}</p>
+        </div>
+      </div>
+      {% if ai.last_error and ai.admin_enabled %}
+      <p class="form-help" id="llm-last-error">{{ _('Dernière erreur :') }} <span class="mono">{{ ai.last_error }}</span></p>
+      {% endif %}
+      <div class="form-actions" style="margin-top:var(--sp-3);">
+        <button type="submit" class="btn btn-primary"{% if not ai.env_enabled %} disabled{% endif %}>{{ _('Enregistrer') }}</button>
+        <a href="/admin/assistant" class="btn btn-secondary">{{ _('Ouvrir l’assistant') }}</a>
+      </div>
+    </form>
+  </div>
 </div>

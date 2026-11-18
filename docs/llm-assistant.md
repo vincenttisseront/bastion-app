@@ -4,21 +4,26 @@
 
 ## Règle d'or
 
-Aucune fonctionnalité du portail ne dépend d'Ollama. Sans `LLM_ENABLED=true` **et** la case « Activer l'assistant IA » (Admin → Configuration → Assistant IA), le module ne lit pas la base et n'ouvre aucune connexion. Le login, le MFA, `/internal/oauth2-auth`, le proxy, le WAF, les bans et `/api/health` n'appellent jamais le LLM.
+Aucune fonctionnalité du portail ne dépend d'Ollama. L'assistant reste éteint tant que la case « Activer l'assistant IA » (Admin → Configuration → Assistant IA) n'est pas cochée, ce qui est le réglage par défaut. `LLM_ENABLED=false` est un interrupteur d'arrêt côté serveur : avec lui, le module ne lit pas la base et n'ouvre aucune connexion. Le login, le MFA, `/internal/oauth2-auth`, le proxy, le WAF, les bans et `/api/health` n'appellent jamais le LLM.
 
-## Activation
+## Activation (Admin → Configuration → Assistant IA)
+
+1. **Connexion** : adresse IP ou FQDN avec port (`https://ollama.example.com:11434`, `10.0.0.20:11434`, préfixe de chemin accepté derrière un reverse proxy), jeton facultatif envoyé en `Authorization: Bearer` (chiffré en base) et case « Vérifier le certificat TLS » à décocher pour un certificat auto-signé. « Enregistrer et tester la connexion » appelle `/api/tags`, puis mémorise la liste des modèles.
+2. **Modèle et fonctionnalités** : le modèle se choisit dans cette liste. On active ensuite l'assistant et, au besoin, l'analyse automatique du WAF.
+
+Changer d'adresse efface le modèle choisi et la liste mémorisée. Le jeton n'apparaît jamais dans l'audit (`portal_settings.llm_connection`, BST-ADM-1041 ; `llm.probe`).
 
 | Variable | Défaut | Rôle |
 |---|---|---|
-| `LLM_ENABLED` | `false` | Interrupteur serveur (ET logique avec la case admin) |
-| `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama local uniquement |
-| `LLM_MODEL` | `qwen3:14b` | Modèle (`ollama pull qwen3:14b`, Q4 ≈ 10 Go de VRAM) |
+| `LLM_ENABLED` | non définie | `false` = arrêt forcé ; non définie = suit la case admin |
+| `OLLAMA_URL` | `http://127.0.0.1:11434` | Valeur par défaut si l'UI ne fixe pas d'adresse |
+| `LLM_MODEL` | `qwen3:14b` | Valeur par défaut tant qu'aucune adresse n'est saisie dans l'UI |
 | `LLM_TIMEOUT_S` / `LLM_CONNECT_TIMEOUT_S` | 45 / 2 | Génération / connexion |
 | `LLM_NUM_CTX` | 8192 | Fenêtre de contexte (le défaut d'Ollama tronque les prompts) |
 | `LLM_MAX_CONCURRENCY` | 1 | Appels simultanés par worker |
 | `LLM_BREAKER_FAILURES` / `LLM_BREAKER_COOLDOWN_S` | 3 / 300 | Disjoncteur |
 
-Ansible : `sso_portal_llm_enabled`, `sso_portal_ollama_url`, `sso_portal_llm_model`.
+Ansible : `sso_portal_llm_enabled`, émise seulement si elle est définie (`false` = arrêt forcé) ; `sso_portal_ollama_url` et `sso_portal_llm_model` fournissent les valeurs par défaut.
 
 ## Socle (`app/llm/`)
 
@@ -43,6 +48,23 @@ Ansible : `sso_portal_llm_enabled`, `sso_portal_ollama_url`, `sso_portal_llm_mod
 | 8 | Job leader 2 min (si SIEM actif) | Événement séparé `llm.siem_enrichment` (BST-SIEM-0002) | Événements envoyés sans enrichissement |
 | 9 | Dépendances → « Synthèse IA » | Admin (arrière-plan) | Liste brute |
 | 10 | `python -m scripts.llm_generate_tests <module>` | Développeur, refusé en production | — |
+| + | **WAF → « Menaces détectées par l'IA »** : job leader toutes les 10 min et bouton « Analyser maintenant » | Analyse par IP des événements ModSecurity postérieurs au dernier passage, avec le contexte de bans et de débit | Le WAF fonctionne sans analyse |
+
+### Analyse automatique du WAF
+
+Pour chaque IP source, le modèle qualifie l'activité :
+- injection SQL, XSS, injection de commande ou RCE, traversée de chemin ou inclusion de fichier ;
+- scan ou reconnaissance ;
+- force brute ou credential stuffing ;
+- **fraude ou abus métier** (manipulation de paramètres, énumération, automatisation abusive) ;
+- bot ;
+- faux positif.
+
+Il donne aussi une gravité, une confiance, des preuves et une action recommandée.
+
+Un bannissement n'est proposé que si l'activité est grave (gravité élevée ou critique), l'IP publique et pas déjà bannie. Les adresses internes (RFC 1918, CGNAT, loopback, link-local, ULA) n'en reçoivent jamais. L'admin accepte la proposition, puis bannit en un clic via le formulaire WAF existant.
+
+Un curseur (`llm_waf_last_event_at`) évite de réanalyser les mêmes événements. Une IP n'est pas requalifiée avant 60 minutes, sauf via le bouton manuel.
 
 ### Ce qui reste humain
 

@@ -550,6 +550,62 @@
         </div>
       </section>
 
+      {# ── Analyse IA des menaces (optionnelle) ── #}
+      {% if llm_on %}
+      <section class="bp-card" id="llm-threats" aria-label="{{ _('Menaces détectées par l’IA') }}">
+        <header class="bp-card-head" style="display:flex;justify-content:space-between;align-items:center;gap:var(--sp-2);flex-wrap:wrap;">
+          <div>
+            <h3 class="bp-card-title">{{ _('Menaces détectées par l’IA') }} <span class="badge badge-muted">{{ _('Généré par IA') }}</span></h3>
+            <span class="bp-card-meta">{{ _('Injections, scans, abus et tentatives de fraude · 24 dernières heures · analyse auto toutes les 10 min') }}</span>
+          </div>
+          <form method="post" action="/admin/assistant/waf/threats" class="inline-form">
+            <button type="submit" class="btn btn-secondary btn-sm">{{ _('Analyser maintenant') }}</button>
+          </form>
+        </header>
+        <div class="bp-card-body">
+          {% if not llm_threats %}
+          <p class="form-help" id="llm-threats-empty">{{ _('Aucune menace qualifiée récemment.') }}</p>
+          {% endif %}
+          {% for t in llm_threats %}
+          {% set tp = t.payload or {} %}
+          {% set ban = tp.proposed_ban %}
+          <div class="alert {% if tp.severity in ('elevee', 'critique') %}alert-err{% elif tp.severity == 'moyenne' %}alert-warn{% else %}alert-info{% endif %} mt-2" id="llm-threat-{{ t.id }}">
+            <div class="alert-body">
+              <strong class="mono">{{ t.subject_id }}</strong>
+              · {{ (tp.category or '') | replace('_', ' ') }} · {{ _('gravité') }} {{ tp.severity }} · {{ _('confiance') }} {{ tp.confidence }}
+              {% if tp.stats %}· {{ tp.stats.evenements }} {{ _('événement(s)') }}, {{ tp.stats.bloques }} {{ _('bloqué(s)') }}{% endif %}
+              <br>{{ tp.summary }}
+              {% if tp.evidence %}<ul>{% for e in tp.evidence %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+              <span class="form-help">{{ t.created_at.strftime('%Y-%m-%d %H:%M UTC') if t.created_at else '' }} · {{ t.model or '—' }}</span>
+              {% if ban %}
+              <div style="margin-top:var(--sp-2);">
+                {{ _('Proposition : bannir') }} <span class="mono">{{ ban.ip }}</span> · {{ ban.ban_minutes }} min
+                {% if t.status == 'proposed' %}
+                <form method="post" action="/admin/assistant/insights/{{ t.id }}/decide" class="inline-form">
+                  <input type="hidden" name="next" value="/admin/security/waf#llm-threats">
+                  <button type="submit" name="decision" value="accept" class="btn btn-primary btn-sm">{{ _('Accepter') }}</button>
+                  <button type="submit" name="decision" value="reject" class="btn btn-ghost btn-sm">{{ _('Rejeter') }}</button>
+                </form>
+                {% elif t.status == 'accepted' %}
+                <form method="post" action="/admin/security/waf/actions/ban-ip" class="inline-form">
+                  <input type="hidden" name="ip" value="{{ ban.ip }}">
+                  <input type="hidden" name="ban_mode" value="temporary">
+                  <input type="hidden" name="ban_minutes" value="{{ ban.ban_minutes }}">
+                  <input type="hidden" name="reason" value="{{ ban.reason }}">
+                  <button type="submit" class="btn btn-secondary btn-sm">{{ _('Bannir maintenant') }}</button>
+                </form>
+                {% elif t.status == 'rejected' %}
+                <span class="badge badge-err">{{ _('Rejetée') }}</span>
+                {% endif %}
+              </div>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
       {# ── Flux live ── #}
       {% if ac.present %}
       <section class="bp-card sentinel-panel--feed" aria-label="Live security feed">

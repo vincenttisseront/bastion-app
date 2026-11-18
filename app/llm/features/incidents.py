@@ -164,7 +164,9 @@ async def _summarize_many(db: Session, *, transitions: list[dict[str, Any]]) -> 
 def start_outage_summaries(transitions: list[dict[str, Any]]) -> None:
     """Fire-and-forget from the probe cycle. Cheap no-op when the assistant is off."""
     settings = get_settings()
-    if not transitions or not getattr(settings, "llm_enabled", False):
+    from app.llm.service import env_allows
+
+    if not transitions or not env_allows(settings):
         return
     from app.llm.features.jobs import run_llm_job
 

@@ -64,11 +64,11 @@ templates.env.globals["app_driver_badge_label"] = app_driver_badge_label
 
 
 def _llm_env_enabled() -> bool:
-    """Cheap env-level check for optional AI buttons (no DB, no network)."""
+    """Whether optional AI buttons show (kill switch + admin toggle; no network)."""
     try:
-        from app.sso_settings import get_settings
+        from app.llm.service import llm_enabled
 
-        return bool(get_settings().llm_enabled)
+        return llm_enabled()
     except Exception:  # noqa: BLE001 — a template helper must never break a page
         return False
 

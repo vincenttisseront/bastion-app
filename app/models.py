@@ -1072,9 +1072,21 @@ class PortalSettings(Base):
     app_credential_renewal_interval_minutes = Column(Integer, nullable=False, default=60)
     app_credential_renewal_last_run_at = Column(UTCDateTime, nullable=True)
 
-    # Optional local LLM assistant (Ollama) — admin toggle, ANDed with env
-    # LLM_ENABLED. Off by default; nothing in the portal depends on it.
+    # Optional LLM assistant (Ollama, local or remote). Admin toggle, off by
+    # default; env LLM_ENABLED=false is a hard kill switch. Nothing in the portal
+    # depends on it.
     llm_enabled = Column(Boolean, nullable=False, default=False)
+    llm_base_url = Column(String, nullable=True)  # https://ollama.example:11434 (env OLLAMA_URL fallback)
+    llm_api_token_encrypted = Column(Text, nullable=True)  # Bearer token (reverse proxy), Fernet
+    llm_tls_verify = Column(Boolean, nullable=False, default=True)  # off = self-signed accepted
+    llm_model = Column(String, nullable=True)  # chosen among llm_models_json
+    llm_models_json = Column(JSON, nullable=True)  # models seen at the last successful test
+    llm_last_probe_at = Column(UTCDateTime, nullable=True)
+    llm_last_probe_ok = Column(Boolean, nullable=True)
+    llm_last_probe_error = Column(Text, nullable=True)
+    # Automatic WAF threat analysis (leader job) and its event cursor.
+    llm_waf_auto_enabled = Column(Boolean, nullable=False, default=True)
+    llm_waf_last_event_at = Column(UTCDateTime, nullable=True)
 
     # Site identity (Admin setup wizard) — preferred over .env when set.
     portal_domain = Column(String, nullable=True)

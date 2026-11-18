@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from app import re_safe
-from app.llm.client import get_llm_client
+from app.llm.service import env_allows, get_llm_client
 from app.sso_settings import Settings
 
 DRAFTS_DIR = Path("tests") / "_llm_drafts"
@@ -57,7 +57,7 @@ async def generate_test_draft(
 ) -> tuple[Path, dict[str, Any]]:
     if str(getattr(settings, "environment", "")).lower() == "production":
         raise DraftRefused("génération de tests refusée en production")
-    if not getattr(settings, "llm_enabled", False):
+    if not env_allows(settings):
         raise DraftRefused("LLM_ENABLED=false")
     source = source_path.read_text(encoding="utf-8")[:_MAX_SOURCE]
     instructions = (
@@ -67,7 +67,10 @@ async def generate_test_draft(
         + (_PYTEST_HINTS if framework == "pytest" else _PLAYWRIGHT_HINTS)
         + (f" Priorité demandée : {focus[:300]}" if focus else "")
     )
-    result = await get_llm_client(settings).generate_json(
+    client = get_llm_client(settings)
+    if not client.config.model:
+        raise DraftRefused("aucun modèle configuré (Admin → Configuration → Assistant IA)")
+    result = await client.generate_json(
         task="test_generation",
         instructions=instructions,
         data={"chemin": source_path.as_posix(), "source": source},

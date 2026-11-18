@@ -361,7 +361,7 @@ async def test_env_disabled_touches_neither_db_nor_network(monkeypatch):
     def boom(*a, **k):
         raise AssertionError("must not be called when LLM_ENABLED=false")
 
-    monkeypatch.setattr(service_mod, "_admin_toggle", boom)
+    monkeypatch.setattr(service_mod, "_read_row", boom)
     monkeypatch.setattr(service_mod, "get_llm_client", boom)
     out = await service_mod.generate_json(
         "t", instructions="i", data="d", schema=SCHEMA, settings=_settings(llm_enabled=False)
@@ -387,7 +387,7 @@ async def test_successful_call_is_audited_with_prompt_hash(db_session, monkeypat
     settings = _settings()
     _enable_admin_toggle(db_session, settings)
     llm, _ = _client(lambda req: _chat_response(json.dumps(GOOD_ANSWER)), settings)
-    monkeypatch.setattr(service_mod, "get_llm_client", lambda s: llm)
+    monkeypatch.setattr(service_mod, "get_llm_client", lambda *a, **k: llm)
 
     out = await service_mod.generate_json(
         "waf.explain", instructions="i", data="password=hunter22", schema=SCHEMA,
@@ -410,7 +410,7 @@ async def test_failed_call_is_audited_and_returns_none(db_session, monkeypatch):
         raise httpx.ConnectError("refused", request=req)
 
     llm, _ = _client(down, settings)
-    monkeypatch.setattr(service_mod, "get_llm_client", lambda s: llm)
+    monkeypatch.setattr(service_mod, "get_llm_client", lambda *a, **k: llm)
     for _ in range(5):
         out = await service_mod.generate_json(
             "t", instructions="i", data="d", schema=SCHEMA, db=db_session, settings=settings
@@ -459,7 +459,9 @@ def test_configuration_page_shows_assistant_disabled(client):
     assert r.status_code == 200
     assert 'id="tab-llm"' in r.text
     assert "Assistant IA : désactivé" in r.text
-    assert 'id="llm-env-disabled"' in r.text  # LLM_ENABLED unset in tests
+    assert 'id="llm-env-disabled"' not in r.text  # LLM_ENABLED unset = not killed
+    assert "Testez la connexion pour lister les modèles" in r.text
+    assert 'action="/admin/configuration/llm/connection"' in r.text
 
 
 def test_admin_toggle_saves_and_audits(client, db_engine):
@@ -479,10 +481,15 @@ def test_admin_toggle_saves_and_audits(client, db_engine):
 
 
 def test_probe_with_env_disabled_makes_no_network_call(client, monkeypatch):
+    from app.sso_settings import get_settings
+
     def boom(*a, **k):
         raise AssertionError("no client when LLM_ENABLED=false")
 
+    killed = client.app.dependency_overrides[get_settings]().model_copy(update={"llm_enabled": False})
+    client.app.dependency_overrides[get_settings] = lambda: killed
     monkeypatch.setattr(service_mod, "get_llm_client", boom)
+    monkeypatch.setattr(service_mod, "client_for", boom)
     r = client.post(
         "/admin/configuration/llm/probe",
         data={"csrf_token": csrf_token_for(client)},

@@ -78,7 +78,7 @@ def fake_llm(monkeypatch):
     def _install(answer) -> FakeLlm:
         fake = FakeLlm(answer)
         llm = LlmClient(LlmConfig.from_settings(_settings()), transport=httpx.MockTransport(fake.handler))
-        monkeypatch.setattr(service_mod, "get_llm_client", lambda s: llm)
+        monkeypatch.setattr(service_mod, "get_llm_client", lambda *a, **k: llm)
         return fake
 
     return _install
@@ -417,9 +417,10 @@ async def test_probe_cycle_reports_up_to_down_transitions(db_session):
     assert [t["slug"] for t in result["transitions"]] == ["crm"]  # wiki was already down
 
 
-def test_outage_summaries_noop_when_env_off():
+def test_outage_summaries_noop_when_env_off(monkeypatch):
     from app.llm.features import incidents
 
+    monkeypatch.setattr(incidents, "get_settings", lambda: _settings(llm_enabled=False))
     with patch("threading.Thread") as thread:
         incidents.start_outage_summaries([{"app_id": 1, "previous": "ok"}])
     thread.assert_not_called()
@@ -531,7 +532,7 @@ async def test_test_generation_writes_uncollected_draft(tmp_path, monkeypatch):
     fake = FakeLlm({"framework": "pytest", "summary": "s", "code": "def test_f():\n    assert True",
                     "notes": []})
     llm = LlmClient(LlmConfig.from_settings(_settings()), transport=httpx.MockTransport(fake.handler))
-    monkeypatch.setattr(tg, "get_llm_client", lambda s: llm)
+    monkeypatch.setattr(tg, "get_llm_client", lambda *a, **k: llm)
     monkeypatch.setattr(tg, "DRAFTS_DIR", tmp_path / "drafts")
     src = tmp_path / "My-Module.py"
     src.write_text("def f():\n    return 1\n")
@@ -597,7 +598,9 @@ def test_llm_jobs_not_scheduled_when_env_off():
     add_job.assert_not_called()
     with patch.object(health_scheduler.scheduler, "add_job") as add_job:
         health_scheduler._schedule_llm_jobs(_settings())
-    assert {c.kwargs["id"] for c in add_job.call_args_list} == {"llm_login_anomalies", "llm_siem_enrichment"}
+    assert {c.kwargs["id"] for c in add_job.call_args_list} == {
+        "llm_login_anomalies", "llm_siem_enrichment", "llm_waf_threats",
+    }
 
 
 def test_portal_settings_default_off(db_session):
