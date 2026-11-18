@@ -27,6 +27,7 @@ from app.admin.schemas import (
     validation_errors_response,
 )
 from app.audit import log_action
+from app.auth.passkey_service import parse_passkey_login_enabled_realms
 from app.database import get_db
 from app.models import RealmConfig
 from app.request_client_ip import client_ip_from_request
@@ -303,6 +304,7 @@ def _realm_form_values(
                 getattr(realm, "oidc_native_session_enabled", False)
             ),
             "oidc_mfa_enabled": bool(getattr(realm, "oidc_mfa_enabled", True)),
+            "passkey_login_enabled": bool(getattr(realm, "passkey_login_enabled", False)),
             "show_on_login": bool(getattr(realm, "show_on_login", True)),
             "login_label": (getattr(realm, "login_label", None) or ""),
             **_smtp_access_form_values(realm),
@@ -328,6 +330,7 @@ def _realm_form_values(
         "provisioning_enabled": False,
         "oidc_native_session_enabled": False,
         "oidc_mfa_enabled": True,
+        "passkey_login_enabled": False,
         "show_on_login": True,
         "login_label": "",
         **_smtp_access_form_values(None),
@@ -810,6 +813,8 @@ def admin_realms_edit(
             form_values=_realm_form_values(realm),
             errors={},
             encryption_error=_guard_encryption(settings),
+            passkey_env_forced=(realm.slug or "").lower()
+            in parse_passkey_login_enabled_realms(settings),
         ),
     )
 
@@ -838,6 +843,7 @@ async def admin_realms_update(
     scopes: str = Form(_OIDC_DEFAULT_SCOPES),
     is_default: str | None = Form(None),
     oidc_mfa_enabled: str | None = Form(None),
+    passkey_login_enabled: str | None = Form(None),
     show_on_login: str | None = Form(None),
     login_label: str = Form(""),
     activate: str | None = Form(None),
@@ -867,6 +873,7 @@ async def admin_realms_update(
             "oidc_bff_client_id": oidc_bff_client_id,
             "oidc_bff_redirect_uri": oidc_bff_redirect_uri,
             "oidc_mfa_enabled": _form_bool(oidc_mfa_enabled),
+            "passkey_login_enabled": _form_bool(passkey_login_enabled),
             "show_on_login": _form_bool(show_on_login),
             "login_label": (login_label or "").strip(),
         }
@@ -1136,8 +1143,20 @@ async def admin_realms_update(
     realm.oidc_mfa_enabled = _form_bool(oidc_mfa_enabled)
     realm.show_on_login = _form_bool(show_on_login)
     realm.login_label = (login_label or "").strip() or None
+    passkey_before = bool(realm.passkey_login_enabled)
+    realm.passkey_login_enabled = _form_bool(passkey_login_enabled)
 
     db.commit()
+    if passkey_before != bool(realm.passkey_login_enabled):
+        # Existing passkeys are kept: switching off only blocks their use.
+        log_action(
+            db,
+            actor=user.email,
+            action="realm.passkey_login_toggled",
+            target=realm.slug,
+            details={"enabled": bool(realm.passkey_login_enabled)},
+            ip_address=_client_ip(request),
+        )
     log_action(
         db,
         actor=user.email,

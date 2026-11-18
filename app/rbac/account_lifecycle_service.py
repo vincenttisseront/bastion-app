@@ -396,7 +396,28 @@ async def _disable_for_inactivity(
     )
     account.disabled_at = utcnow()
     account.disabled_reason = DISABLED_REASON_INACTIVITY
+    # A passkey is a primary factor: it must not outlive the account. They stay
+    # revoked on reactivation (the user enrols again after a fresh login).
+    from app.auth.passkey_service import revoke_user_passkeys
+
+    passkeys_revoked = revoke_user_passkeys(
+        db, sub=kc_id, realm_id=None, revoked_by=actor, reason="account_disabled"
+    )
     db.commit()
+    if passkeys_revoked:
+        log_action(
+            db,
+            actor=actor,
+            action="account.passkeys_revoked",
+            target=account.username,
+            details={
+                "account_id": account.id,
+                "keycloak_user_id": kc_id,
+                "realm": realm.slug,
+                "reason": "account_disabled",
+                "count": passkeys_revoked,
+            },
+        )
     log_action(
         db,
         actor=actor,

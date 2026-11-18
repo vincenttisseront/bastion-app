@@ -166,6 +166,19 @@
                 {{ _('OTP Bastion (QR) + bouton admin « Configurer OTP ». Challenge IdP honoré si déjà configuré.') }}
               </p>
             </div>
+            {% if realm %}
+            <div class="form-group">
+              <label class="form-check">
+                <input type="checkbox" name="passkey_login_enabled" value="1" {% if form_values.passkey_login_enabled %}checked{% endif %}>
+                {{ _("Connexion par clé d'accès (passkey)") }}
+              </label>
+              <p class="form-help">
+                {{ _("Connexion sans mot de passe et ajout de clés depuis le profil. Requiert la session native. Désactiver bloque l'usage des clés existantes sans les supprimer.") }}
+                <a href="/admin/security/passkeys?realm_id={{ realm.id }}">{{ _("Voir les clés enregistrées") }}</a>
+                {% if passkey_env_forced %}<br><strong>{{ _("Forcé par PASSKEY_LOGIN_ENABLED_REALMS (variable d'environnement).") }}</strong>{% endif %}
+              </p>
+            </div>
+            {% endif %}
             <div class="form-group">
               <label class="form-check">
                 <input type="checkbox" name="show_on_login" value="1" {% if form_values.show_on_login %}checked{% endif %}>

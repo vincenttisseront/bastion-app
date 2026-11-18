@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Clés d'accès") }}{% endblock %}
+{% block breadcrumb %}Admin / {{ _('Sécurité') }} / {{ _("Clés d'accès") }}{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{{ _("Clés d'accès (passkeys)") }}</h1>
+      <p class="page-sub">
+        {{ _("Clés enregistrées par les utilisateurs depuis leur profil. Une clé remplace mot de passe + OTP : révoquez-la dès qu'un appareil est perdu ou volé.") }}
+      </p>
+    </div>
+    <div style="display:flex; gap:var(--sp-2); align-items:center;">
+      <a href="/admin/security" class="btn btn-ghost btn-sm">{{ _('← Sécurité') }}</a>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <form method="get" action="/admin/security/passkeys" class="form-row" style="align-items:flex-end;">
+        <div class="form-group">
+          <label class="form-label" for="pk-realm">Realm</label>
+          <select id="pk-realm" name="realm_id" class="form-select">
+            <option value="">{{ _('Tous') }}</option>
+            {% for r in realms %}
+            <option value="{{ r.id }}" {% if filter_realm_id == r.id %}selected{% endif %}>
+              {{ r.slug }}{% if not r.passkey_enabled %} — {{ _('désactivé') }}{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="pk-q">{{ _('Utilisateur ou nom de clé') }}</label>
+          <input id="pk-q" type="search" name="q" class="form-input" value="{{ filter_q }}" maxlength="200">
+        </div>
+        {% if filter_sub %}<input type="hidden" name="sub" value="{{ filter_sub }}">{% endif %}
+        <div class="form-group">
+          <button type="submit" class="btn btn-secondary">{{ _('Filtrer') }}</button>
+          {% if filter_realm_id or filter_q or filter_sub %}
+          <a href="/admin/security/passkeys" class="btn btn-ghost">{{ _('Réinitialiser') }}</a>
+          {% endif %}
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    {% if passkeys %}
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>{{ _('Utilisateur') }}</th>
+            <th>Realm</th>
+            <th>{{ _('Clé') }}</th>
+            <th>{{ _('Ajoutée le') }}</th>
+            <th>{{ _('Dernière utilisation') }}</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for pk in passkeys %}
+          <tr>
+            <td>
+              <a href="/admin/security/passkeys?realm_id={{ pk.realm_id }}&amp;sub={{ pk.sub | urlencode }}">{{ pk.username or pk.sub }}</a>
+              <div class="form-help mono">{{ pk.sub }}</div>
+            </td>
+            <td><span class="mono">{{ pk.realm_slug }}</span></td>
+            <td>
+              {{ pk.name }}
+              {% if pk.synced %}<span class="badge badge-info">{{ _('synchronisée') }}</span>{% else %}<span class="badge">{{ _('liée à un appareil') }}</span>{% endif %}
+            </td>
+            <td>{{ pk.created_at | format_datetime('%d/%m/%Y') }}</td>
+            <td>
+              {% if pk.last_used_at %}{{ pk.last_used_at | format_datetime('%d/%m/%Y %H:%M') }}{% if pk.last_used_ip %} · <span class="mono">{{ pk.last_used_ip }}</span>{% endif %}{% else %}{{ _('jamais') }}{% endif %}
+            </td>
+            <td style="white-space:nowrap;">
+              <form method="post" action="/admin/security/passkeys/{{ pk.id }}/revoke" class="inline-form"
+                    data-confirm="{{ _("Révoquer cette clé d'accès ? L'utilisateur ne pourra plus s'en servir pour se connecter.") }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="back_realm_id" value="{{ filter_realm_id or '' }}">
+                <input type="hidden" name="back_q" value="{{ filter_q }}">
+                <input type="hidden" name="back_sub" value="{{ filter_sub }}">
+                <button type="submit" class="btn btn-secondary btn-sm">{{ _('Révoquer') }}</button>
+              </form>
+              <form method="post" action="/admin/security/passkeys/revoke-user" class="inline-form"
+                    data-confirm="{{ _("Révoquer toutes les clés d'accès de cet utilisateur dans ce realm ?") }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="realm_id" value="{{ pk.realm_id }}">
+                <input type="hidden" name="sub" value="{{ pk.sub }}">
+                <input type="hidden" name="back_realm_id" value="{{ filter_realm_id or '' }}">
+                <input type="hidden" name="back_q" value="{{ filter_q }}">
+                <input type="hidden" name="back_sub" value="{{ filter_sub }}">
+                <button type="submit" class="btn btn-danger btn-sm">{{ _('Toutes ses clés') }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if truncated %}
+    <p class="form-help" style="padding:var(--sp-3);">{{ _('Liste tronquée à 500 lignes — affinez le filtre.') }}</p>
+    {% endif %}
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-title">{{ _("Aucune clé d'accès active") }}</div>
+      <div class="empty-desc">{{ _("Les utilisateurs ajoutent leurs clés depuis leur profil, sur les realms où la connexion par clé d'accès est activée.") }}</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <p class="form-help" style="margin-top:var(--sp-3);">
+    {{ _("Appareil perdu ou volé : révoquez aussi les sessions de l'utilisateur. Une clé révoquée ne se réactive pas : l'utilisateur en ajoute une nouvelle après s'être reconnecté.") }}
+  </p>
+</div>
+{% endblock %}

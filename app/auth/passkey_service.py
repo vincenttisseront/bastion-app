@@ -19,7 +19,7 @@ from datetime import timedelta
 from typing import Any
 
 from fastapi import Request, Response
-from sqlalchemy import delete, update
+from sqlalchemy import delete, func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from webauthn import (
@@ -261,6 +261,64 @@ def revoke_passkey(
     passkey.revoked_at = utcnow()
     passkey.revoked_by = (revoked_by or "unknown")[:200]
     passkey.revoked_reason = (reason or "")[:200]
+
+
+def revoke_user_passkeys(
+    db: Session,
+    *,
+    sub: str,
+    realm_id: int | None,
+    revoked_by: str,
+    reason: str,
+) -> int:
+    """Soft-revoke every active passkey of a Keycloak user. Caller commits.
+
+    ``realm_id=None`` covers every realm (the ``sub`` is the identity key).
+    Returns the number of passkeys revoked.
+    """
+    sub = (sub or "").strip()
+    if not sub:
+        return 0
+    query = db.query(UserPasskey).filter_by(keycloak_sub=sub, revoked=False)
+    if realm_id is not None:
+        query = query.filter_by(realm_id=realm_id)
+    rows = query.all()
+    for row in rows:
+        revoke_passkey(db, row, revoked_by=revoked_by, reason=reason)
+    return len(rows)
+
+
+def list_active_passkeys(
+    db: Session,
+    *,
+    realm_id: int | None = None,
+    sub: str | None = None,
+    search: str | None = None,
+    limit: int = 500,
+) -> list[UserPasskey]:
+    """Active passkeys for the admin view, most recently used first."""
+    query = db.query(UserPasskey).filter_by(revoked=False)
+    if realm_id is not None:
+        query = query.filter_by(realm_id=realm_id)
+    if sub:
+        query = query.filter_by(keycloak_sub=sub.strip())
+    text = (search or "").strip().lower()
+    if text:
+        like = f"%{text.replace('%', '').replace('_', '')}%"
+        query = query.filter(
+            func.lower(func.coalesce(UserPasskey.username, "")).like(like)
+            | func.lower(func.coalesce(UserPasskey.name, "")).like(like)
+            | (UserPasskey.keycloak_sub == text)
+        )
+    return (
+        query.order_by(
+            UserPasskey.last_used_at.is_(None),
+            UserPasskey.last_used_at.desc(),
+            UserPasskey.created_at.desc(),
+        )
+        .limit(limit)
+        .all()
+    )
 
 
 # --- Sign-in (usernameless) ----------------------------------------------

@@ -1969,6 +1969,20 @@ async def delete_bastion_account(
                     ip_address=ip_address,
                 )
 
+    # Passkeys are a primary factor: revoke them even when the deletion is
+    # incomplete — the intent is to cut access (kept as revoked rows for audit).
+    passkeys_revoked = 0
+    if account.keycloak_user_id:
+        from app.auth.passkey_service import revoke_user_passkeys
+
+        passkeys_revoked = revoke_user_passkeys(
+            db,
+            sub=account.keycloak_user_id,
+            realm_id=None,
+            revoked_by=actor,
+            reason="account_deleted",
+        )
+
     if errors and not force:
         account.last_error = "Suppression incomplète : " + " ; ".join(errors)
         log_action(
@@ -1980,6 +1994,7 @@ async def delete_bastion_account(
                 "bastion_account_id": account.id,
                 "errors": errors,
                 "app_results": app_results,
+                "passkeys_revoked": passkeys_revoked,
             },
             ip_address=ip_address,
         )
@@ -2014,6 +2029,7 @@ async def delete_bastion_account(
             "keycloak_deleted": keycloak_deleted,
             "vault_credentials_deleted": vault_deleted,
             "grants_deleted": grants_deleted,
+            "passkeys_revoked": passkeys_revoked,
             "app_results": app_results,
             "forced": bool(force and errors),
             "errors": errors,

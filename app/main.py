@@ -15,6 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.admin.acme import router as admin_acme_router
 from app.admin.mfa import router as admin_mfa_router
 from app.admin.mtls import router as admin_mtls_router
+from app.admin.passkeys import router as admin_passkeys_router
 from app.admin.activesync_devices import router as admin_activesync_devices_router
 from app.admin.files import router as admin_files_router
 from app.admin.infrastructure import router as infrastructure_router
@@ -583,6 +584,7 @@ app.include_router(admin_realms_router)
 app.include_router(admin_acme_router)
 app.include_router(admin_mfa_router)
 app.include_router(admin_mtls_router)
+app.include_router(admin_passkeys_router)
 app.include_router(admin_waf_router)
 app.include_router(admin_reporting_router)
 app.include_router(infrastructure_router)
