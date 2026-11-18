@@ -16,6 +16,9 @@
   <link rel="stylesheet" href="/static/css/bastion.css?v=20261106-logs-stitch">
   {# Stitch section kit (page head, tab bar, section heads, cards, grids, stat strips) — admin pages opt in with .bp-stitch #}
   <link rel="stylesheet" href="/static/css/bastion-sections.css?v=20261106-stitch-kit">
+  {% if current_user and companion_on %}
+  <link rel="stylesheet" href="/static/css/bastion-companion.css?v=20261118-companion">
+  {% endif %}
   {% block head_extra %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% if hide_chrome %}page-login{% else %}app-layout{% endif %}{% endblock %}">
@@ -52,6 +55,7 @@
 
   {% include 'partials/_bastion_modal.html' %}
   {% include 'partials/_global_search_modal.html' %}
+  {% include 'partials/_companion.html' %}
   {# Global busy spinner — load before other scripts that call fetch #}
   <script src="/static/js/bastion-busy.js?v=20261106-spinner"></script>
   <script src="/static/js/bastion-modal.js?v=20261106-remember"></script>
@@ -62,6 +66,9 @@
   <script src="/static/js/bastion.js?v=20260901-infra-wait"></script>
   <script src="/static/js/bastion-wizard.js?v=20260806-wizard-pills"></script>
   <script src="/static/js/bastion-notifications.js?v=20261106-spinner"></script>
+  {% if current_user and companion_on %}
+  <script src="/static/js/bastion-companion.js?v=20261118-companion"></script>
+  {% endif %}
   {% block scripts %}{% endblock %}
 </body>
 </html>

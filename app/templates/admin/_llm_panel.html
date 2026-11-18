@@ -139,6 +139,16 @@
             {{ _('Analyse automatique du WAF (toutes les 10 min)') }}
           </label>
           <p class="form-help">{{ _('Injections, scans, abus et tentatives de fraude : les menaces détectées apparaissent dans Sécurité → WAF avec une proposition de bannissement à valider.') }}</p>
+          <label class="form-check-row">
+            <input type="checkbox" name="llm_companion_enabled" value="on" {% if ai.companion %}checked{% endif %}>
+            {{ _('Compagnon IA pour tous les utilisateurs connectés') }}
+          </label>
+          <p class="form-help">{{ _('Chat réservé aux utilisateurs connectés, limité à leurs accès, à la sécurité de leur compte et au contact de la société. Il n’effectue aucune action par lui-même.') }}</p>
+          <label class="form-check-row">
+            <input type="checkbox" name="llm_auto_response_enabled" value="on" {% if ai.auto_response %}checked{% endif %}>
+            {{ _('Réponse automatique aux situations dangereuses (sans validation admin)') }}
+          </label>
+          <p class="form-help">{{ _('Quand le compagnon détecte un compte compromis, un hameçonnage ou une attaque via le chat, et pour les menaces WAF confirmées par les événements ModSecurity bruts : alerte aux admins, fermeture des autres sessions de l’utilisateur, blocage temporaire de son IP (15 à 60 min). Décoché : alertes seulement ; les bans WAF restent des propositions à valider.') }}</p>
         </div>
       </div>
       {% if ai.last_error and ai.admin_enabled %}

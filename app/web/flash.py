@@ -277,4 +277,15 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         ctx_out.setdefault("bastion_accounts_nav_count", counts["bastion_accounts"])
         ctx_out.setdefault("dashboard_pending_total", counts["total"])
 
+    # End-user AI companion: only for a logged-in, non break-glass session, and only
+    # when the admin turned it on. Never raises (page renders as before on error).
+    ctx_out["companion_on"] = False
+    if user is not None and not getattr(user, "is_breakglass", False):
+        try:
+            from app.llm.service import companion_enabled
+
+            ctx_out["companion_on"] = companion_enabled(settings, db)
+        except Exception:  # noqa: BLE001
+            ctx_out["companion_on"] = False
+
     return ctx_out

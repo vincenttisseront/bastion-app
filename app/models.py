@@ -1087,6 +1087,13 @@ class PortalSettings(Base):
     # Automatic WAF threat analysis (leader job) and its event cursor.
     llm_waf_auto_enabled = Column(Boolean, nullable=False, default=True)
     llm_waf_last_event_at = Column(UTCDateTime, nullable=True)
+    # End-user companion (access / security / company contact only). Off by default,
+    # needs llm_enabled too; logged-in users only.
+    llm_companion_enabled = Column(Boolean, nullable=False, default=False)
+    # Autonomous response (alert / revoke the requester's other sessions / temporary IP ban)
+    # to dangerous situations spotted by the companion and verified WAF threats. Fixed
+    # thresholds decide, never the model alone. Off by default; needs llm_enabled.
+    llm_auto_response_enabled = Column(Boolean, nullable=False, default=False)
 
     # Site identity (Admin setup wizard) — preferred over .env when set.
     portal_domain = Column(String, nullable=True)

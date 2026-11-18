@@ -6,6 +6,8 @@
 
 Aucune fonctionnalité du portail ne dépend d'Ollama. L'assistant reste éteint tant que la case « Activer l'assistant IA » (Admin → Configuration → Assistant IA) n'est pas cochée, ce qui est le réglage par défaut. `LLM_ENABLED=false` est un interrupteur d'arrêt côté serveur : avec lui, le module ne lit pas la base et n'ouvre aucune connexion. Le login, le MFA, `/internal/oauth2-auth`, le proxy, le WAF, les bans et `/api/health` n'appellent jamais le LLM.
 
+> **Exception volontaire (compagnon et réponse automatique).** La règle « le LLM propose, un admin valide » ne vaut plus qu'avec la case « Réponse automatique » décochée (réglage par défaut). Une fois cochée, le portail peut agir seul dans le cadre strict décrit plus bas : alerter les admins, fermer les autres sessions du demandeur et bannir temporairement l'IP de sa connexion. Le modèle ne choisit jamais une action : il classe, et des seuils fixes avec des garde-fous décident.
+
 ## Activation (Admin → Configuration → Assistant IA)
 
 1. **Connexion** : adresse IP ou FQDN avec port (`https://ollama.example.com:11434`, `10.0.0.20:11434`, préfixe de chemin accepté derrière un reverse proxy), jeton facultatif envoyé en `Authorization: Bearer` (chiffré en base) et case « Vérifier le certificat TLS » à décocher pour un certificat auto-signé. « Enregistrer et tester la connexion » appelle `/api/tags`, puis mémorise la liste des modèles.
@@ -66,6 +68,33 @@ Un bannissement n'est proposé que si l'activité est grave (gravité élevée o
 
 Un curseur (`llm_waf_last_event_at`) évite de réanalyser les mêmes événements. Une IP n'est pas requalifiée avant 60 minutes, sauf via le bouton manuel.
 
+### Compagnon IA utilisateur
+
+Une fenêtre de discussion, en bas à droite de chaque page, pour **tout utilisateur connecté** (jamais sur les pages publiques ni en break-glass). Trois sujets seulement : **accès** (applications de l'utilisateur et niveau accordé), **sécurité du compte** (mot de passe, sessions, doute sur un message reçu) et **contact avec la société** (`support_contact` du branding). Le reste reçoit un refus fixe.
+
+- Activation : cases « Activer l'assistant IA » **et** « Compagnon IA pour les utilisateurs » (désactivée par défaut). `LLM_ENABLED=false` l'éteint aussi. Route : `POST /api/companion/messages` (`require_user`, CSRF, 404 si éteint, 429 + `Retry-After` au-delà de 6 messages/min et 60/h par utilisateur, 30/min au global).
+- Le modèle ne voit que les faits de l'utilisateur lui-même (ses applications, ses options de sécurité en libre-service) et un message de 600 caractères maximum, avec 6 tours d'historique. Les secrets sont masqués avant l'envoi.
+- La réponse est contrainte par schéma, puis nettoyée : ni URL, ni e-mail autre que le contact configuré, ni Markdown. Les liens viennent d'une liste blanche (`/apps`, `/profile`, `/profile#section-security`). Le contact vient du branding, jamais du modèle. Côté navigateur, tout est inséré avec `textContent`.
+- Sans modèle (arrêt, délai, JSON invalide), le compagnon renvoie des consignes statiques et le contact : jamais d'erreur 5xx.
+- Audit : `companion.message` (BST-SYS-0006) enregistre le sujet, la source et le signal, **jamais le texte**.
+
+### Réponse automatique aux situations dangereuses
+
+Désactivée par défaut (« Réponse automatique », Admin → Configuration → Assistant IA). Désactivée, chaque signal produit seulement une alerte.
+
+| Signal | Origine | Action automatique (case cochée) |
+|---|---|---|
+| `compte_compromis`, `phishing_interaction` | modèle, confiance « moyenne » ou « élevée » | Fermer les **autres** sessions du demandeur (une fois par 30 min) + alerte |
+| `phishing_recu` | modèle | Alerte seulement |
+| `attaque_chat` | détecteurs locaux (SQLi, XSS, traversée, commande, JNDI/SSTI), **sans appel au modèle** | Suspension du compagnon 15 min ; à la 3ᵉ tentative en 15 min, ban de l'IP de la connexion 15 min (60 min en cas de récidive sous 24 h) |
+| `abus_chat` | injection de prompt, ou 5 refus hors périmètre en 10 min | Suspension 30 min + alerte |
+
+Garde-fous du ban : jamais une IP issue du texte du message ; pas d'IP interne, d'administrateur, d'entrée de la liste d'autorisation ou de break-glass ; pas de ban si une autre session utilisateur est vue sur la même IP (NAT) ; au plus 5 bans automatiques par heure. Les bans portent `created_by=system:companion` et expirent seuls.
+
+**Rapports ModSecurity.** Avec la réponse automatique, la proposition de ban de l'analyse WAF est appliquée sans admin seulement si les événements bruts la confirment : au moins 5 événements dont 3 bloqués et 3 critiques, au moins 2 règles distinctes, dernier événement de moins de 30 minutes, confiance « moyenne » ou « élevée », catégorie autre que `faux_positif` ou `autre`, IP publique, non bannie, sans session authentifiée connue. Durée plafonnée à 24 h, 10 bans automatiques par heure. Sinon la proposition reste en attente avec la liste des raisons du refus (`auto_refused`). Un rapport ancien ou faible, comme une IP publique d'un admin vue lors d'un scan passé, n'est donc jamais banni automatiquement.
+
+Traçabilité : `companion.security_signal` (BST-WAF-2101), `ai.auto_response` (BST-WAF-2102), `ai.auto_response_skipped` (BST-WAF-1101), alertes `companion_alert` visibles dans Admin → Assistant IA, et transmission SIEM par le circuit d'audit habituel.
+
 ### Ce qui reste humain
 
 - **WAF** : la proposition d'exclusion est bornée à l'événement : même règle, même hôte, même URI, règle CRS excluable. L'admin l'accepte, crée l'exclusion via le formulaire existant, puis applique la configuration WAF.
@@ -78,3 +107,7 @@ Un curseur (`llm_waf_last_event_at`) évite de réanalyser les mêmes événemen
 - L'inventaire des dépendances ne contient aucune donnée CVE. La synthèse classe donc les mises à jour par exposition et par retard de version, et il est interdit au modèle de citer des CVE. Une source comme OSV pourrait être ajoutée plus tard.
 - L'assistant de setup n'a pas de test OIDC propre : le diagnostic est disponible sur le formulaire de realm.
 - Les brouillons de tests vont dans `tests/_llm_drafts/` (ignoré par git, jamais collecté).
+- Le compagnon et les tâches d'administration partagent le même créneau d'appel par worker : les limites de débit du compagnon évitent qu'il monopolise le modèle.
+- Les limites de débit et les compteurs d'abus ne sont partagés entre workers que pour la réponse automatique (table `SecurityRateEvent`) ; la limite de débit du chat est propre à chaque worker.
+- L'alerte aux admins passe par l'audit, le SIEM et l'onglet Assistant IA : pas d'e-mail ni de notification push.
+- Un ban d'IP touche tous les utilisateurs derrière la même adresse. Le garde-fou NAT ne voit que les sessions actives.
