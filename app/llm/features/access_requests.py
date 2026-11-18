@@ -43,7 +43,7 @@ INSTRUCTIONS = (
 
 
 def _email_domain(email: str | None) -> str:
-    return (email or "").rsplit("@", 1)[-1].lower() if email and "@" in email else ""
+    return email.rsplit("@", 1)[-1].lower() if email and "@" in email else ""
 
 
 def _peer_context(db: Session, organization: str | None, realms: list[Any]) -> dict[str, Any]:

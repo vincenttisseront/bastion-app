@@ -128,7 +128,10 @@ def validate_base_url(raw: str) -> str:
     if not value:
         raise ValueError("Adresse du serveur Ollama requise.")
     if "://" not in value:
-        value = "http://" + value
+        # NOSONAR python:S5332 — bare "host:port" means a local Ollama, which serves
+        # plain HTTP by default; the admin can type https:// (TLS check optional) and
+        # the panel warns when a token would travel over http://.
+        value = "http://" + value  # NOSONAR
     parts = urlsplit(value)
     if parts.scheme not in ("http", "https"):
         raise ValueError("L'adresse doit commencer par http:// ou https://.")
