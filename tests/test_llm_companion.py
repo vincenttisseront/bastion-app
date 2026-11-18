@@ -699,3 +699,42 @@ def test_api_returns_apps_and_steps(client, db_engine, fake_llm):
     body = _post(client).json()
     assert body["apps"] == [{"label": "Dolibarr", "openable": True}]
     assert body["steps"] == ["Ouvrez Mes applications"]
+
+
+# ── slow / busy Ollama ──────────────────────────────────────────────────────
+
+
+def test_companion_wait_follows_admin_timeout_within_proxy_limit():
+    assert companion.companion_wait_s(45, 2) == 49
+    assert companion.companion_wait_s(300, 2) == companion.COMPANION_TIMEOUT_MAX_S < 120  # nginx cuts at 120 s
+    assert companion.companion_wait_s(10, 2) == companion.COMPANION_TIMEOUT_S
+
+
+async def test_slow_model_gets_a_specific_message(db_session, on, monkeypatch):
+    import asyncio
+
+    async def slow(*args, **kwargs):
+        await asyncio.sleep(5)
+
+    monkeypatch.setattr(companion, "run_task", slow)
+    monkeypatch.setattr(companion, "companion_wait_s", lambda *a: 0.05)
+    reply = await companion.ask(db_session, on, _user(), "Quelles applications ai-je ?")
+    assert reply.source == "fallback" and reply.available is False
+    assert "très sollicité" in reply.answer and "pas disponible" not in reply.answer
+
+
+async def test_model_timeout_outcome_is_reported_as_slow(db_session, on, fake_llm, monkeypatch):
+    from app.llm.client import LlmCallResult
+
+    async def timed_out(*args, **kwargs):
+        return LlmCallResult(task="companion", outcome="timeout", network=True)
+
+    monkeypatch.setattr(companion, "run_task", timed_out)
+    reply = await companion.ask(db_session, on, _user(), "Mes accès ?")
+    assert "très sollicité" in reply.answer
+
+
+async def test_unavailable_model_keeps_the_generic_message(db_session, on, fake_llm):
+    fake_llm(httpx.ConnectError("refused"))
+    reply = await companion.ask(db_session, on, _user(), "Mes accès ?")
+    assert "pas disponible" in reply.answer

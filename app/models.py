@@ -1084,6 +1084,11 @@ class PortalSettings(Base):
     llm_last_probe_at = Column(UTCDateTime, nullable=True)
     llm_last_probe_ok = Column(Boolean, nullable=True)
     llm_last_probe_error = Column(Text, nullable=True)
+    # Server facts seen at the last test (/api/ps: loaded models and their context).
+    llm_server_info = Column(JSON, nullable=True)
+    # Admin overrides of env LLM_TIMEOUT_S / LLM_NUM_CTX (0 = use the server's context).
+    llm_timeout_s = Column(Integer, nullable=True)
+    llm_num_ctx = Column(Integer, nullable=True)
     # Automatic WAF threat analysis (leader job) and its event cursor.
     llm_waf_auto_enabled = Column(Boolean, nullable=False, default=True)
     llm_waf_last_event_at = Column(UTCDateTime, nullable=True)

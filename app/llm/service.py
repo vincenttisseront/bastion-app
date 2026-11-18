@@ -22,7 +22,14 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.llm.breaker import CLOSED
-from app.llm.client import LlmCallResult, LlmClient, LlmConfig, ProbeResult, client_for
+from app.llm.client import (
+    LlmCallResult,
+    LlmClient,
+    LlmConfig,
+    ProbeResult,
+    client_for,
+    normalize_num_ctx,
+)
 from app.models import PortalSettings, utcnow
 from app.portal_settings_service import ensure_portal_settings
 from app.sso_settings import Settings, get_settings
@@ -30,6 +37,10 @@ from app.sso_settings import Settings, get_settings
 logger = logging.getLogger(__name__)
 
 _ACTOR = "system:llm"
+
+TIMEOUT_MIN_S = 10
+TIMEOUT_MAX_S = 300
+NUM_CTX_CHOICES = (0, 4096, 8192, 16384, 32768)  # 0 = auto (server's loaded context)
 
 STATE_DISABLED = "disabled"
 STATE_AVAILABLE = "available"
@@ -115,6 +126,14 @@ def effective_config(settings: Settings, row: PortalSettings | None) -> LlmConfi
         model=row.llm_model or (config.model if not row.llm_base_url else ""),
         api_token=token,
         verify_tls=bool(row.llm_tls_verify) if row.llm_tls_verify is not None else True,
+        timeout_s=(
+            float(max(TIMEOUT_MIN_S, min(TIMEOUT_MAX_S, row.llm_timeout_s)))
+            if getattr(row, "llm_timeout_s", None) else config.timeout_s
+        ),
+        num_ctx=(
+            normalize_num_ctx(row.llm_num_ctx)
+            if getattr(row, "llm_num_ctx", None) is not None else config.num_ctx
+        ),
     )
 
 
@@ -252,7 +271,7 @@ async def probe_llm(
         return ProbeResult(ok=False, error="LLM_ENABLED=false (variable d'environnement)")
     row = ensure_portal_settings(db, settings)
     try:
-        result = await client_for(effective_config(settings, row)).probe()
+        result = await client_for(effective_config(settings, row)).probe(include_loaded=True)
     except Exception as exc:  # noqa: BLE001
         result = ProbeResult(ok=False, error=type(exc).__name__)
     row.llm_last_probe_at = utcnow()
@@ -260,6 +279,7 @@ async def probe_llm(
     row.llm_last_probe_error = None if result.reachable else (result.error or "")[:500]
     if result.reachable:
         row.llm_models_json = list(result.models)
+        row.llm_server_info = {"loaded": list(result.loaded)}
     db.commit()
     log_action(
         db,
@@ -337,9 +357,19 @@ def update_llm_settings(
     waf_auto: bool | None = None,
     companion: bool | None = None,
     auto_response: bool | None = None,
+    timeout_s: int | None = None,
+    num_ctx: int | None = None,
     ip_address: str | None = None,
 ) -> PortalSettings:
     row = ensure_portal_settings(db, settings)
+    if timeout_s is not None:
+        if not TIMEOUT_MIN_S <= int(timeout_s) <= TIMEOUT_MAX_S:
+            raise ValueError(f"Délai entre {TIMEOUT_MIN_S} et {TIMEOUT_MAX_S} secondes.")
+        row.llm_timeout_s = int(timeout_s)
+    if num_ctx is not None:
+        if int(num_ctx) not in NUM_CTX_CHOICES:
+            raise ValueError("Fenêtre de contexte non prise en charge.")
+        row.llm_num_ctx = int(num_ctx)
     if model is not None:
         model = model.strip()
         known = list(row.llm_models_json or [])
@@ -367,6 +397,8 @@ def update_llm_settings(
             "waf_auto": bool(row.llm_waf_auto_enabled),
             "companion": bool(row.llm_companion_enabled),
             "auto_response": bool(row.llm_auto_response_enabled),
+            "timeout_s": row.llm_timeout_s,
+            "num_ctx": row.llm_num_ctx,
             "env_kill_switch": not env_allows(settings),
         },
         ip_address=ip_address,
@@ -402,6 +434,10 @@ def llm_public_status(settings: Settings, row: PortalSettings | None) -> dict[st
         "models": models,
         "model_missing": bool(config.model and models and config.model not in models),
         "waf_auto": bool(getattr(row, "llm_waf_auto_enabled", True)),
+        "timeout_s": int(config.timeout_s),
+        "num_ctx": config.num_ctx,
+        "num_ctx_choices": NUM_CTX_CHOICES,
+        "loaded_models": list(((getattr(row, "llm_server_info", None) or {}).get("loaded")) or []),
         "companion": bool(getattr(row, "llm_companion_enabled", False)),
         "auto_response": bool(getattr(row, "llm_auto_response_enabled", False)),
         "last_probe": _fmt(getattr(row, "llm_last_probe_at", None)),

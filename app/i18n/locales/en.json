@@ -3337,5 +3337,19 @@
   "Par précaution, vos autres sessions ont été fermées ({detail}) et l'équipe sécurité a été prévenue. Changez votre mot de passe dans Mon profil → Sécurité.": "As a precaution, your other sessions have been closed ({detail}) and the security team has been notified. Change your password in My profile → Security.",
   "L'équipe sécurité a été prévenue. Changez votre mot de passe dans Mon profil → Sécurité dès que possible.": "The security team has been notified. Change your password in My profile → Security as soon as possible.",
   "Ce message ressemble à une tentative d'attaque : il n'a pas été traité et l'équipe sécurité a été prévenue.": "This message looks like an attack attempt: it was not processed and the security team has been notified.",
-  "Votre adresse IP est temporairement bloquée ({detail}).": "Your IP address is temporarily blocked ({detail})."
+  "Votre adresse IP est temporairement bloquée ({detail}).": "Your IP address is temporarily blocked ({detail}).",
+  "Délai maximal de réponse (secondes)": "Maximum response time (seconds)",
+  "Au-delà, l’analyse est abandonnée. Le compagnon attend au plus 110 s (limite du proxy du portail). Augmentez-le si le serveur Ollama est partagé et souvent occupé.": "Beyond this, the analysis is abandoned. The companion waits at most 110 s (portal proxy limit). Increase it if the Ollama server is shared and often busy.",
+  "Fenêtre de contexte": "Context window",
+  "Auto (contexte déjà chargé par le serveur)": "Auto (context already loaded by the server)",
+  "jetons": "tokens",
+  "Ollama recharge le modèle à chaque requête qui demande une autre taille de contexte que celle chargée : sur un serveur partagé avec d’autres clients, choisissez « Auto » ou la même valeur qu’eux.": "Ollama reloads the model for every request asking for a context size other than the loaded one: on a server shared with other clients, choose \"Auto\" or the same value as them.",
+  "Chargé sur le serveur au dernier test :": "Loaded on the server at the last test:",
+  "Le modèle est chargé avec un contexte de": "The model is loaded with a context of",
+  "jetons, Bastion en demande": "tokens, Bastion requests",
+  "chaque alternance avec un autre client provoque un rechargement (réponses très lentes).": "every switch with another client triggers a reload (very slow answers).",
+  "le serveur est occupé, merci de patienter": "the server is busy, please wait",
+  "L'assistant est très sollicité et n'a pas répondu à temps. Réessayez dans un instant, ou utilisez les liens ci-dessous et les coordonnées de {company}.": "The assistant is very busy and did not answer in time. Try again in a moment, or use the links below and {company}'s contact details.",
+  "Délai entre 10 et 300 secondes.": "Timeout must be between 10 and 300 seconds.",
+  "Fenêtre de contexte non prise en charge.": "Unsupported context window."
 }

@@ -171,7 +171,17 @@
     if (text.length > maxChars) text = text.slice(0, maxChars);
     if (chips) chips.hidden = true;
     addMessage("user", text);
-    var pending = addMessage("bot", attr("data-msg-thinking"), "companion-msg--pending");
+    var thinking = attr("data-msg-thinking");
+    var pending = addMessage("bot", thinking, "companion-msg--pending");
+    // Elapsed-time hint: a shared Ollama server can queue requests for a while.
+    var started = Date.now();
+    var ticker = window.setInterval(function () {
+      var s = Math.round((Date.now() - started) / 1000);
+      if (s < 5) return;
+      var text = thinking + " (" + s + " s)";
+      if (s >= 20) text += " · " + attr("data-msg-busy");
+      pending.textContent = text;
+    }, 1000);
     setBusy(true);
     var payload = { message: text, history: history.slice(-MAX_HISTORY) };
 
@@ -214,6 +224,7 @@
         addMessage("bot", attr("data-msg-error"));
       })
       .then(function () {
+        window.clearInterval(ticker);
         setBusy(false);
         input.value = "";
         input.focus();

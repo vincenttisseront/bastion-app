@@ -94,12 +94,25 @@ class LlmConfig:
             connect_timeout_s=_clamp(getattr(settings, "llm_connect_timeout_s", 2.0), 0.2, 10.0),
             timeout_s=_clamp(getattr(settings, "llm_timeout_s", 45.0), 1.0, 300.0),
             max_concurrency=int(_clamp(getattr(settings, "llm_max_concurrency", 1), 1, 4)),
-            num_ctx=int(_clamp(getattr(settings, "llm_num_ctx", 8192), 2048, 131072)),
+            num_ctx=normalize_num_ctx(getattr(settings, "llm_num_ctx", 8192)),
             breaker_failures=int(_clamp(getattr(settings, "llm_breaker_failures", 3), 1, 20)),
             breaker_cooldown_s=_clamp(
                 getattr(settings, "llm_breaker_cooldown_s", 300.0), 5.0, 86_400.0
             ),
         )
+
+
+def normalize_num_ctx(value: Any) -> int:
+    """0 (or less) = "auto": do not send num_ctx, use what the server has loaded.
+
+    Ollama reloads a model whenever a request asks for another context size than
+    the loaded one; on a server shared with other clients, "auto" avoids that.
+    """
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return 8192
+    return 0 if n <= 0 else int(_clamp(n, 2048, 131072))
 
 
 def _clamp(value: Any, low: float, high: float) -> float:
@@ -145,6 +158,8 @@ class ProbeResult:
     models: list[str] = field(default_factory=list)
     error: str | None = None
     duration_ms: int = 0
+    # Models currently loaded (/api/ps): name, context length, VRAM. Best effort.
+    loaded: list[dict[str, Any]] = field(default_factory=list)
 
 
 class LlmClient:
@@ -202,8 +217,12 @@ class LlmClient:
         )
 
     # ── health probe ───────────────────────────────────────────────────────
-    async def probe(self) -> ProbeResult:
-        """Light ``GET /api/tags``: is Ollama up and is the model pulled?"""
+    async def probe(self, *, include_loaded: bool = False) -> ProbeResult:
+        """Light ``GET /api/tags``: is Ollama up and is the model pulled?
+
+        ``include_loaded`` (admin test only) also reads ``/api/ps``; the automatic
+        half-open recovery probe skips it.
+        """
         started = time.monotonic()
         try:
             async with self._http(read_timeout=5.0) as http:
@@ -233,6 +252,8 @@ class LlmClient:
             )
         except Exception as exc:  # noqa: BLE001 — probe never raises
             result = ProbeResult(ok=False, error=_short_error(exc))
+        if result.reachable and include_loaded:
+            result.loaded = await self._loaded_models()
         result.duration_ms = int((time.monotonic() - started) * 1000)
         self.last_probe = result
         if result.ok:
@@ -240,6 +261,28 @@ class LlmClient:
         else:
             self.breaker.failure(result.error)
         return result
+
+    async def _loaded_models(self) -> list[dict[str, Any]]:
+        """``GET /api/ps`` (best effort): what is in memory, with which context."""
+        try:
+            async with self._http(read_timeout=5.0) as http:
+                r = await asyncio.wait_for(
+                    http.get("/api/ps"), timeout=self.config.connect_timeout_s + 5.0
+                )
+            r.raise_for_status()
+            out = []
+            for m in (r.json().get("models") or [])[:10]:
+                if not isinstance(m, dict):
+                    continue
+                ctx = m.get("context_length")
+                out.append({
+                    "name": str(m.get("name") or m.get("model") or "")[:120],
+                    "context_length": int(ctx) if isinstance(ctx, int) else None,
+                    "size_vram_gb": round(int(m.get("size_vram") or 0) / 1e9, 1),
+                })
+            return out
+        except Exception:  # noqa: BLE001 — older Ollama / proxy without /api/ps
+            return []
 
     # ── generation ─────────────────────────────────────────────────────────
     async def generate_json(
@@ -306,8 +349,10 @@ class LlmClient:
             ],
             "format": schema,
             "stream": False,
-            "options": {"temperature": 0.1, "num_ctx": self.config.num_ctx},
+            "options": {"temperature": 0.1},
         }
+        if self.config.num_ctx > 0:
+            body["options"]["num_ctx"] = self.config.num_ctx
         overall = self.config.timeout_s + self.config.connect_timeout_s
         try:
             async with self._http(read_timeout=self.config.timeout_s) as http:
