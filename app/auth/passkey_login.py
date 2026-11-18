@@ -58,6 +58,7 @@ from app.testing_framework.throttle import (
 )
 from app.web.csrf import portal_signing_secret, verify_csrf_token
 from app.web.openapi_responses import RESP_401, RESP_403, RESP_503
+from app.web.user_context import is_breakglass_email
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,8 @@ _IDP_UNAVAILABLE = (
 _ACTION_REQUIRED = (
     "Une action est requise sur votre compte — connectez-vous avec votre mot de passe."
 )
+
+_REASON_RESERVED = "reserved_identity_domain"
 
 _AUDIT_FAILED = "oidc_login_passkey_failed"
 _AUDIT_SUCCESS = "oidc_login_passkey_success"
@@ -223,6 +226,14 @@ def _verify_stage(
         raise _failure(db, ip=ip, reason=exc.reason) from None
 
     realm = passkey.realm
+    if is_breakglass_email(passkey.username):
+        raise _failure(
+            db,
+            ip=ip,
+            reason=_REASON_RESERVED,
+            username=passkey.username,
+            realm_slug=getattr(realm, "slug", None),
+        )
     if not is_passkey_login_enabled_for_realm(db, realm, settings):
         _audit(
             db,
@@ -314,6 +325,19 @@ def _finalize_stage(
     email = str(kc_user.get("email") or "").strip() or None
     if not email and username and "@" in username:
         email = username
+    if any(is_breakglass_email(v) for v in (username, email)):
+        # Reserved for break-glass (validated bg_session only): an IdP account
+        # renamed into that domain must never get a session this way.
+        raise _failure(
+            db,
+            ip=stage.client_ip,
+            reason=_REASON_RESERVED,
+            username=stage.username,
+            realm_slug=slug,
+        )
+    if username and username != stage.username:
+        # Renamed in Keycloak: a ban keyed on the current login name applies too.
+        _require_not_banned(db, stage.client_ip, username)
 
     from app.models import UserPasskey
 

@@ -274,6 +274,13 @@ async def user_profile(
     password_change_available = password_self_service_available(db, user, settings)
     security_available = self_service_security_available(db, user, settings)
     current = current_native_session(request, db, settings)
+    from starlette.concurrency import run_in_threadpool
+
+    from app.auth.passkey_profile import passkey_profile_context
+
+    passkey_ctx = await run_in_threadpool(
+        passkey_profile_context, request, db, settings, user
+    )
     sso_sessions: list = []
     if security_available:
         sso_sessions = await list_user_sso_sessions(
@@ -318,6 +325,7 @@ async def user_profile(
             session_ttl_hours=session_ttl_hours,
             min_password_len=MIN_PASSWORD_LEN,
             password_policy_rules=PASSWORD_POLICY_RULES,
+            **passkey_ctx,
             **as_ctx,
         ),
     )

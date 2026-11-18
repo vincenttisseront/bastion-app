@@ -49,6 +49,9 @@
       <a href="#section-links" class="portal-profile-nav-link" data-profile-nav>{{ _('Liens') }}</a>
       <a href="#section-devices" class="portal-profile-nav-link" data-profile-nav>{{ _('Appareils') }}</a>
       <a href="#section-security" class="portal-profile-nav-link" data-profile-nav>{{ _('Sécurité') }}</a>
+      {% if passkeys_available | default(false) %}
+      <a href="#section-passkeys" class="portal-profile-nav-link" data-profile-nav>{{ _("Clés d'accès") }}</a>
+      {% endif %}
       <a href="#section-prefs" class="portal-profile-nav-link" data-profile-nav>{{ _('Préférences') }}</a>
       <span class="portal-profile-nav-disabled" title="{{ _('Non disponible dans cette version') }}">{{ _('Notifications') }}</span>
       <span class="portal-profile-nav-disabled" title="{{ _('Non disponible dans cette version') }}">{{ _('Jetons API') }}</span>
@@ -434,6 +437,50 @@
         </div>
       </section>
 
+      {% if passkeys_available | default(false) %}
+      <section id="section-passkeys" class="card portal-profile-card" data-passkey-profile>
+        <div class="card-header">
+          <h2 class="card-title">{{ _("Clés d'accès") }}</h2>
+        </div>
+        <div class="card-body">
+          <p class="text-2">
+            {{ _("Connectez-vous sans mot de passe ni code, avec Face ID, Windows Hello, une empreinte ou une clé de sécurité.") }}
+          </p>
+          {% if passkeys %}
+          <ul class="portal-passkey-list" style="list-style:none; padding:0; margin:var(--sp-3) 0;">
+            {% for pk in passkeys %}
+            <li class="portal-passkey-item" style="display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3); padding:var(--sp-2) 0; border-bottom:1px solid var(--border, rgba(127,127,127,0.2));">
+              <div>
+                <div class="form-label" style="margin:0;">{{ pk.name }}{% if pk.synced %} <span class="badge">{{ _('synchronisée') }}</span>{% endif %}</div>
+                <div class="text-2" style="font-size:0.85em;">
+                  {{ _('Ajoutée le') }} {{ pk.created_at.strftime('%d/%m/%Y') if pk.created_at else '—' }}
+                  · {{ _('Dernière utilisation') }} : {{ pk.last_used_at.strftime('%d/%m/%Y %H:%M') if pk.last_used_at else _('jamais') }}
+                </div>
+              </div>
+              <form method="post" action="/profile/passkeys/{{ pk.id }}/delete" data-confirm="{{ _("Supprimer cette clé d'accès ?") }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-ghost btn-sm">{{ _('Supprimer') }}</button>
+              </form>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p class="text-2">{{ _("Aucune clé d'accès enregistrée.") }}</p>
+          {% endif %}
+          {% if not passkeys_limit_reached | default(false) %}
+          <div class="form-body" style="max-width:28rem; margin-top:var(--sp-3);" data-passkey-register-form>
+            <div class="form-group">
+              <label class="form-label" for="passkey-name">{{ _('Nom de la clé (facultatif)') }}</label>
+              <input type="text" id="passkey-name" class="form-input" maxlength="64" placeholder="{{ _('Ex. : ordinateur portable') }}" data-passkey-name>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" data-passkey-register>{{ _("Ajouter une clé d'accès") }}</button>
+            <p class="form-hint" role="status" aria-live="polite" data-passkey-status hidden></p>
+          </div>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
+
       <section id="section-prefs" class="card portal-profile-card">
         <div class="card-header">
           <h2 class="card-title">{{ _('Préférences') }}</h2>
@@ -479,6 +526,10 @@
 
 {% block scripts %}
 <script src="/static/js/bastion-password-policy.js?v=20260828"></script>
+{% if passkeys_available | default(false) %}
+<script src="/static/js/bastion-webauthn-b64.js?v=20261027-b64"></script>
+<script src="/static/js/bastion-passkey.js?v=20261118-passkey"></script>
+{% endif %}
 <script>
 (function () {
   var prefs = document.querySelectorAll('[data-theme-pref]');

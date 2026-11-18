@@ -3351,5 +3351,20 @@
   "le serveur est occupé, merci de patienter": "the server is busy, please wait",
   "L'assistant est très sollicité et n'a pas répondu à temps. Réessayez dans un instant, ou utilisez les liens ci-dessous et les coordonnées de {company}.": "The assistant is very busy and did not answer in time. Try again in a moment, or use the links below and {company}'s contact details.",
   "Délai entre 10 et 300 secondes.": "Timeout must be between 10 and 300 seconds.",
-  "Fenêtre de contexte non prise en charge.": "Unsupported context window."
+  "Fenêtre de contexte non prise en charge.": "Unsupported context window.",
+  "Clés d'accès": "Passkeys",
+  "Connectez-vous sans mot de passe ni code, avec Face ID, Windows Hello, une empreinte ou une clé de sécurité.": "Sign in without a password or code, using Face ID, Windows Hello, a fingerprint or a security key.",
+  "synchronisée": "synced",
+  "Ajoutée le": "Added on",
+  "Dernière utilisation": "Last used",
+  "Supprimer cette clé d'accès ?": "Delete this passkey?",
+  "Aucune clé d'accès enregistrée.": "No passkey registered.",
+  "Nom de la clé (facultatif)": "Passkey name (optional)",
+  "Ex. : ordinateur portable": "e.g. laptop",
+  "Ajouter une clé d'accès": "Add a passkey",
+  "Se connecter avec une clé d'accès": "Sign in with a passkey",
+  "Clé d'accès non reconnue.": "Passkey not recognised.",
+  "Connexion par clé d'accès indisponible.": "Passkey sign-in unavailable.",
+  "Se reconnecter": "Sign in again",
+  "Enregistrement impossible.": "Registration failed."
 }

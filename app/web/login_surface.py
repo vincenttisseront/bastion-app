@@ -156,8 +156,14 @@ def login_surface_flags(
         login_realms,
         is_native=is_oidc_native_session_enabled_for_realm,
     )
+    from app.auth.passkey_service import is_passkey_login_enabled_for_realm
+
+    show_passkey_login = bool(
+        selected_native and is_passkey_login_enabled_for_realm(db, selected, settings)
+    )
     return {
         "show_native_login": selected_native,
+        "show_passkey_login": show_passkey_login,
         "native_realm_slug": selected.slug if selected else None,
         "native_realm_name": selected.name if selected else None,
         "native_realm_label": (
