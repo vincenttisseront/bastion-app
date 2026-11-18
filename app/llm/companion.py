@@ -60,6 +60,10 @@ MAX_MESSAGE_CHARS = 600
 MAX_HISTORY_TURNS = 6
 MAX_HISTORY_CHARS = 500
 MAX_ANSWER_CHARS = 1200
+MAX_INTRO_CHARS = 400
+MAX_REPLY_APPS = 12
+MAX_REPLY_STEPS = 5
+MAX_STEP_CHARS = 220
 MAX_APPS_IN_FACTS = 40
 # The user is waiting: give up before the generic client timeout and fall back.
 COMPANION_TIMEOUT_S = 40.0
@@ -90,6 +94,18 @@ SCHEMA: dict[str, Any] = {
     "properties": {
         "topic": {"type": "string", "enum": list(TOPICS)},
         "answer": {"type": "string", "maxLength": 2000},
+        # Structured parts rendered by the portal (chips / numbered list) instead
+        # of one block of text. App names are checked against the user's facts.
+        "apps": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": 120},
+            "maxItems": MAX_REPLY_APPS,
+        },
+        "steps": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": 400},
+            "maxItems": MAX_REPLY_STEPS,
+        },
         "links": {
             "type": "array",
             "items": {"type": "string", "enum": list(LINKS)},
@@ -124,7 +140,14 @@ INSTRUCTIONS = (
     "Tu ne peux effectuer AUCUNE action (créer ou modifier un accès, réinitialiser un mot "
     "de passe, contacter quelqu'un) : tu expliques et tu orientes. Ne demande jamais de "
     "mot de passe, de code MFA ni de jeton, et conseille de ne jamais en saisir ici.\n"
-    "Réponds en 5 phrases maximum, en texte brut : pas de lien, pas d'adresse e-mail, pas "
+    "Mise en forme : le portail affiche ta réponse en trois blocs, remplis-les séparément.\n"
+    "- `answer` : 1 à 2 phrases courtes qui répondent directement, sans énumération.\n"
+    "- `apps` : quand tu cites des applications, mets leurs noms EXACTS tels qu'ils figurent "
+    "dans `applications_accessibles` (le portail les affiche en pastilles) ; ne les répète "
+    "pas dans `answer`. Liste vide sinon.\n"
+    "- `steps` : si l'utilisateur doit faire quelque chose, 2 à 5 étapes courtes, une action "
+    "par étape, sans numéro (le portail numérote). Liste vide sinon.\n"
+    "Texte brut partout : pas de lien, pas d'adresse e-mail, pas "
     "de Markdown. Les coordonnées de contact et les boutons de liens sont ajoutés par le "
     "portail : renvoie-y (« les coordonnées ci-dessous »). Dans `links`, indique au plus "
     "3 clés parmi : apps (Mes applications), profile (Mon profil), security (Sécurité de "
@@ -296,10 +319,15 @@ class CompanionReply:
     available: bool = True
     # Server-written messages about measures taken (sessions closed, IP blocked…).
     notices: list[str] = field(default_factory=list)
+    # Structured parts: app chips (only names the user really has) and steps.
+    apps: list[dict[str, Any]] = field(default_factory=list)
+    steps: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "answer": self.answer,
+            "apps": self.apps,
+            "steps": self.steps,
             "topic": self.topic,
             "source": self.source,
             "links": self.links,
@@ -546,7 +574,10 @@ async def ask(
             if result is not None and result.outcome == "ok" and result.value:
                 signal = str(result.value.get("signal") or responder.SIGNAL_NONE)
                 confidence = str(result.value.get("confidence") or "faible")
-                reply = _reply_from_model(result.value, branding, locale, allowed_email)
+                reply = _reply_from_model(
+                    result.value, branding, locale, allowed_email,
+                    known_apps=facts.get("applications_accessibles") or [],
+                )
     except Exception:  # noqa: BLE001 — includes timeout/cancel of our own wait
         logger.warning("companion ask failed", exc_info=True)
     if reply is None:
@@ -582,8 +613,44 @@ async def ask(
     return reply
 
 
+def reply_apps(raw: Any, known_apps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep only applications the user really has (exact name, case-insensitive)."""
+    by_name = {str(a.get("nom") or "").strip().lower(): a for a in known_apps}
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for name in raw or []:
+        key = str(name or "").strip().lower()
+        app = by_name.get(key)
+        if app is None or key in seen:
+            continue  # invented or duplicate: dropped
+        seen.add(key)
+        out.append({"label": str(app.get("nom")), "openable": bool(app.get("ouvrable"))})
+        if len(out) >= MAX_REPLY_APPS:
+            break
+    return out
+
+
+_STEP_NUMBER_RE = re_safe.compile(r"^\s*(?:\d+\s*[.)-]|[-•–])\s*")
+
+
+def reply_steps(raw: Any, *, allowed_email: str = "") -> list[str]:
+    steps: list[str] = []
+    for item in raw or []:
+        text = _STEP_NUMBER_RE.sub("", clean_answer(item, allowed_email=allowed_email))
+        if text:
+            steps.append(text[:MAX_STEP_CHARS])
+        if len(steps) >= MAX_REPLY_STEPS:
+            break
+    return steps
+
+
 def _reply_from_model(
-    value: dict[str, Any], branding: dict[str, Any], locale: str, allowed_email: str
+    value: dict[str, Any],
+    branding: dict[str, Any],
+    locale: str,
+    allowed_email: str,
+    *,
+    known_apps: list[dict[str, Any]] | None = None,
 ) -> CompanionReply | None:
     topic = value.get("topic")
     if topic not in TOPICS:
@@ -591,14 +658,22 @@ def _reply_from_model(
     if topic == TOPIC_OUT:
         return refusal_reply(branding, locale)  # model text is never relayed
     answer = clean_answer(value.get("answer"), allowed_email=allowed_email)
-    if not answer:
+    apps = reply_apps(value.get("apps"), known_apps or [])
+    steps = reply_steps(value.get("steps"), allowed_email=allowed_email)
+    if not answer and not apps and not steps:
         return None
+    if len(answer) > MAX_INTRO_CHARS and (apps or steps):
+        cut = answer[:MAX_INTRO_CHARS]
+        end = cut.rfind(". ")
+        answer = cut[: end + 1] if end > MAX_INTRO_CHARS // 3 else cut.rstrip() + "…"
     return CompanionReply(
         answer=answer,
         topic=topic,
         source=SOURCE_ASSISTANT,
         links=_links([k for k in (value.get("links") or []) if isinstance(k, str)], locale),
         contact=contact_block(branding, locale),
+        apps=apps,
+        steps=steps,
     )
 
 
@@ -609,6 +684,8 @@ __all__ = [
     "check_rate_limit",
     "clean_answer",
     "clean_history",
+    "reply_apps",
+    "reply_steps",
     "fallback_reply",
     "refusal_reply",
     "reset_rate_limits",

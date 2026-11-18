@@ -40,3 +40,14 @@
 .companion-input{flex:1;resize:none;max-height:96px;min-height:36px}
 .companion-send[disabled]{opacity:.6;cursor:progress}
 @media (prefers-reduced-motion:reduce){.companion-fab{transition:none}}
+/* Structured bot reply: short answer, app chips, numbered steps. */
+.companion-msg--rich{white-space:normal;display:flex;flex-direction:column;gap:var(--sp-2)}
+.companion-answer{margin:0;white-space:pre-line}
+.companion-apps{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.companion-app{font-size:var(--fs-xs);font-weight:600;padding:3px var(--sp-2);border-radius:var(--r-full);
+  background:var(--bg-card);border:1px solid var(--border);color:var(--text);max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.companion-app--locked{color:var(--text-2);font-weight:500}
+.companion-steps{margin:0;padding-left:1.25rem;display:flex;flex-direction:column;gap:4px}
+.companion-steps li{padding-left:2px}
+.companion-steps li::marker{color:var(--accent);font-weight:700}
