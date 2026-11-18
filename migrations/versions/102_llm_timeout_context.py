@@ -11,50 +11,43 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy import inspect
 
 revision: str = "102_llm_timeout_context"
 down_revision: Union[str, None] = "101_llm_companion"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-_TABLE = "portal_settings"
+# All nullable: NULL means "use the env default" (LLM_TIMEOUT_S / LLM_NUM_CTX).
+_NEW_COLUMNS: dict[str, type[sa.types.TypeEngine]] = {
+    "llm_server_info": sa.JSON,
+    "llm_timeout_s": sa.Integer,
+    "llm_num_ctx": sa.Integer,
+}
 
 
-def _columns_spec() -> list[sa.Column]:
-    return [
-        sa.Column("llm_server_info", sa.JSON(), nullable=True),
-        sa.Column("llm_timeout_s", sa.Integer(), nullable=True),
-        sa.Column("llm_num_ctx", sa.Integer(), nullable=True),
-    ]
-
-
-def _existing() -> set[str] | None:
-    inspector = inspect(op.get_bind())
-    if _TABLE not in inspector.get_table_names():
+def _portal_settings_columns() -> set[str] | None:
+    """Column names of portal_settings, or None when the table is absent."""
+    insp = sa.inspect(op.get_bind())
+    if not insp.has_table("portal_settings"):
         return None
-    return {c["name"] for c in inspector.get_columns(_TABLE)}
+    return {col["name"] for col in insp.get_columns("portal_settings")}
 
 
 def upgrade() -> None:
-    cols = _existing()
-    if cols is None:
+    existing = _portal_settings_columns()
+    if existing is None:
         return
-    missing = [c for c in _columns_spec() if c.name not in cols]
-    if not missing:
-        return
-    with op.batch_alter_table(_TABLE) as batch:
-        for column in missing:
-            batch.add_column(column)
+    to_add = [name for name in _NEW_COLUMNS if name not in existing]
+    if to_add:
+        with op.batch_alter_table("portal_settings") as batch:
+            for name in to_add:
+                batch.add_column(sa.Column(name, _NEW_COLUMNS[name](), nullable=True))
 
 
 def downgrade() -> None:
-    cols = _existing()
-    if cols is None:
-        return
-    present = [c.name for c in _columns_spec() if c.name in cols]
-    if not present:
-        return
-    with op.batch_alter_table(_TABLE) as batch:
-        for name in present:
-            batch.drop_column(name)
+    existing = _portal_settings_columns() or set()
+    to_drop = [name for name in _NEW_COLUMNS if name in existing]
+    if to_drop:
+        with op.batch_alter_table("portal_settings") as batch:
+            for name in to_drop:
+                batch.drop_column(name)
