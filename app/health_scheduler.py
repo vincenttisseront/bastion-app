@@ -206,13 +206,16 @@ def start_health_scheduler(settings: Settings) -> None:
 
 
 def _schedule_llm_jobs(settings: Settings) -> None:
-    """Optional LLM assistant jobs. Not registered at all when LLM_ENABLED is off;
-    each run also re-checks the admin toggle and no-ops when it is off."""
-    if not getattr(settings, "llm_enabled", False):
+    """Optional LLM assistant jobs. Not registered at all when LLM_ENABLED=false
+    (kill switch); each run re-checks the admin toggle and no-ops when it is off."""
+    from app.llm.service import env_allows
+
+    if not env_allows(settings):
         return
     from app.llm.features.jobs import run_llm_job_async
     from app.llm.features.login_anomalies import login_anomaly_job_body
     from app.llm.features.siem_enrichment import siem_enrichment_job_body
+    from app.llm.features.waf_threats import waf_threat_job_body
 
     async def _login_anomalies() -> None:
         await run_llm_job_async(login_anomaly_job_body)
@@ -220,9 +223,13 @@ def _schedule_llm_jobs(settings: Settings) -> None:
     async def _siem_enrichment() -> None:
         await run_llm_job_async(siem_enrichment_job_body)
 
+    async def _waf_threats() -> None:
+        await run_llm_job_async(waf_threat_job_body)
+
     for fn, minutes, job_id in (
         (_login_anomalies, 30, "llm_login_anomalies"),
         (_siem_enrichment, 2, "llm_siem_enrichment"),
+        (_waf_threats, 10, "llm_waf_threats"),
     ):
         scheduler.add_job(
             fn,
@@ -233,7 +240,10 @@ def _schedule_llm_jobs(settings: Settings) -> None:
             max_instances=1,
             coalesce=True,
         )
-    logger.info("LLM assistant jobs scheduled (login anomalies 30 min, SIEM enrichment 2 min)")
+    logger.info(
+        "LLM assistant jobs scheduled (WAF threats 10 min, login anomalies 30 min, "
+        "SIEM enrichment 2 min) — each run no-ops while the assistant is off"
+    )
 
 
 def stop_health_scheduler() -> None:

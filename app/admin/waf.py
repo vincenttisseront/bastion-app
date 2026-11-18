@@ -153,9 +153,15 @@ def _llm_waf_context(db: Session, settings: Settings, page_ctx: dict[str, Any]) 
         if isinstance(row, dict):
             row["llm_key"] = event_key(row)
             keys.append(row["llm_key"])
-    return llm_ui_context(
+    ctx = llm_ui_context(
         db, settings, kind="waf_explain", subject_type="waf_event", subject_ids=keys
     )
+    ctx["llm_threats"] = []
+    if ctx["llm_on"]:
+        from app.llm.features.waf_threats import recent_threats
+
+        ctx["llm_threats"] = recent_threats(db)
+    return ctx
 
 
 @router.get("/admin/security/waf/diagnostic.json")

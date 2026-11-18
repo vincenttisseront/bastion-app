@@ -52,7 +52,7 @@
   <details class="form-section" id="dep-llm-review" style="max-width:64rem;">
     <summary class="form-section-title">
       {{ _('Synthèse IA des mises à jour') }} <span class="badge badge-muted">{{ _('Généré par IA') }}</span>
-      <span class="form-help">{{ review.created_at.strftime('%Y-%m-%d %H:%M UTC') if review.created_at else '' }} · {{ review.model }}</span>
+      <span class="form-help">{{ review.created_at.strftime('%Y-%m-%d %H:%M UTC') if review.created_at else '' }} · {{ review.model or '—' }}</span>
     </summary>
     <p>{{ review.payload.summary }}</p>
     <p class="form-help">{{ _('Sans données de vulnérabilité : priorités fondées sur l’exposition et le retard de version, pas sur des CVE.') }}</p>

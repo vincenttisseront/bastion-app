@@ -509,11 +509,13 @@ class Settings(BaseSettings):
         ),
     )
 
-    # Optional local LLM assistant (Ollama). Off by default: with LLM_ENABLED
-    # unset, app.llm never opens a socket. Effective only when the admin toggle
-    # (PortalSettings.llm_enabled) is also on. Never used on a critical path.
-    llm_enabled: bool = Field(
-        default=False,
+    # Optional LLM assistant (Ollama, local or remote). Driven by the admin
+    # toggle (PortalSettings.llm_enabled, off by default) and the connection set
+    # in Admin → Configuration → Assistant IA. LLM_ENABLED=false is an ops kill
+    # switch: no DB read, no socket. Unset (None) = follow the admin toggle.
+    # OLLAMA_URL / LLM_MODEL are only defaults when the UI leaves them empty.
+    llm_enabled: bool | None = Field(
+        default=None,
         validation_alias=AliasChoices("LLM_ENABLED", "llm_enabled"),
     )
     ollama_url: str = Field(

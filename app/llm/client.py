@@ -63,6 +63,9 @@ class LlmConfig:
     num_ctx: int = 8192
     breaker_failures: int = 3
     breaker_cooldown_s: float = 300.0
+    # Remote Ollama behind a reverse proxy: Bearer token + optional self-signed TLS.
+    api_token: str = field(default="", repr=False)
+    verify_tls: bool = True
 
     @classmethod
     def from_settings(cls, settings: Any) -> LlmConfig:
@@ -166,10 +169,15 @@ class LlmClient:
         return True
 
     def _http(self, read_timeout: float) -> httpx.AsyncClient:
+        headers = {"Accept": "application/json"}
+        if self.config.api_token:
+            headers["Authorization"] = f"Bearer {self.config.api_token}"
         return httpx.AsyncClient(
             base_url=self.config.url,
+            headers=headers,
             timeout=httpx.Timeout(read_timeout, connect=self.config.connect_timeout_s),
             transport=self._transport,
+            verify=self.config.verify_tls,  # False = self-signed accepted (admin choice)
             follow_redirects=False,
             trust_env=False,  # never route prompts through an env HTTP proxy
         )
@@ -190,16 +198,19 @@ class LlmClient:
                 if isinstance(m, dict)
             ]
             wanted = self.config.model
-            present = any(
-                n == wanted or n == f"{wanted}:latest" or n.split(":")[0] == wanted
-                for n in names
-            )
+            present = bool(wanted) and model_available(wanted, names)
+            if not wanted:
+                error = "aucun modèle sélectionné"
+            elif not present:
+                error = f"modèle {wanted} absent de ce serveur Ollama"
+            else:
+                error = None
             result = ProbeResult(
                 ok=present,
                 reachable=True,
                 model_present=present,
-                models=names[:50],
-                error=None if present else f"modèle {wanted} absent d'Ollama",
+                models=sorted(set(names))[:100],
+                error=error,
             )
         except Exception as exc:  # noqa: BLE001 — probe never raises
             result = ProbeResult(ok=False, error=_short_error(exc))
@@ -320,9 +331,31 @@ class LlmClient:
         return self.breaker.state
 
 
+def model_available(wanted: str, names: list[str]) -> bool:
+    return any(n == wanted or n == f"{wanted}:latest" for n in names)
+
+
 def _short_error(exc: BaseException) -> str:
-    text = f"{type(exc).__name__}: {exc}".strip()
-    return redact_text(text)[:300]
+    """Admin-readable cause (TLS, auth, network) without secrets."""
+    raw = f"{type(exc).__name__}: {exc}".strip()
+    low = raw.lower()
+    if "certificate_verify_failed" in low or "certificate verify failed" in low:
+        return (
+            "certificat TLS non approuvé (auto-signé ?) — décochez « Vérifier le "
+            "certificat TLS » ou installez un certificat reconnu"
+        )
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code in (401, 403):
+            return f"accès refusé par le serveur (HTTP {code}) — vérifiez le jeton"
+        if code == 404:
+            return "HTTP 404 — l'URL ne pointe pas vers l'API Ollama (/api/tags introuvable)"
+        return f"HTTP {code}"
+    if isinstance(exc, httpx.ConnectError):
+        return redact_text(f"connexion impossible : {exc}")[:300]
+    if isinstance(exc, (httpx.TimeoutException, asyncio.TimeoutError)):
+        return "délai dépassé"
+    return redact_text(raw)[:300]
 
 
 # ── process-wide clients (one per effective config) ─────────────────────────
@@ -331,7 +364,11 @@ _clients_lock = threading.Lock()
 
 
 def get_llm_client(settings: Any) -> LlmClient:
-    config = LlmConfig.from_settings(settings)
+    """Env-only configuration (defaults). Portal code uses app.llm.service.get_llm_client."""
+    return client_for(LlmConfig.from_settings(settings))
+
+
+def client_for(config: LlmConfig) -> LlmClient:
     with _clients_lock:
         client = _clients.get(config)
         if client is None:
@@ -353,6 +390,8 @@ __all__ = [
     "LlmClient",
     "LlmConfig",
     "ProbeResult",
+    "client_for",
     "get_llm_client",
+    "model_available",
     "reset_llm_clients",
 ]

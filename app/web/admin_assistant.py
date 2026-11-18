@@ -222,6 +222,27 @@ async def _waf_job(db: Session, *, settings: Settings, event: dict[str, Any], re
     await explain_waf_event(db, settings, event, requested_by=requested_by)
 
 
+@router.post("/admin/assistant/waf/threats")
+def admin_assistant_waf_threats(
+    request: Request,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Analyse the latest WAF events now (also runs every 10 min on the leader)."""
+    return _queue(
+        request, background, db, settings, "/admin/security/waf#llm-threats",
+        _waf_threats_job, requested_by=admin_actor(user),
+    )
+
+
+async def _waf_threats_job(db: Session, *, settings: Settings, requested_by: str) -> None:
+    from app.llm.features.waf_threats import analyse_waf_threats
+
+    await analyse_waf_threats(db, settings, requested_by=requested_by, force=True)
+
+
 # ── 3. login anomalies (also a leader job) ───────────────────────────────────
 
 

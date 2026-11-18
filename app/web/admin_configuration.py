@@ -847,19 +847,86 @@ def admin_configuration_llm_save(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
     llm_enabled: str | None = Form(None),
+    llm_model: str = Form(""),
+    llm_waf_auto_enabled: str | None = Form(None),
 ):
     from app.llm.service import update_llm_settings
 
     token = portal_signing_secret(settings)
     response = RedirectResponse(url=_CONFIG_LLM, status_code=302)
-    update_llm_settings(
-        db,
-        settings,
-        actor=admin_actor(user),
-        ip_address=client_ip_from_request(request),
-        enabled=_form_bool(llm_enabled),
-    )
+    try:
+        update_llm_settings(
+            db,
+            settings,
+            actor=admin_actor(user),
+            ip_address=client_ip_from_request(request),
+            enabled=_form_bool(llm_enabled),
+            model=llm_model,
+            waf_auto=_form_bool(llm_waf_auto_enabled),
+        )
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", token)
+        return response
     flash_i18n(request, response, "Paramètres de l'assistant IA enregistrés.", "success", token)
+    return response
+
+
+def _llm_probe_flash(request: Request, response, result, token: str) -> None:
+    if result.reachable:
+        flash_i18n(
+            request,
+            response,
+            "Connexion réussie : {count} modèle(s) disponible(s) ({ms} ms).",
+            "success" if result.models else "warn",
+            token,
+            count=len(result.models),
+            ms=result.duration_ms,
+        )
+    else:
+        flash_i18n(
+            request,
+            response,
+            "Connexion impossible : {error}",
+            "error",
+            token,
+            error=result.error or "?",
+        )
+
+
+@router.post("/admin/configuration/llm/connection")
+async def admin_configuration_llm_connection(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    llm_base_url: str = Form(""),
+    llm_api_token: str = Form(""),
+    llm_clear_token: str | None = Form(None),
+    llm_tls_verify: str | None = Form(None),
+):
+    """Save the Ollama connection, then test it right away (lists the models)."""
+    from app.llm.service import probe_llm, save_llm_connection
+
+    token = portal_signing_secret(settings)
+    response = RedirectResponse(url=_CONFIG_LLM, status_code=302)
+    try:
+        save_llm_connection(
+            db,
+            settings,
+            actor=admin_actor(user),
+            ip_address=client_ip_from_request(request),
+            base_url=llm_base_url,
+            api_token=llm_api_token,
+            clear_token=_form_bool(llm_clear_token),
+            tls_verify=_form_bool(llm_tls_verify),
+        )
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", token)
+        return response
+    result = await probe_llm(
+        settings, db, actor=admin_actor(user), ip_address=client_ip_from_request(request)
+    )
+    _llm_probe_flash(request, response, result, token)
     return response
 
 
@@ -870,34 +937,13 @@ async def admin_configuration_llm_probe(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    """Explicit admin action: light GET /api/tags on Ollama (never on a hot path)."""
+    """Re-test the saved connection: light GET /api/tags (never on a hot path)."""
     from app.llm.service import probe_llm
 
     token = portal_signing_secret(settings)
     response = RedirectResponse(url=_CONFIG_LLM, status_code=302)
     result = await probe_llm(
-        settings,
-        db,
-        actor=admin_actor(user),
-        ip_address=client_ip_from_request(request),
+        settings, db, actor=admin_actor(user), ip_address=client_ip_from_request(request)
     )
-    if result.ok:
-        flash_i18n(
-            request,
-            response,
-            "Assistant IA disponible ({model}, {ms} ms).",
-            "success",
-            token,
-            model=settings.llm_model,
-            ms=result.duration_ms,
-        )
-    else:
-        flash_i18n(
-            request,
-            response,
-            "Assistant IA indisponible : {error}",
-            "warn",
-            token,
-            error=result.error or "?",
-        )
+    _llm_probe_flash(request, response, result, token)
     return response

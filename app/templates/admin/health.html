@@ -114,7 +114,7 @@
                     {% if ai.payload.next_steps %}
                     <ul>{% for step in ai.payload.next_steps %}<li>{{ step }}</li>{% endfor %}</ul>
                     {% endif %}
-                    <span class="form-help">{{ ai.created_at.strftime('%Y-%m-%d %H:%M UTC') if ai.created_at else '' }} · {{ ai.model }}</span>
+                    <span class="form-help">{{ ai.created_at.strftime('%Y-%m-%d %H:%M UTC') if ai.created_at else '' }} · {{ ai.model or '—' }}</span>
                   </div>
                 </div>
               </td>

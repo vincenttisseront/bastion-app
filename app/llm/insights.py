@@ -27,6 +27,7 @@ STATUS_REJECTED = "rejected"
 KIND_LABELS: dict[str, str] = {
     "audit_search": "Recherche dans l'audit",
     "waf_explain": "Explication WAF",
+    "waf_threat": "Menace WAF (analyse automatique)",
     "login_anomaly": "Anomalie de connexion",
     "access_request": "Aide à la décision (demande d'accès)",
     "recertification": "Revue des permissions",
