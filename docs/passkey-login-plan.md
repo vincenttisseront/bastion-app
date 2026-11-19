@@ -88,7 +88,7 @@ Contrôles d'accès avant d'émettre la session, en **fail closed** :
 `GET /profile/passkeys`, `POST /profile/passkeys/register/options`, `POST /profile/passkeys/register/verify`, `POST /profile/passkeys/{id}/rename`, `POST /profile/passkeys/{id}/delete`, plus un garde de ré-authentification récente (`iat` du JWT < 10 min, sinon vérification du mot de passe via `verify_keycloak_password()`, qui existe déjà).
 
 ### 4.5 Admin
-- Section passkeys dans `admin_rbac_account_detail` : liste et révocation.
+- Vue `/admin/security/passkeys` : liste et révocation (fait, lot 4).
 - Toggle `passkey_login_enabled` dans Admin → Realms.
 - Hook de désactivation de compte : révoquer les passkeys et appeler `revoke_oidc_sessions_for_identity()`.
 
@@ -128,7 +128,12 @@ Contrôles d'accès avant d'émettre la session, en **fail closed** :
 3. **UX login** — *bouton et conditional UI faits* : `autocomplete="username webauthn"`, bouton « Se connecter avec une clé d'accès » (masqué si le navigateur ne gère pas WebAuthn). L'écran intermédiaire après un login par mot de passe reste à faire.
    - Durcissement du chemin de login : identité `@breakglass.local` refusée (nom stocké, puis nom et e-mail Keycloak, `reason=reserved_identity_domain`) ; ban SQL vérifié aussi sur le nom Keycloak courant s'il a changé.
    - Décision 2 tranchée pour l'instant : la passkey ne pose **pas** `bastion_mfa_ok`, un admin repasse par son 2ᵉ facteur (`admin_mfa_satisfied`), test de non-régression à l'appui.
-4. **Admin et exploitation** : toggle realm, vue et révocation admin, révocation à la désactivation, E2E, runbook.
+4. **Admin et exploitation** — *volet sécurité fait (`feat/passkey-lot4-security`)* :
+   - Révocation automatique (douce, lignes gardées pour l'audit) à la désactivation pour inactivité (`reason=account_disabled`) et à la suppression du compte (`reason=account_deleted`, même si la suppression est incomplète) ; audit `account.passkeys_revoked` (`BST-AUTH-1016`) et compteur `passkeys_revoked` dans `account.deleted`. Une réactivation ne restaure pas les clés.
+   - Un compte désactivé directement dans Keycloak reste couvert au login (contrôle `enabled` à chaque connexion passkey).
+   - Vue admin `/admin/security/passkeys` (au lieu d'une section de la fiche compte : elle couvre aussi les utilisateurs Keycloak sans fiche Bastion) : filtre realm / utilisateur, révocation d'une clé (`admin.passkey_revoked`, `BST-AUTH-1014`) ou de toutes celles d'un utilisateur (`admin.passkeys_revoked_all`, `BST-AUTH-1015`).
+   - Case « Connexion par clé d'accès » dans l'édition d'un realm ; audit `realm.passkey_login_toggled` (`BST-ADM-1042`) au changement. Désactiver bloque l'usage sans supprimer les clés ; `PASSKEY_LOGIN_ENABLED_REALMS` force toujours l'activation (signalé dans le formulaire).
+   - Reste : écran intermédiaire après login par mot de passe, renommage, runbook d'exploitation.
 
 ## 9. Décisions à valider
 1. **Passkey = facteur unique** (comme Amazon, remplace mot de passe + OTP) **ou** passkey en complément d'un mot de passe ? *Recommandé : facteur unique avec UV obligatoire.*

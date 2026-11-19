@@ -646,6 +646,10 @@
       <div class="form-section-title">{{ _('Misc — paramètres anti-abus') }}</div>
       <div class="form-section-sub">{{ _("Activation globale et contrôle d'accès IP break-glass") }}</div>
     </div>
+    <p class="form-help" style="margin-bottom:1rem">
+      {{ _("Clés d'accès (passkeys) des utilisateurs : liste et révocation") }} —
+      <a href="/admin/security/passkeys">/admin/security/passkeys</a>
+    </p>
     {% set ip_probe = client_ip_probe | default({}) %}
     <div class="alert {% if breakglass_ip_allowed %}alert-ok{% else %}alert-warn{% endif %}" role="status" style="margin-bottom:1rem">
       <strong>{{ _('IP vue par le portail (cette requête) :') }}</strong>
