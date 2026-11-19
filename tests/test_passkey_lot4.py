@@ -210,6 +210,23 @@ def test_admin_passkeys_page_lists_active_keys(client: TestClient, db_session, s
     assert "Mon téléphone" in resp.text
 
 
+@pytest.mark.parametrize("realm_param", ["", "abc"])
+def test_admin_passkeys_filter_all_realms_empty_value(
+    client: TestClient, db_session, settings, realm_param
+):
+    """The « Tous » option submits ``realm_id=`` — must list, not 422."""
+    realm = _realm(db_session, settings)
+    _enroll(db_session, settings, realm, _authenticator(settings))
+    _enroll(db_session, settings, realm, _authenticator(settings), sub="kc-bob", username="bob")
+    resp = client.get(
+        f"/admin/security/passkeys?realm_id={realm_param}&q=bob",
+        headers=ADMIN_HEADERS,
+        follow_redirects=False,
+    )
+    assert resp.status_code == 200
+    assert "bob" in resp.text and "alice" not in resp.text
+
+
 def test_admin_passkeys_page_requires_admin(client: TestClient, db_session, settings):
     resp = client.get("/admin/security/passkeys", headers=USER_HEADERS, follow_redirects=False)
     assert resp.status_code in (302, 303, 401, 403)
@@ -223,7 +240,13 @@ def test_admin_revokes_one_passkey(client: TestClient, db_session, settings):
     keep = _enroll(db_session, settings, realm, _authenticator(settings))
     resp = client.post(
         f"/admin/security/passkeys/{pk.id}/revoke",
-        data={"csrf_token": csrf_token_for(client), "back_q": "alice"},
+        # Exactly what the template posts from an unfiltered-realm list.
+        data={
+            "csrf_token": csrf_token_for(client),
+            "back_realm_id": "",
+            "back_q": "alice",
+            "back_sub": "",
+        },
         headers=ADMIN_HEADERS,
         follow_redirects=False,
     )
@@ -284,11 +307,19 @@ def test_admin_revokes_all_keys_of_a_user(client: TestClient, db_session, settin
     _enroll(db_session, settings, realm, _authenticator(settings), sub="kc-bob", username="bob")
     resp = client.post(
         "/admin/security/passkeys/revoke-user",
-        data={"csrf_token": csrf_token_for(client), "realm_id": realm.id, "sub": SUB},
+        data={
+            "csrf_token": csrf_token_for(client),
+            "realm_id": realm.id,
+            "sub": SUB,
+            "back_realm_id": str(realm.id),
+            "back_q": "",
+            "back_sub": "",
+        },
         headers=ADMIN_HEADERS,
         follow_redirects=False,
     )
     assert resp.status_code == 302
+    assert resp.headers["location"] == f"/admin/security/passkeys?realm_id={realm.id}"
     db_session.expire_all()
     assert _active(db_session) == 0
     assert _active(db_session, "kc-bob") == 1

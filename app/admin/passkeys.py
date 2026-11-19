@@ -46,6 +46,12 @@ _AUDIT_REVOKED = "admin.passkey_revoked"
 _AUDIT_REVOKED_ALL = "admin.passkeys_revoked_all"
 
 
+def _optional_id(raw: str | None) -> int | None:
+    """``realm_id`` from a form / query string: ``""`` (« Tous ») or junk → no filter."""
+    text = (raw or "").strip()
+    return int(text) if text.isdigit() else None
+
+
 def _back(realm_id: int | None, q: str | None, sub: str | None) -> str:
     params = {k: v for k, v in (("realm_id", realm_id), ("q", q), ("sub", sub)) if v}
     return f"{PATH_ADMIN_PASSKEYS}?{urlencode(params)}" if params else PATH_ADMIN_PASSKEYS
@@ -70,15 +76,16 @@ def _row(pk: UserPasskey, realms: dict[int, RealmConfig]) -> dict:
 @router.get(PATH_ADMIN_PASSKEYS)
 def admin_passkeys_list(
     request: Request,
-    realm_id: int | None = Query(None),
+    realm_id: str | None = Query(None, max_length=20),
     q: str | None = Query(None, max_length=200),
     sub: str | None = Query(None, max_length=200),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     """Active passkeys, filterable by realm / user (name, username or Keycloak id)."""
+    realm_filter = _optional_id(realm_id)
     realms = {r.id: r for r in db.query(RealmConfig).order_by(RealmConfig.slug).all()}
-    rows = list_active_passkeys(db, realm_id=realm_id, sub=sub, search=q, limit=_LIST_LIMIT + 1)
+    rows = list_active_passkeys(db, realm_id=realm_filter, sub=sub, search=q, limit=_LIST_LIMIT + 1)
     truncated = len(rows) > _LIST_LIMIT
     return render(
         _TEMPLATE,
@@ -96,7 +103,7 @@ def admin_passkeys_list(
                 }
                 for r in realms.values()
             ],
-            filter_realm_id=realm_id,
+            filter_realm_id=realm_filter,
             filter_q=q or "",
             filter_sub=sub or "",
         ),
@@ -108,7 +115,7 @@ def admin_passkey_revoke(
     passkey_id: int,
     request: Request,
     csrf_token: str = Form(""),
-    back_realm_id: int | None = Form(None),
+    back_realm_id: str = Form("", max_length=20),
     back_q: str = Form(""),
     back_sub: str = Form(""),
     db: Session = Depends(get_db),
@@ -117,7 +124,9 @@ def admin_passkey_revoke(
 ):
     """Revoke one passkey."""
     secret = portal_signing_secret(settings)
-    response = RedirectResponse(url=_back(back_realm_id, back_q, back_sub), status_code=302)
+    response = RedirectResponse(
+        url=_back(_optional_id(back_realm_id), back_q, back_sub), status_code=302
+    )
     if not verify_csrf_token(request, secret, csrf_token):
         flash_redirect(response, _CSRF_INVALID, "error", secret)
         return response
@@ -149,7 +158,7 @@ def admin_passkeys_revoke_user(
     realm_id: int = Form(...),
     sub: str = Form(..., max_length=200),
     csrf_token: str = Form(""),
-    back_realm_id: int | None = Form(None),
+    back_realm_id: str = Form("", max_length=20),
     back_q: str = Form(""),
     back_sub: str = Form(""),
     db: Session = Depends(get_db),
@@ -158,7 +167,9 @@ def admin_passkeys_revoke_user(
 ):
     """Revoke every active passkey of one user in one realm."""
     secret = portal_signing_secret(settings)
-    response = RedirectResponse(url=_back(back_realm_id, back_q, back_sub), status_code=302)
+    response = RedirectResponse(
+        url=_back(_optional_id(back_realm_id), back_q, back_sub), status_code=302
+    )
     if not verify_csrf_token(request, secret, csrf_token):
         flash_redirect(response, _CSRF_INVALID, "error", secret)
         return response

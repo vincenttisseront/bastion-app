@@ -18,8 +18,8 @@
 
   <div class="card mb-4">
     <div class="card-body">
-      <form method="get" action="/admin/security/passkeys" class="form-row" style="align-items:flex-end;">
-        <div class="form-group">
+      <form method="get" action="/admin/security/passkeys" style="display:flex; flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+        <div class="form-group" style="flex:1 1 12rem; margin:0;">
           <label class="form-label" for="pk-realm">Realm</label>
           <select id="pk-realm" name="realm_id" class="form-select">
             <option value="">{{ _('Tous') }}</option>
@@ -30,12 +30,12 @@
             {% endfor %}
           </select>
         </div>
-        <div class="form-group">
+        <div class="form-group" style="flex:2 1 16rem; margin:0;">
           <label class="form-label" for="pk-q">{{ _('Utilisateur ou nom de clé') }}</label>
           <input id="pk-q" type="search" name="q" class="form-input" value="{{ filter_q }}" maxlength="200">
         </div>
         {% if filter_sub %}<input type="hidden" name="sub" value="{{ filter_sub }}">{% endif %}
-        <div class="form-group">
+        <div class="form-group" style="flex:0 0 auto; margin:0; display:flex; gap:var(--sp-2);">
           <button type="submit" class="btn btn-secondary">{{ _('Filtrer') }}</button>
           {% if filter_realm_id or filter_q or filter_sub %}
           <a href="/admin/security/passkeys" class="btn btn-ghost">{{ _('Réinitialiser') }}</a>
@@ -69,7 +69,7 @@
             <td><span class="mono">{{ pk.realm_slug }}</span></td>
             <td>
               {{ pk.name }}
-              {% if pk.synced %}<span class="badge badge-info">{{ _('synchronisée') }}</span>{% else %}<span class="badge">{{ _('liée à un appareil') }}</span>{% endif %}
+              {% if pk.synced %}<span class="badge badge-info">{{ _('synchronisée') }}</span>{% else %}<span class="badge badge-muted">{{ _('liée à un appareil') }}</span>{% endif %}
             </td>
             <td>{{ pk.created_at | format_datetime('%d/%m/%Y') }}</td>
             <td>
