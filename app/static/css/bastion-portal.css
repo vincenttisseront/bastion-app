@@ -1322,11 +1322,24 @@ button.app-tile:focus-visible {
     padding: var(--sp-3) var(--sp-4);
     flex-wrap: wrap;
   }
+  /* Nav drops to its own full-width row. flex-basis must be 100%: the desktop
+     rule sets flex:1 (basis 0), which kept the links on the first row and
+     pushed them off-screen at 390px. */
   .portal-nav {
     order: 3;
-    width: 100%;
-    justify-content: flex-start;
-    overflow-x: auto;
+    flex: 1 1 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--sp-1);
+  }
+  .portal-nav-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--sp-2) var(--sp-1);
+    text-align: center;
+    line-height: 1.2;
   }
   .portal-main {
     padding: var(--sp-6) var(--sp-4);

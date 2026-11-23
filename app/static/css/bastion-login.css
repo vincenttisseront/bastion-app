@@ -47,7 +47,7 @@ body.page-login .main-content{
 .login-header,.login-brand{text-align:center}
 .login-logo,.login-brand-icon{
   width:56px;height:56px;border-radius:var(--r-xl);
-  background:var(--accent);
+  background:var(--accent);color:var(--on-accent);
   display:flex;align-items:center;justify-content:center;
   margin:0 auto var(--sp-4);box-shadow:var(--accent-glow);
 }
@@ -157,7 +157,7 @@ body.page-login .main-content{
 .access-form-head__icon{
   width:3.25rem;height:3.25rem;border-radius:var(--r-lg);
   display:inline-flex;align-items:center;justify-content:center;
-  color:#fff;
+  color:var(--on-accent);
   background:var(--accent);
   border:1px solid color-mix(in srgb,var(--accent) 55%,transparent);
   box-shadow:var(--accent-glow);
@@ -204,11 +204,11 @@ body.page-login .main-content{
 }
 .access-progress__num{display:none}
 .access-progress__step.is-done .access-progress__node{
-  background:var(--accent);border-color:var(--accent);color:#fff;
+  background:var(--accent);border-color:var(--accent);color:var(--on-accent);
 }
 .access-progress__step.is-done .access-progress__label{color:var(--text-2)}
 .access-progress__step.is-current .access-progress__node{
-  background:var(--accent);border-color:var(--accent);color:#fff;
+  background:var(--accent);border-color:var(--accent);color:var(--on-accent);
   box-shadow:0 0 0 4px var(--accent-muted);
 }
 .access-progress__step.is-current .access-progress__label{color:var(--accent)}
@@ -257,7 +257,7 @@ body.page-login .main-content{
 .access-status__icon{
   position:relative;width:3.5rem;height:3.5rem;border-radius:var(--r-lg);
   display:inline-flex;align-items:center;justify-content:center;
-  color:#fff;
+  color:var(--on-accent);
   background:var(--accent);
   border:1px solid color-mix(in srgb,var(--accent) 55%,transparent);
   box-shadow:var(--accent-glow);

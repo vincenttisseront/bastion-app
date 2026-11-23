@@ -59,6 +59,35 @@ def _rgba(color: str, alpha: float) -> str:
     return f"rgba({r},{g},{b},{alpha})"
 
 
+ON_ACCENT_DARK = "#04130d"
+ON_ACCENT_LIGHT = "#ffffff"
+
+
+def _relative_luminance(color: str) -> float:
+    def channel(v: int) -> float:
+        c = v / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = _hex_to_rgb(color)
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+
+def _contrast_ratio(a: str, b: str) -> float:
+    la, lb = _relative_luminance(a), _relative_luminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def on_accent_color(accent: str) -> str:
+    """Text color for labels drawn on ``accent`` (buttons, avatars, active tabs).
+
+    Picks whichever of white / near-black reads better, so a light brand color
+    (default emerald: white is 2.5:1) never ships unreadable button labels.
+    """
+    if _contrast_ratio(ON_ACCENT_LIGHT, accent) >= _contrast_ratio(ON_ACCENT_DARK, accent):
+        return ON_ACCENT_LIGHT
+    return ON_ACCENT_DARK
+
+
 def branding_css_vars(
     primary: str,
     secondary: str,
@@ -79,6 +108,7 @@ def branding_css_vars(
         f"--brand-secondary:{secondary};"
         f"--brand-highlight:{highlight};"
         f"--accent:{primary};"
+        f"--on-accent:{on_accent_color(primary)};"
         f"--accent-h:{highlight};"
         f"--accent-dim:{secondary};"
         f"--accent-muted:{_rgba(primary, muted_a)};"

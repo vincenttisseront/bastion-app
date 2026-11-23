@@ -13,14 +13,15 @@
   --accent-muted:   rgba(16,185,129,0.12);
   --accent-glow:    0 0 24px rgba(16,185,129,0.3);
   --accent-border:  rgba(16,185,129,0.35);
-
+  /* Text/icons drawn ON the accent; branding_css_vars recomputes it per brand color. */
+  --on-accent:      #04130d;
   --border:         #1e3a5f;
   --border-muted:   rgba(30,58,95,0.5);
   --border-bright:  #2a4d7a;
 
   --text:           #e2e8f0;
   --text-2:         #94a3b8;
-  --text-3:         #475569;
+  --text-3:         #8494ab; /* 4.5:1+ on every dark surface (was #475569, 2.2:1) */
   --text-link:      #34d399;
 
   --ok:       #10b981;  --ok-bg:   rgba(16,185,129,0.12);
@@ -93,14 +94,14 @@
 
 [data-theme="light"] {
   /* Neutral slate surfaces (Stitch refresh 2026-11): flat page, white cards, soft borders.
-     --text-3 darkened to #64748b so muted labels pass WCAG AA on white. */
+     --text-3 #5b6b80 so muted labels pass WCAG AA (4.6:1+) on every light surface. */
   --bg-base:#f5f6f8; --bg-primary:#f8fafc; --bg-secondary:#ffffff;
   --bg-tertiary:#f1f5f9; --bg-overlay:#e9edf2; --bg-card:#ffffff;
   --accent:#10b981; --accent-h:#059669; --accent-dim:#047857;
   --accent-muted:rgba(16,185,129,0.08); --accent-glow:0 0 20px rgba(16,185,129,0.15);
-  --accent-border:rgba(16,185,129,0.28);
+  --accent-border:rgba(16,185,129,0.28); --on-accent:#04130d;
   --border:#e2e8f0; --border-muted:#edf1f5; --border-bright:#cbd5e1;
-  --text:#0f172a; --text-2:#475569; --text-3:#64748b; --text-link:#059669;
+  --text:#0f172a; --text-2:#475569; --text-3:#5b6b80; --text-link:#059669;
   --ok:#059669; --ok-bg:rgba(5,150,105,0.08);
   --warn:#d97706; --warn-bg:rgba(217,119,6,0.08);
   --err:#dc2626; --err-bg:rgba(220,38,38,0.08);

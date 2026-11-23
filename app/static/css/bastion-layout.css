@@ -15,7 +15,7 @@ body.app-layout{display:flex;min-height:100vh}
 }
 .brand-icon,.sidebar-brand-icon{
   width:38px;height:38px;border-radius:var(--r-md);flex-shrink:0;
-  background:var(--accent);
+  background:var(--accent);color:var(--on-accent);
   display:flex;align-items:center;justify-content:center;
   box-shadow:var(--accent-glow);
 }
@@ -155,7 +155,7 @@ body.app-layout{display:flex;min-height:100vh}
   width:32px;height:32px;border-radius:var(--r-full);
   background:var(--accent);
   display:flex;align-items:center;justify-content:center;
-  font-size:var(--fs-xs);font-weight:700;color:white;flex-shrink:0;
+  font-size:var(--fs-xs);font-weight:700;color:var(--on-accent);flex-shrink:0;
 }
 .user-name,.sidebar-user-name{font-size:var(--fs-sm);font-weight:600;color:var(--text)}
 .user-role,.sidebar-user-role{font-size:var(--fs-xs);color:var(--text-3);font-weight:500}
@@ -359,3 +359,55 @@ body.app-layout{display:flex;min-height:100vh}
 .breadcrumb-rbac a{color:var(--text-2);text-decoration:none}
 .breadcrumb-rbac a:hover{color:var(--accent);text-decoration:underline}
 .breadcrumb-rbac-sep{margin:0 0.35rem;opacity:.6}
+
+/* ---------- Skip link (first focusable element on every page) ---------- */
+.skip-link{
+  position:absolute;left:var(--sp-3);top:var(--sp-3);z-index:100;
+  padding:var(--sp-2) var(--sp-4);border-radius:var(--r-md);
+  background:var(--accent);color:var(--on-accent);font-weight:600;font-size:.875rem;
+  transform:translateY(-200%);
+}
+.skip-link:focus,.skip-link:focus-visible{transform:none;text-decoration:none;color:var(--on-accent)}
+
+/* ---------- Off-canvas sidebar below 1024px ----------
+   The sidebar keeps its markup; under 1024px it slides over the content from the
+   left. visibility:hidden while closed keeps its links out of the tab order.
+   Enter 240ms decelerating, exit 180ms accelerating (bastion.js toggles the class). */
+.sidebar-toggle{display:none}
+.sidebar-scrim{display:none}
+@media (max-width:1023.98px){
+  .sidebar-toggle{display:flex;flex-shrink:0}
+  body.app-layout .sidebar{
+    position:fixed;top:0;bottom:0;left:0;z-index:60;
+    width:min(280px,85vw);height:100%;
+    box-shadow:var(--sh-lg);
+    transform:translateX(-100%);visibility:hidden;
+    transition:transform 180ms cubic-bezier(.4,0,1,1),visibility 0s linear 180ms;
+  }
+  body.app-layout.sidebar-open .sidebar{
+    transform:none;visibility:visible;
+    transition:transform 240ms cubic-bezier(.32,.72,0,1),visibility 0s;
+  }
+  .sidebar-scrim{
+    display:block;position:fixed;inset:0;z-index:55;background:var(--overlay-scrim);
+    opacity:0;pointer-events:none;transition:opacity 200ms ease-out;
+  }
+  body.sidebar-open .sidebar-scrim{opacity:1;pointer-events:auto}
+  body.sidebar-open{overflow:hidden}
+  .app-footer{left:0}
+  .topbar{padding:0 var(--sp-4);gap:var(--sp-3)}
+  .main-content{padding:var(--sp-5) var(--sp-4);padding-bottom:calc(var(--sp-5) + 2.5rem)}
+}
+@media (max-width:640px){
+  .topbar{gap:var(--sp-2)}
+  .topbar .breadcrumb,.topbar-sep,.topbar-spacer{display:none}
+  .topbar-search{min-width:0;max-width:none}
+  .icon-btn,.theme-toggle,.sidebar-toggle{width:40px;height:40px}
+  .page-header{flex-direction:column;align-items:stretch}
+}
+
+/* ---------- Tables: scroll inside their card instead of crushing columns ---------- */
+@media (max-width:900px){
+  .table-wrap,.data-table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .table-wrap > table,.data-table-wrapper > table{min-width:640px}
+}

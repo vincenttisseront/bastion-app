@@ -126,6 +126,16 @@ def test_branding_css_vars_rgba(db_session: Session):
     assert "--accent-dim:#1d4ed8" in data
     assert "--accent-h:#60a5fa" in data
     assert "rgba(37,99,235," in data
+    # Saturated blue keeps white labels (5.2:1).
+    assert "--on-accent:#ffffff" in data
+
+
+def test_on_accent_color_picks_readable_label():
+    # Default emerald: white is 2.5:1, near-black is 7.5:1.
+    assert branding_mod.on_accent_color("#10b981") == branding_mod.ON_ACCENT_DARK
+    assert branding_mod.on_accent_color("#f59e0b") == branding_mod.ON_ACCENT_DARK
+    assert branding_mod.on_accent_color("#1d4ed8") == branding_mod.ON_ACCENT_LIGHT
+    assert branding_mod.on_accent_color("#000000") == branding_mod.ON_ACCENT_LIGHT
 
 
 def test_logo_upload_and_media(

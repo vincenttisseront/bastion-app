@@ -34,7 +34,7 @@
 .session-kind-tab.is-active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .session-kind-count {

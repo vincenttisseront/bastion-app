@@ -1,11 +1,13 @@
 {% extends "base.html" %}
+{# Portal mode: fb-shell is the page <main>; admin mode: base.html already provides it. #}
+{% set page_owns_main = not admin_chrome %}{% set skip_target = "main-content" if admin_chrome else "fb-root" %}
 {% block title %}{{ _('Fichiers') }}{% endblock %}
 {% block body_class %}{% if admin_chrome %}app-layout{% else %}page-portal{% endif %}{% endblock %}
 {% block breadcrumb %}{% if admin_chrome %}Admin / {{ _('Fichiers') }}{% endif %}{% endblock %}
 
 {% block head_extra %}
 {% if not admin_chrome %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260724-files-browser">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20261123-a11y">
 {% endif %}
 <style>
 .fb-shell{max-width:1100px;margin:0 auto;padding:var(--sp-4) var(--sp-4) var(--sp-8);}
@@ -56,7 +58,7 @@
 {% endif %}
 
 {% set base_path = '/admin/files' if admin_chrome else '/files' %}
-<main class="fb-shell" id="fb-root"
+<{{ "div" if admin_chrome else "main" }} class="fb-shell" id="fb-root"
   data-folder-id="{{ folder_id if folder_id is not none else '' }}"
   data-can-manage="{{ '1' if listing.can_manage else '0' }}"
   data-base-path="{{ base_path }}">
@@ -126,7 +128,7 @@
       </tbody>
     </table>
   </div>
-</main>
+</{{ "div" if admin_chrome else "main" }}>
 </div>
 
 <div class="fb-drawer" id="fb-drawer" aria-hidden="true">

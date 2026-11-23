@@ -3351,5 +3351,8 @@
   "le serveur est occupé, merci de patienter": "the server is busy, please wait",
   "L'assistant est très sollicité et n'a pas répondu à temps. Réessayez dans un instant, ou utilisez les liens ci-dessous et les coordonnées de {company}.": "The assistant is very busy and did not answer in time. Try again in a moment, or use the links below and {company}'s contact details.",
   "Délai entre 10 et 300 secondes.": "Timeout must be between 10 and 300 seconds.",
-  "Fenêtre de contexte non prise en charge.": "Unsupported context window."
+  "Fenêtre de contexte non prise en charge.": "Unsupported context window.",
+  "Aller au contenu": "Skip to content",
+  "Ouvrir le menu": "Open menu",
+  "Fermer le menu": "Close menu"
 }

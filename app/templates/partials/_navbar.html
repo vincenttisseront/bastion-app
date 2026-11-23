@@ -1,4 +1,13 @@
 <header class="topbar">
+  {# Shown below 1024px only: the sidebar becomes an off-canvas drawer (bastion.js). #}
+  <button type="button" class="icon-btn sidebar-toggle" id="sidebar-toggle"
+          aria-controls="app-sidebar" aria-expanded="false"
+          aria-label="{{ _('Ouvrir le menu') }}"
+          data-label-open="{{ _('Ouvrir le menu') }}" data-label-close="{{ _('Fermer le menu') }}">
+    <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>
+    </svg>
+  </button>
   <nav class="breadcrumb" aria-label="{{ _('Fil d\'Ariane') }}">
     <a href="/dashboard">Bastion Pro</a>
     <span class="sep">/</span>

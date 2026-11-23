@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% set page_owns_main = true %}{% set skip_target = "portal-content" %}
 {% block title %}{{ _('Mon profil') }}{% endblock %}
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20261005-public-links">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20261123-a11y">
 {% endblock %}
 
 {% block content %}
@@ -15,7 +16,7 @@
 <div class="flash-container portal-flash">{% include 'partials/_flash.html' %}</div>
 {% endif %}
 
-<main class="portal-main portal-main--profile">
+<main class="portal-main portal-main--profile" id="portal-content">
   {% if activesync_pending_count %}
   <div class="card" style="margin-bottom:var(--sp-4); border-color:var(--color-warn, #d97706);">
     <div class="card-body" style="display:flex; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; align-items:center;">
