@@ -1138,10 +1138,10 @@ class BrandingSettings(Base):
     favicon_path = Column(String, nullable=True)
     page_title = Column(String, nullable=False, default="Connexion")
 
-    accent_color = Column(String, nullable=False, default="#10b981")
+    accent_color = Column(String, nullable=False, default="#3d5bdb")
     # Company palette: primary (= accent_color), secondary (gradients/dim), highlight (hover/focus).
-    secondary_color = Column(String, nullable=False, default="#059669")
-    highlight_color = Column(String, nullable=False, default="#34d399")
+    secondary_color = Column(String, nullable=False, default="#2a3fa8")
+    highlight_color = Column(String, nullable=False, default="#7b93ff")
     default_theme = Column(String, nullable=False, default="dark")  # dark | light
     welcome_text = Column(Text, nullable=True)
 

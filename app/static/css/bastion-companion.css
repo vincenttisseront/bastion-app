@@ -50,4 +50,4 @@
 .companion-app--locked{color:var(--text-2);font-weight:500}
 .companion-steps{margin:0;padding-left:1.25rem;display:flex;flex-direction:column;gap:4px}
 .companion-steps li{padding-left:2px}
-.companion-steps li::marker{color:var(--accent);font-weight:700}
+.companion-steps li::marker{color:var(--accent);font-weight:600}

@@ -60,9 +60,9 @@ body.page-portal > .main-content {
 }
 
 .portal-brand-name {
-  font-family: var(--font-display, "Hanken Grotesk", sans-serif);
-  font-weight: 700;
-  font-size: var(--fs-md, var(--fs-base));
+  font-family: var(--font);
+  font-weight:600;
+  font-size: var(--fs-md);
   letter-spacing: -0.02em;
   color: var(--text);
 }
@@ -79,7 +79,7 @@ body.page-portal > .main-content {
 .portal-nav-link {
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-md);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 600;
   color: var(--text-2);
   text-decoration: none;
@@ -146,7 +146,7 @@ body.page-portal > .main-content {
   align-items: center;
   justify-content: center;
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight:600;
   letter-spacing: 0.02em;
   flex-shrink: 0;
   border: 1px solid var(--accent-border, transparent);
@@ -160,7 +160,7 @@ body.page-portal > .main-content {
 
 .portal-user-label {
   max-width: 160px;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 600;
   color: var(--text);
 }
@@ -199,8 +199,8 @@ body.page-portal > .main-content {
 }
 
 .portal-user-dropdown-name {
-  font-size: var(--fs-sm);
-  font-weight: 700;
+  font-size: var(--fs-base);
+  font-weight:600;
   color: var(--text);
   line-height: 1.3;
 }
@@ -225,7 +225,7 @@ body.page-portal > .main-content {
   gap: var(--sp-3);
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-md);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 500;
   color: var(--text-2);
   text-decoration: none;
@@ -284,7 +284,7 @@ body.page-portal > .main-content {
 
 .portal-apps-summary {
   margin: 0;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   color: var(--text-3);
   font-weight: 500;
 }
@@ -351,10 +351,8 @@ body.page-portal > .main-content {
 .portal-apps-nav-label {
   margin: 0 0 var(--sp-2);
   padding: 0 var(--sp-2);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+  font-weight:600;
   color: var(--text-3);
 }
 
@@ -371,7 +369,7 @@ body.page-portal > .main-content {
   display: block;
   padding: 0.45rem 0.65rem;
   border-radius: var(--r-md);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 600;
   color: var(--text-2);
   text-decoration: none;
@@ -404,9 +402,9 @@ body.page-portal > .main-content {
 
 .portal-apps-section-title {
   margin: 0;
-  font-family: var(--font-display, "Hanken Grotesk", sans-serif);
+  font-family: var(--font);
   font-size: var(--fs-lg);
-  font-weight: 700;
+  font-weight:600;
   letter-spacing: -0.02em;
   color: var(--text);
 }
@@ -450,7 +448,7 @@ body.page-portal > .main-content {
 }
 
 .portal-session-label {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 600;
   color: var(--text);
 }
@@ -481,7 +479,7 @@ body.page-portal > .main-content {
   display: block;
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-md);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 600;
   color: var(--text-2);
   text-decoration: none;
@@ -501,7 +499,7 @@ body.page-portal > .main-content {
 .portal-profile-nav-disabled {
   display: block;
   padding: var(--sp-2) var(--sp-3);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   color: var(--text-3);
   opacity: 0.7;
   cursor: not-allowed;
@@ -529,7 +527,7 @@ body.page-portal > .main-content {
 }
 
 .portal-field-value {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   color: var(--text);
   margin-top: 2px;
 }
@@ -565,7 +563,7 @@ body.page-portal > .main-content {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--bg-secondary);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 600;
   color: var(--text-2);
   cursor: pointer;
@@ -646,10 +644,8 @@ button.portal-theme-choice {
 
 .portal-eyebrow {
   margin: 0 0 var(--sp-2);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+  font-weight:600;
   color: var(--accent);
 }
 
@@ -771,7 +767,7 @@ button.app-tile:focus-visible {
   display: block;
   width: 100%;
   max-width: 100%;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 600;
   line-height: 1.25;
   color: var(--text);
@@ -793,7 +789,7 @@ button.app-tile:focus-visible {
   padding: var(--sp-3) var(--sp-4);
   border: 1px dashed var(--border);
   border-radius: var(--r-md);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   color: var(--text-3);
   background: var(--bg-secondary);
 }
@@ -816,7 +812,7 @@ button.app-tile:focus-visible {
 .app-tile .admin-title {
   flex: 0 0 auto;
   min-height: 0;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   line-height: 1.25;
 }
 
@@ -845,7 +841,7 @@ button.app-tile:focus-visible {
 }
 
 .app-tile .app-tile-meta .badge {
-  font-size: 0.65rem !important;
+  font-size: var(--fs-2xs) !important;
   padding: 0.1rem 0.4rem !important;
   line-height: 1.3;
 }
@@ -981,7 +977,7 @@ button.app-tile:focus-visible {
   color: var(--text);
   text-align: left;
   font: inherit;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 600;
   padding: 0.5rem 0.65rem;
   border-radius: var(--r-sm);
@@ -1030,16 +1026,16 @@ button.app-tile:focus-visible {
 
 .app-tile--highlight {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35), var(--sh-md);
+  box-shadow: 0 0 0 2px color-mix(in srgb,var(--accent) 35%,transparent), var(--sh-md);
   animation: app-tile-highlight-pulse 2s ease-out;
 }
 
 @keyframes app-tile-highlight-pulse {
   0% {
-    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.55), var(--sh-md);
+    box-shadow: 0 0 0 3px color-mix(in srgb,var(--accent) 55%,transparent), var(--sh-md);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0), var(--sh-card);
+    box-shadow: 0 0 0 0 color-mix(in srgb,var(--accent) 0%,transparent), var(--sh-card);
   }
 }
 
@@ -1101,21 +1097,21 @@ button.app-tile:focus-visible {
 }
 
 .portal-identity-name {
-  font-family: var(--font-display, "Hanken Grotesk", sans-serif);
-  font-size: var(--fs-xl, var(--fs-lg));
-  font-weight: 700;
+  font-family: var(--font);
+  font-size: var(--fs-xl);
+  font-weight:600;
   letter-spacing: -0.02em;
   color: var(--text);
   line-height: 1.2;
 }
 
 .portal-identity-email {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   color: var(--text-2);
 }
 
 .portal-profile-count {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   color: var(--text-2);
   margin: 0 0 var(--sp-4);
 }
@@ -1153,8 +1149,8 @@ button.app-tile:focus-visible {
 .portal-apps-preview-chevron {
   margin-left: auto;
   color: var(--accent);
-  font-size: var(--fs-sm);
-  font-weight: 700;
+  font-size: var(--fs-base);
+  font-weight:600;
   opacity: 0;
   transition: opacity var(--t-fast), transform var(--t-fast);
 }
@@ -1179,8 +1175,8 @@ button.app-tile:focus-visible {
 }
 
 .portal-apps-preview-icon {
-  font-size: var(--fs-sm);
-  font-weight: 700;
+  font-size: var(--fs-base);
+  font-weight:600;
   line-height: 1;
 }
 
@@ -1191,15 +1187,15 @@ button.app-tile:focus-visible {
 }
 
 .portal-apps-preview-label {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 600;
   color: var(--text);
 }
 
 .portal-links-subtitle {
   margin: 0 0 var(--sp-2);
-  font-size: var(--fs-sm);
-  font-weight: 700;
+  font-size: var(--fs-base);
+  font-weight:600;
   color: var(--text-2, var(--text));
 }
 
@@ -1251,7 +1247,7 @@ button.app-tile:focus-visible {
   display: flex;
   align-items: flex-start;
   gap: var(--sp-2);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   color: var(--text-2);
   line-height: 1.35;
 }
@@ -1338,6 +1334,8 @@ button.app-tile:focus-visible {
     justify-content: center;
     min-height: 44px;
     padding: var(--sp-2) var(--sp-1);
+    font-size: var(--fs-sm);
+    white-space: nowrap;
     text-align: center;
     line-height: 1.2;
   }
