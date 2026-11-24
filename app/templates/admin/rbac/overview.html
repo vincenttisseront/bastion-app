@@ -1,57 +1,75 @@
 {% extends "base.html" %}
-{% block title %}{{ _("RBAC — Vue d'ensemble") }}{% endblock %}
+{% block title %}{{ _('Droits d’accès') }}{% endblock %}
 {% block breadcrumb %}Admin / RBAC / Vue d'ensemble{% endblock %}
 
 {% block content %}
 {% set user_stats = user_stats | default({}) %}
 {% set group_stats = group_stats | default({}) %}
 <div class="page page-rbac">
-  <nav class="breadcrumb-rbac" aria-label="Fil d'Ariane">
-    <a href="/admin/rbac/overview">RBAC</a><span class="breadcrumb-rbac-sep">/</span>Vue d'ensemble
-  </nav>
   <div class="page-header">
     <div>
-      <h1 class="page-title">{{ _("RBAC — Vue d'ensemble") }}</h1>
-      <p class="page-sub">{{ _('Utilisateurs, groupes, matrice et gouvernance') }}</p>
+      <h1 class="page-title">{{ _('Droits d’accès') }}</h1>
+      <p class="page-sub">{{ _('Qui peut ouvrir quoi, et ce qui mérite un coup d’œil.') }}</p>
     </div>
   </div>
 
   {% include "admin/rbac/_rbac_tabs.html" %}
 
-  <div class="users-toolbar groups-stats-toolbar">
-    <div class="users-stat">
-      <div class="users-stat-value">{% if user_stats.total is not none %}{{ user_stats.total }}{% else %}—{% endif %}</div>
-      <div class="users-stat-label">Utils KC</div>
-    </div>
-    <div class="users-stat">
-      <div class="users-stat-value">{% if user_stats.active is not none %}{{ user_stats.active }}{% else %}—{% endif %}</div>
-      <div class="users-stat-label">{{ _('Actifs') }}</div>
-    </div>
-    <div class="users-stat">
-      <div class="users-stat-value">{{ bastion_accounts_total | default(0) }}</div>
-      <div class="users-stat-label">{{ _('Créés bastion') }}</div>
-    </div>
-    <div class="users-stat">
-      <div class="users-stat-value">{{ direct_grant_users | default(0) }}</div>
-      <div class="users-stat-label">{{ _('Droits indiv.') }}</div>
-    </div>
-    <div class="users-stat">
-      <div class="users-stat-value">{{ group_stats.with_members | default(0) }}</div>
-      <div class="users-stat-label">{{ _('Groupes actifs') }}</div>
-    </div>
-    <div class="users-stat{% if group_stats.empty %} is-warn{% endif %}">
-      <div class="users-stat-value">{{ group_stats.empty | default(0) }}</div>
-      <div class="users-stat-label">Vides</div>
-    </div>
-    <div class="users-stat">
-      <div class="users-stat-value">{{ shared_credentials_total | default(0) }}</div>
-      <div class="users-stat-label">{{ _('Cptes partagés') }}</div>
-    </div>
-    <div class="users-stat{% if group_stats.alerts %} is-warn{% endif %}">
-      <div class="users-stat-value">{{ group_stats.alerts | default(0) }}</div>
-      <div class="users-stat-label">{{ _('Alertes') }}</div>
-    </div>
-  </div>
+  {# Figures read as sentences; only what needs attention is listed, zeros are not. #}
+  <section class="rbac-summary" aria-labelledby="rbac-summary-title">
+    <h2 class="visually-hidden" id="rbac-summary-title">{{ _('Résumé') }}</h2>
+    <p class="rbac-summary-line">
+      {% if user_stats.total is not none %}
+        {{ _('{n} utilisateurs dans l’annuaire, dont {a} actifs.').format(n=user_stats.total, a=user_stats.active if user_stats.active is not none else '—') }}
+      {% else %}
+        {{ _('Annuaire Keycloak injoignable : nombre d’utilisateurs inconnu.') }}
+      {% endif %}
+      {{ _('{n} comptes créés par le bastion,').format(n=bastion_accounts_total | default(0)) }}
+      {{ _('{g} groupes avec des membres et {c} comptes partagés.').format(g=group_stats.with_members | default(0), c=shared_credentials_total | default(0)) }}
+    </p>
+
+    {% set empty_n = group_stats.empty | default(0) %}
+    {% set direct_n = direct_grant_users | default(0) %}
+    {% set alerts_n = (excess_alerts | default([])) | length %}
+    {% if empty_n or direct_n or alerts_n %}
+    <ul class="rbac-attention">
+      {% if alerts_n %}
+      <li class="rbac-attention-item">
+        <span class="state-dot state-dot--warn" aria-hidden="true"></span>
+        <div class="rbac-attention-main">
+          <span class="rbac-attention-title">{% if alerts_n == 1 %}{{ _('1 alerte de gouvernance') }}{% else %}{{ _('{n} alertes de gouvernance').format(n=alerts_n) }}{% endif %}</span>
+          <ul class="rbac-attention-detail">
+            {% for alert in excess_alerts %}<li>{{ alert }}</li>{% endfor %}
+          </ul>
+        </div>
+        <a class="rbac-attention-link" href="/admin/rbac/governance">{{ _('Ouvrir la gouvernance') }}</a>
+      </li>
+      {% endif %}
+      {% if empty_n %}
+      <li class="rbac-attention-item">
+        <span class="state-dot state-dot--warn" aria-hidden="true"></span>
+        <div class="rbac-attention-main">
+          <span class="rbac-attention-title">{% if empty_n == 1 %}{{ _('1 groupe n’a aucun membre') }}{% else %}{{ _('{n} groupes n’ont aucun membre').format(n=empty_n) }}{% endif %}</span>
+          <span class="rbac-attention-text">{{ _('Leurs droits ne servent à personne : à supprimer ou à peupler.') }}</span>
+        </div>
+        <a class="rbac-attention-link" href="/admin/rbac?include_empty=1">{{ _('Voir les groupes') }}</a>
+      </li>
+      {% endif %}
+      {% if direct_n %}
+      <li class="rbac-attention-item">
+        <span class="state-dot state-dot--off" aria-hidden="true"></span>
+        <div class="rbac-attention-main">
+          <span class="rbac-attention-title">{% if direct_n == 1 %}{{ _('1 utilisateur a des droits individuels') }}{% else %}{{ _('{n} utilisateurs ont des droits individuels').format(n=direct_n) }}{% endif %}</span>
+          <span class="rbac-attention-text">{{ _('Accordés en plus de leurs groupes ; plus difficiles à suivre lors d’un départ.') }}</span>
+        </div>
+        <a class="rbac-attention-link" href="/admin/rbac/users">{{ _('Voir les utilisateurs') }}</a>
+      </li>
+      {% endif %}
+    </ul>
+    {% else %}
+    <p class="rbac-summary-ok"><span class="state-dot state-dot--ok" aria-hidden="true"></span>{{ _('Rien à signaler : aucun groupe vide, aucun droit individuel, aucune alerte.') }}</p>
+    {% endif %}
+  </section>
 
   <div class="rbac-overview-grid">
     <a class="rbac-overview-card" href="/admin/rbac/users">
@@ -63,26 +81,14 @@
       <p class="rbac-overview-card-sub">{{ _('Membres, comptes partagés Crush/robotic, droits de groupe. Vides masqués par défaut.') }}</p>
     </a>
     <a class="rbac-overview-card" href="/admin/rbac/matrix">
-      <p class="rbac-overview-card-title">Matrice</p>
+      <p class="rbac-overview-card-title">{{ _('Matrice') }}</p>
       <p class="rbac-overview-card-sub">{{ _('Applications × groupes — qui a accès à quoi via un grant de groupe.') }}</p>
     </a>
     <a class="rbac-overview-card" href="/admin/rbac/governance">
-      <p class="rbac-overview-card-title">Gouvernance</p>
+      <p class="rbac-overview-card-title">{{ _('Gouvernance') }}</p>
       <p class="rbac-overview-card-sub">{{ _('Rôles et permissions système — périmètre lecture / ops / étendu.') }}</p>
     </a>
   </div>
-
-  {% if excess_alerts %}
-  <div class="card" style="padding:var(--sp-3);margin-top:var(--sp-3);">
-    <div class="groups-aside-title">{{ _('Alertes de gouvernance') }}</div>
-    <ul class="groups-alerts-list">
-      {% for alert in excess_alerts %}
-      <li>{{ alert }}</li>
-      {% endfor %}
-    </ul>
-    <p style="margin:var(--sp-2) 0 0;"><a class="btn btn-ghost btn-sm" href="/admin/rbac/governance">{{ _('Ouvrir Gouvernance') }}</a></p>
-  </div>
-  {% endif %}
 
   <details class="rbac-help" style="margin-top:var(--sp-3);">
     <summary>{{ _('Comment lire les accès ?') }}</summary>

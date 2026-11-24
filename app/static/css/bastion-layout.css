@@ -50,8 +50,9 @@ body.app-layout{display:flex;min-height:100vh}
 .nav-item:hover .icon,.nav-item.active .icon,
 .nav-item:hover .nav-icon,.nav-item.active .nav-icon,
 .sidebar-nav-item:hover .nav-icon,.sidebar-nav-item.active .nav-icon{opacity:1}
+/* A pending request is not an error: neutral count, red stays for failures. */
 .nav-badge{
-  margin-left:auto;background:var(--err-bg);color:var(--err);
+  margin-left:auto;background:var(--bg-overlay);color:var(--text);
   font-size:var(--fs-2xs);font-weight:600;padding:1px 6px;border-radius:var(--r-full);
 }
 

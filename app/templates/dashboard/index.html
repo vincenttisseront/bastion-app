@@ -10,87 +10,89 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Dashboard</h1>
-      <p class="page-sub">{{ _('Vue d’ensemble —') }} <span class="font-mono" data-dash="now">{{ now }}</span></p>
+      <p class="page-sub">{{ _('Vue d’ensemble —') }} <span class="tabular" data-dash="now">{{ now }}</span></p>
     </div>
     <div class="live-pill" data-dash="live-pill" title="{{ _('Rafraîchissement automatique des indicateurs') }}">
-      <span class="live-dot"></span><span data-dash="live-label">Live</span>
+      <span class="live-dot" aria-hidden="true"></span><span data-dash="live-label">{{ _('En direct') }}</span>
     </div>
   </div>
 
-  <div class="metrics-grid">
-    <div class="metric-card green" data-dash-card="sessions">
-      <div class="metric-head">
-        <div class="metric-icon">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+  {% set passage = passage | default({'available': false, 'hours': []}) %}
+  {# Signature element: who went through the bastion, hour by hour. Replaces the
+     four KPI tiles; the figures that remain are read as a sentence. #}
+  <section class="card gate" aria-labelledby="gate-title" data-dash="gate">
+    <div class="gate-head">
+      <div>
+        <h2 class="gate-title" id="gate-title">{{ _('Passages des dernières 24 h') }}</h2>
+        <p class="gate-note">{{ _('Connexions et ouvertures d’applications, refus du WAF et de l’authentification.') }}</p>
+      </div>
+      <div class="gate-stats">
+        <div class="gate-stat">
+          <span class="gate-stat-num tabular" data-dash="gate-allowed">{{ '—' if passage.allowed_total is none else passage.allowed_total }}</span>
+          <span class="gate-stat-lbl">{{ _('autorisés') }}</span>
         </div>
-        <a class="metric-trend flat" href="/sessions" data-dash="sessions-total">{{ metrics.active_sessions | default(0) }} total</a>
-      </div>
-      <div class="metric-value metric-value--split" aria-label="{{ _('Sessions utilisateurs et applicatives') }}">
-        <a class="metric-split" href="/sessions?kind=user">
-          <span class="metric-split-num" data-dash="sessions-user">{{ metrics.active_sessions_user | default(0) }}</span>
-          <span class="metric-split-lbl">{{ _('utilisateurs') }}</span>
+        <a class="gate-stat gate-stat--refused" href="/admin/security/waf#bans-unified" data-dash-card="blocked">
+          <span class="gate-stat-num tabular" data-dash="blocked-value">{{ "—" if metrics.blocked_attempts is none else metrics.blocked_attempts }}</span>
+          <span class="gate-stat-lbl">{{ _('refusés') }}</span>
         </a>
-        <span class="metric-split-sep" aria-hidden="true">·</span>
-        <a class="metric-split" href="/sessions?kind=app">
-          <span class="metric-split-num" data-dash="sessions-app">{{ metrics.active_sessions_app | default(0) }}</span>
-          <span class="metric-split-lbl">{{ _('applicatives') }}</span>
+        <a class="gate-stat" href="/sessions" data-dash-card="sessions">
+          <span class="gate-stat-num tabular" data-dash="sessions-total">{{ metrics.active_sessions | default(0) }}</span>
+          <span class="gate-stat-lbl">{{ _('sessions ouvertes') }}</span>
+          <span class="gate-stat-sub" aria-label="{{ _('Sessions utilisateurs et applicatives') }}">
+            <span class="tabular" data-dash="sessions-user">{{ metrics.active_sessions_user | default(0) }}</span> <span>{{ _('utilisateurs') }}</span>,
+            <span class="tabular" data-dash="sessions-app">{{ metrics.active_sessions_app | default(0) }}</span> <span>{{ _('applicatives') }}</span>
+          </span>
+        </a>
+        <a class="gate-stat" href="/admin/apps" data-dash-card="apps">
+          <span class="gate-stat-num tabular" data-dash="apps-value">{{ metrics.enabled_apps | default(0) }}/{{ metrics.total_apps | default(0) }}</span>
+          <span class="gate-stat-lbl">{{ _('applications actives') }}</span>
         </a>
       </div>
-      <div class="metric-label">{{ _('Sessions actives') }}</div>
-      <div class="metric-sub">{{ _('portail · applications') }}</div>
     </div>
 
-    <a href="/admin/security/waf#bans-unified" class="metric-card red metric-card-link" data-dash-card="blocked">
-      <div class="metric-head">
-        <div class="metric-icon">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        </div>
-        <span class="metric-trend {% if metrics.blocked_attempts %}up{% else %}down{% endif %}" data-dash="blocked-trend">{% if metrics.blocked_attempts %}↑{% else %}↓{% endif %}</span>
-      </div>
-      <div class="metric-value" data-dash="blocked-value">{{ "—" if metrics.blocked_attempts is none else metrics.blocked_attempts }}</div>
-      <div class="metric-label">{{ _('Tentatives bloquées') }}</div>
-      <div class="metric-sub" data-dash="blocked-sub">
-        {% if metrics.blocked_attempts is none %}
-          {{ _('Indisponible') }}
-        {% else %}
-          {{ metrics.blocked_attempts_window_hours | default(24) }} {{ _('h ·') }} {{ metrics.blocked_attempts_waf | default(0) }} {{ _('WAF ·') }} {{ metrics.blocked_attempts_auth | default(0) }} auth
-          {% if metrics.blocked_attempts_active_bans | default(0) %}
-          · {{ metrics.blocked_attempts_active_bans }} ban{{ 's' if metrics.blocked_attempts_active_bans != 1 else '' }}
-          {% endif %}
+    <div class="gate-strip" data-dash="gate-strip">
+      {% if passage.available %}
+      {% set peak = passage.max | default(1) %}
+      <svg class="gate-svg" viewBox="0 0 960 120" preserveAspectRatio="none" role="img"
+           aria-label="{{ _('Passages par heure sur 24 heures : {a} autorisés, {r} refusés.').format(a=passage.allowed_total, r=passage.refused_total) }}">
+        {% for h in passage.hours %}
+        {% set x = loop.index0 * 40 + 4 %}
+        {% set ha = ((h.allowed / peak) * 104) | round(1) %}
+        {% set hr = ((h.refused / peak) * 104) | round(1) %}
+        {% if h.allowed and ha < 2 %}{% set ha = 2 %}{% endif %}
+        {% if h.refused and hr < 2 %}{% set hr = 2 %}{% endif %}
+        <g>
+          <title>{{ _('{a} autorisés, {r} refusés').format(a=h.allowed, r=h.refused) }}</title>
+          <rect class="gate-bar-bg" x="{{ x }}" y="0" width="32" height="110" rx="3"/>
+          {% if h.allowed %}<rect class="gate-bar-ok" x="{{ x }}" y="{{ 110 - ha }}" width="32" height="{{ ha }}" rx="2"/>{% endif %}
+          {% if h.refused %}<rect class="gate-bar-err" x="{{ x }}" y="{{ 110 - ha - hr - (1 if h.allowed else 0) }}" width="32" height="{{ hr }}" rx="2"/>{% endif %}
+          {% if loop.last %}<rect class="gate-now" x="{{ x }}" y="114" width="32" height="3" rx="1.5"/>{% endif %}
+        </g>
+        {% endfor %}
+      </svg>
+      {% else %}
+      <p class="gate-empty">{{ _('Historique indisponible : le stockage chaud est injoignable.') }}</p>
+      {% endif %}
+    </div>
+    <div class="gate-axis" aria-hidden="true">
+      <span>{{ _('il y a 24 h') }}</span><span>{{ _('il y a 12 h') }}</span><span>{{ _('maintenant') }}</span>
+    </div>
+    <ul class="gate-legend">
+      <li><i class="gate-key gate-key--ok" aria-hidden="true"></i>{{ _('Autorisés') }}</li>
+      <li><i class="gate-key gate-key--err" aria-hidden="true"></i>{{ _('Refusés (WAF, authentification)') }}</li>
+      <li class="gate-legend-detail" data-dash="blocked-sub">
+        {% if metrics.blocked_attempts is not none %}
+        {{ _('{waf} par le WAF, {auth} à l’authentification').format(waf=metrics.blocked_attempts_waf | default(0), auth=metrics.blocked_attempts_auth | default(0)) }}{% if metrics.blocked_attempts_active_bans | default(0) %}{{ _(', {n} bannissements actifs').format(n=metrics.blocked_attempts_active_bans) }}{% endif %}
         {% endif %}
-      </div>
-    </a>
-
-    <a href="/admin/apps" class="metric-card blue metric-card-link" data-dash-card="apps">
-      <div class="metric-head">
-        <div class="metric-icon">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-        </div>
-        <span class="metric-trend {% if metrics.total_apps and metrics.enabled_apps == metrics.total_apps %}down{% else %}flat{% endif %}" data-dash="apps-trend">{% if metrics.total_apps %}{{ ((metrics.enabled_apps / metrics.total_apps) * 100) | round | int }}%{% else %}—{% endif %}</span>
-      </div>
-      <div class="metric-value" data-dash="apps-value">{% if metrics.total_apps %}{{ ((metrics.enabled_apps / metrics.total_apps) * 100) | round | int }}%{% else %}—{% endif %}</div>
-      <div class="metric-label">{{ _('Santé apps') }}</div>
-      <div class="metric-sub" data-dash="apps-sub">{{ metrics.enabled_apps }}/{{ metrics.total_apps }} {{ _('apps actives') }}</div>
-    </a>
-
-    <a href="#pending-actions" class="metric-card yellow metric-card-link" data-dash-card="pending">
-      <div class="metric-head">
-        <div class="metric-icon">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-        </div>
-        <span class="metric-trend {% if pending_total %}up{% else %}flat{% endif %}" data-dash="pending-trend">{% if pending_total %}Action{% else %}OK{% endif %}</span>
-      </div>
-      <div class="metric-value" data-dash="pending-value">{{ pending_total }}</div>
-      <div class="metric-label">{{ _('Éléments en attente') }}</div>
-      <div class="metric-sub" data-dash="pending-sub">{% if pending_total %}{{ _('À traiter') }}{% else %}{{ _('Rien en file') }}{% endif %}</div>
-    </a>
-  </div>
+      </li>
+    </ul>
+  </section>
 
   <div class="dash-grid dash-grid--ops">
     <div class="card" id="pending-actions">
       <div class="card-header">
-        <span class="card-title">{{ _('Éléments en attente') }}</span>
-        <span class="badge {% if pending_total %}badge-warn{% else %}badge-ok{% endif %}" data-dash="pending-badge">{% if pending_total %}{{ pending_total }}{% else %}{{ _('À jour') }}{% endif %}</span>
+        <h2 class="card-title">{{ _('Éléments en attente') }}</h2>
+        <span class="badge badge-muted" data-dash="pending-badge">{% if pending_total %}{{ pending_total }}{% else %}{{ _('À jour') }}{% endif %}</span>
       </div>
       <div class="pending-queue" data-dash="pending-list">
         {% for item in pending_entries %}
@@ -102,8 +104,8 @@
             <div class="pending-queue-detail">{{ item.detail }}</div>
             {% endif %}
           </div>
-          <span class="badge badge-{% if item.severity == 'warn' %}warn{% elif item.severity == 'error' %}err{% else %}info{% endif %}">{{ item.count }}</span>
-          <span class="pending-queue-go" aria-hidden="true">→</span>
+          <span class="pending-queue-count tabular{% if item.severity == 'error' %} is-error{% endif %}">{{ item.count }}</span>
+          <span class="pending-queue-go">{{ _('Examiner') }}</span>
         </a>
         {% else %}
         <div class="empty-state" style="padding:var(--sp-5);">
@@ -116,8 +118,8 @@
 
     <div class="card">
       <div class="card-header">
-        <span class="card-title">{{ _("Flux d'audit en direct") }}</span>
-        <a href="/admin/logs#audit" class="btn btn-ghost btn-sm">{{ _('Voir tout →') }}</a>
+        <h2 class="card-title">{{ _('Activité récente') }}</h2>
+        <a href="/admin/logs#audit" class="btn btn-ghost btn-sm">{{ _('Voir tout') }}</a>
       </div>
       <div class="audit-stream" data-dash="audit-list">
         {% if recent_audit is none %}
@@ -136,14 +138,13 @@
         {% for entry in recent_audit %}
         <a class="audit-entry audit-entry-link" data-searchable
            href="/admin/logs?id={{ entry.id }}#audit"
-           title="{{ _('Ouvrir dans les journaux') }}">
-          <span class="audit-dot {{ entry.severity }}"></span>
-          <div>
-            <div class="audit-action">{{ entry.action }}</div>
-            <div class="audit-target">{{ entry.target }}</div>
+           title="{{ entry.action }}{% if entry.event_code %} · {{ entry.event_code }}{% endif %}">
+          <span class="audit-dot {{ entry.severity }}" aria-hidden="true"></span>
+          <div class="audit-main">
+            <div class="audit-action">{{ entry.title | default(entry.action) }}{% if entry.count | default(1) > 1 %} <span class="audit-count">× {{ entry.count }}</span>{% endif %}</div>
+            <div class="audit-target">{% if entry.user %}{{ entry.user }}{% endif %}{% if entry.user and entry.target %} · {% endif %}{% if entry.target %}<span class="audit-target-id">{{ entry.target }}</span>{% endif %}</div>
           </div>
-          <span class="audit-user">{{ entry.user }}</span>
-          <span class="audit-time">{{ entry.time }}</span>
+          <span class="audit-time tabular">{% if entry.count | default(1) > 1 and entry.time_first %}{{ entry.time_first }}–{% endif %}{{ entry.time }}</span>
         </a>
         {% else %}
         <div class="empty-state">
@@ -184,21 +185,12 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
   }
-  function setTrend(el, cls, label) {
-    if (!el) return;
-    el.className = 'metric-trend ' + cls;
-    el.textContent = label;
-  }
-  function pct(enabled, total) {
-    if (!total) return null;
-    return Math.round((enabled / total) * 100);
-  }
 
   function renderPending(list, entries, total) {
     var badge = $('[data-dash="pending-badge"]');
     if (badge) {
-      badge.className = 'badge ' + (total ? 'badge-warn' : 'badge-ok');
-      badge.textContent = total ? String(total) : 'À jour';
+      badge.className = 'badge badge-muted';
+      badge.textContent = total ? String(total) : BastionI18n.t('À jour');
     }
     if (!list) return;
     if (!entries || !entries.length) {
@@ -210,7 +202,6 @@
       return;
     }
     list.innerHTML = entries.map(function (item) {
-      var sev = item.severity === 'warn' ? 'warn' : (item.severity === 'error' ? 'err' : 'info');
       var detail = item.detail
         ? '<div class="pending-queue-detail">' + esc(item.detail) + '</div>'
         : '';
@@ -221,8 +212,8 @@
         '<div class="pending-queue-summary">' + esc(item.summary) + '</div>' +
         detail +
         '</div>' +
-        '<span class="badge badge-' + sev + '">' + esc(item.count) + '</span>' +
-        '<span class="pending-queue-go" aria-hidden="true">→</span>' +
+        '<span class="pending-queue-count tabular' + (item.severity === 'error' ? ' is-error' : '') + '">' + esc(item.count) + '</span>' +
+        '<span class="pending-queue-go">' + esc(BastionI18n.t('Examiner')) + '</span>' +
         '</a>'
       );
     }).join('');
@@ -246,18 +237,55 @@
       return;
     }
     list.innerHTML = entries.map(function (e) {
+      var count = e.count > 1 ? ' <span class="audit-count">× ' + esc(e.count) + '</span>' : '';
+      var who = [e.user ? esc(e.user) : '', e.target ? '<span class="audit-target-id">' + esc(e.target) + '</span>' : '']
+        .filter(Boolean).join(' · ');
+      var when = (e.count > 1 && e.time_first ? esc(e.time_first) + '–' : '') + esc(e.time);
       return (
         '<a class="audit-entry audit-entry-link" data-searchable ' +
         'href="/admin/logs?id=' + encodeURIComponent(e.id) + '#audit" ' +
-        'title="Ouvrir dans les journaux">' +
-        '<span class="audit-dot ' + esc(e.severity || '') + '"></span>' +
-        '<div><div class="audit-action">' + esc(e.action) + '</div>' +
-        '<div class="audit-target">' + esc(e.target) + '</div></div>' +
-        '<span class="audit-user">' + esc(e.user) + '</span>' +
-        '<span class="audit-time">' + esc(e.time) + '</span>' +
+        'title="' + esc(e.action) + (e.event_code ? ' · ' + esc(e.event_code) : '') + '">' +
+        '<span class="audit-dot ' + esc(e.severity || '') + '" aria-hidden="true"></span>' +
+        '<div class="audit-main"><div class="audit-action">' + esc(e.title || e.action) + count + '</div>' +
+        '<div class="audit-target">' + who + '</div></div>' +
+        '<span class="audit-time tabular">' + when + '</span>' +
         '</a>'
       );
     }).join('');
+  }
+
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  function svgEl(name, attrs) {
+    var el = document.createElementNS(SVG_NS, name);
+    Object.keys(attrs).forEach(function (k) { el.setAttribute(k, attrs[k]); });
+    return el;
+  }
+
+  // Same geometry as the server render: 24 slots of 40 units, bars 110 high.
+  function renderGate(p) {
+    if (!p || !p.available || !p.hours || !p.hours.length) return;
+    text('[data-dash="gate-allowed"]', p.allowed_total);
+    var svg = $('.gate-svg');
+    if (!svg) return;
+    var peak = p.max || 1;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    p.hours.forEach(function (h, i) {
+      var x = i * 40 + 4;
+      var ha = h.allowed ? Math.max(2, Math.round((h.allowed / peak) * 1040) / 10) : 0;
+      var hr = h.refused ? Math.max(2, Math.round((h.refused / peak) * 1040) / 10) : 0;
+      var g = svgEl('g', {});
+      var title = svgEl('title', {});
+      title.textContent = BastionI18n.t('{a} autorisés, {r} refusés')
+        .replace('{a}', h.allowed).replace('{r}', h.refused);
+      g.appendChild(title);
+      g.appendChild(svgEl('rect', { 'class': 'gate-bar-bg', x: x, y: 0, width: 32, height: 110, rx: 3 }));
+      if (ha) g.appendChild(svgEl('rect', { 'class': 'gate-bar-ok', x: x, y: 110 - ha, width: 32, height: ha, rx: 2 }));
+      if (hr) g.appendChild(svgEl('rect', { 'class': 'gate-bar-err', x: x, y: 110 - ha - hr - (ha ? 1 : 0), width: 32, height: hr, rx: 2 }));
+      if (i === p.hours.length - 1) g.appendChild(svgEl('rect', { 'class': 'gate-now', x: x, y: 114, width: 32, height: 3, rx: 1.5 }));
+      svg.appendChild(g);
+    });
+    svg.setAttribute('aria-label', BastionI18n.t('Passages par heure sur 24 heures : {a} autorisés, {r} refusés.')
+      .replace('{a}', p.allowed_total).replace('{r}', p.refused_total));
   }
 
   function apply(data) {
@@ -266,38 +294,22 @@
     var totalPending = pq.total || 0;
 
     text('[data-dash="now"]', data.now || '');
-    text('[data-dash="sessions-total"]', (m.active_sessions || 0) + ' total');
+    text('[data-dash="sessions-total"]', m.active_sessions || 0);
     text('[data-dash="sessions-user"]', m.active_sessions_user || 0);
     text('[data-dash="sessions-app"]', m.active_sessions_app || 0);
 
     var blocked = m.blocked_attempts;
     text('[data-dash="blocked-value"]', blocked == null ? '—' : blocked);
-    setTrend($('[data-dash="blocked-trend"]'), blocked ? 'up' : 'down', blocked ? '↑' : '↓');
-    if (blocked == null) {
-      text('[data-dash="blocked-sub"]', 'Indisponible');
-    } else {
+    if (blocked != null) {
       var bans = m.blocked_attempts_active_bans || 0;
-      var sub = (m.blocked_attempts_window_hours || 24) + ' h'
-        + ' · ' + (m.blocked_attempts_waf || 0) + ' WAF'
-        + ' · ' + (m.blocked_attempts_auth || 0) + ' auth';
-      if (bans) sub += ' · ' + bans + (bans === 1 ? ' ban' : ' bans');
+      var sub = BastionI18n.t('{waf} par le WAF, {auth} à l’authentification')
+        .replace('{waf}', m.blocked_attempts_waf || 0)
+        .replace('{auth}', m.blocked_attempts_auth || 0);
+      if (bans) sub += BastionI18n.t(', {n} bannissements actifs').replace('{n}', bans);
       text('[data-dash="blocked-sub"]', sub);
     }
-
-    var health = pct(m.enabled_apps || 0, m.total_apps || 0);
-    text('[data-dash="apps-value"]', health == null ? '—' : (health + '%'));
-    text('[data-dash="apps-trend"]', health == null ? '—' : (health + '%'));
-    var appsTrend = $('[data-dash="apps-trend"]');
-    if (appsTrend) {
-      appsTrend.className = 'metric-trend ' + (
-        m.total_apps && m.enabled_apps === m.total_apps ? 'down' : 'flat'
-      );
-    }
-    text('[data-dash="apps-sub"]', (m.enabled_apps || 0) + '/' + (m.total_apps || 0) + ' apps actives');
-
-    text('[data-dash="pending-value"]', totalPending);
-    setTrend($('[data-dash="pending-trend"]'), totalPending ? 'up' : 'flat', totalPending ? 'Action' : 'OK');
-    text('[data-dash="pending-sub"]', totalPending ? 'À traiter' : 'Rien en file');
+    text('[data-dash="apps-value"]', (m.enabled_apps || 0) + '/' + (m.total_apps || 0));
+    renderGate(data.passage);
 
     renderPending($('[data-dash="pending-list"]'), pq.entries || [], totalPending);
     renderAudit($('[data-dash="audit-list"]'), data.recent_audit);
@@ -313,13 +325,13 @@
       }
     }
 
-    text('[data-dash="live-label"]', 'Live');
+    text('[data-dash="live-label"]', BastionI18n.t('En direct'));
     var pill = $('[data-dash="live-pill"]');
     if (pill) pill.classList.remove('is-stale');
   }
 
   function markError() {
-    text('[data-dash="live-label"]', 'Pause');
+    text('[data-dash="live-label"]', BastionI18n.t('En pause'));
     var pill = $('[data-dash="live-pill"]');
     if (pill) pill.classList.add('is-stale');
   }

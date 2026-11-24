@@ -486,17 +486,21 @@ def dashboard(
     )
     recent_audit = audit_page[0] if audit_page else None
     from app.i18n.middleware import get_request_locale
+    from app.web.metrics_service import humanize_audit_entries
+    from app.web.passage_series import build_passage_series
     from app.web.pending_queue_service import build_pending_action_items
 
-    pending_queue = build_pending_action_items(db, locale=get_request_locale(request))
+    locale = get_request_locale(request)
+    pending_queue = build_pending_action_items(db, locale=locale)
     return render(
         "dashboard/index.html",
         **_ctx(
             request,
             settings,
             metrics=metrics,
-            recent_audit=recent_audit,
+            recent_audit=humanize_audit_entries(recent_audit, locale=locale),
             pending_queue=pending_queue,
+            passage=build_passage_series(db, settings),
         ),
     )
 
@@ -1685,6 +1689,18 @@ def admin_apps_list(
     apps = db.query(App).order_by(App.slug).all()
     realms = db.query(RealmConfig).order_by(RealmConfig.slug).all()
     waf_by_slug = apps_waf_protection_by_slug(apps, settings)
+    from app.web.app_logos import logo_public_url
+    from app.web.portal_enrichment import monogram, monogram_tone
+
+    # Same identity as the user portal: logo when uploaded, else the monogram.
+    app_icons = {
+        a.slug: {
+            "logo_url": logo_public_url(a, settings),
+            "monogram": monogram(a.label or a.slug),
+            "monogram_tone": monogram_tone(a.slug),
+        }
+        for a in apps
+    }
     return render(
         "admin/apps/list.html",
         **_ctx(
@@ -1693,6 +1709,7 @@ def admin_apps_list(
             apps=apps,
             realms=realms,
             waf_by_slug=waf_by_slug,
+            app_icons=app_icons,
         ),
     )
 
@@ -3575,6 +3592,7 @@ def admin_security(
             container_logs_settings=container_logs,
             client_ip_probe=ip_probe,
             breakglass_ip_allowed=breakglass_ip_ok,
+            internal_token_set=bool((settings.vault_portal_internal_token or "").strip()),
         ),
     )
 
