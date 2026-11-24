@@ -47,8 +47,8 @@ def test_login_page_neutral_defaults(client: TestClient, db_session: Session):
     assert "bastion-theme.js" not in r.text
     assert "generic-shield.svg" in r.text or "/media/branding/" in r.text
     assert 'name="generator"' not in r.text.lower()
-    assert "--accent:#10b981" in r.text or "--accent: #10b981" in r.text
-    assert "--accent-dim:#059669" in r.text or "--accent-h:#34d399" in r.text
+    # Product palette: no inline override, bastion-tokens.css supplies a per-theme accent.
+    assert "--accent:" not in r.text
 
 
 def test_login_page_custom_branding(client: TestClient, db_session: Session):

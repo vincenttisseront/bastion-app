@@ -85,16 +85,16 @@
   font-weight: 600;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: all var(--transition-fast);
+  transition:color var(--transition-fast),background-color var(--transition-fast),border-color var(--transition-fast),box-shadow var(--transition-fast),opacity var(--transition-fast),transform var(--transition-fast);
   opacity: 0.6;
   background: transparent;
   color: var(--text-secondary);
 }
 
 .severity-chip.active { opacity: 1; }
-.severity-chip.chip-info  { background: rgba(96,165,250,0.15); color: #60a5fa; border-color: rgba(96,165,250,0.3); }
-.severity-chip.chip-warn  { background: var(--status-warn-bg); color: var(--status-warn); border-color: rgba(245,158,11,0.3); }
-.severity-chip.chip-error { background: var(--status-error-bg); color: var(--status-error); border-color: rgba(239,68,68,0.3); }
+.severity-chip.chip-info  { background: color-mix(in srgb,var(--info) 15%,transparent); color: #60a5fa; border-color: color-mix(in srgb,var(--info) 30%,transparent); }
+.severity-chip.chip-warn  { background: var(--status-warn-bg); color: var(--status-warn); border-color: color-mix(in srgb,var(--warn) 30%,transparent); }
+.severity-chip.chip-error { background: var(--status-error-bg); color: var(--status-error); border-color: color-mix(in srgb,var(--err) 30%,transparent); }
 
 .export-group {
   display: flex;

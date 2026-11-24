@@ -1,60 +1,94 @@
-/* app/static/css/bastion-tokens.css — Bastion Pro v2 */
+/* app/static/css/bastion-tokens.css — Bastion Pro v3 « poste de contrôle »
+ *
+ * Two rules drive this palette:
+ *   - --accent means "you can act here" (primary buttons, focus, selection).
+ *     It is never used to say that something is healthy.
+ *   - --ok / --warn / --err / --info only report a state.
+ * The accent is periwinkle by default so a green "OK" never reads as a button.
+ * A company palette set in Admin > Branding still overrides the --accent* family
+ * inline (app.branding.branding_css_vars); the product palette does not, so each
+ * theme keeps its own readable accent.
+ */
 :root, [data-theme="dark"] {
-  --bg-base:        #020d18;
-  --bg-primary:     #051424;
-  --bg-secondary:   #0a1e30;
-  --bg-tertiary:    #0f2640;
-  --bg-overlay:     #142d4a;
-  --bg-card:        #0c1f35;
+  color-scheme: dark;
+  /* Ink surfaces: desaturated, so state colors stand out without glow. */
+  --bg-base:        #0b0f15;
+  --bg-primary:     #0e131a;
+  --bg-secondary:   #121821;
+  --bg-tertiary:    #19212d;
+  --bg-overlay:     #202a38;
+  --bg-card:        #121821;
 
-  --accent:         #10b981;
-  --accent-h:       #34d399;
-  --accent-dim:     #059669;
-  --accent-muted:   rgba(16,185,129,0.12);
-  --accent-glow:    0 0 24px rgba(16,185,129,0.3);
-  --accent-border:  rgba(16,185,129,0.35);
+  --accent:         #7b93ff;
+  --accent-h:       #9aabff;
+  --accent-dim:     #5f78e6;
+  --accent-muted:   rgba(123,147,255,0.14);
+  --accent-glow:    0 0 24px rgba(123,147,255,0.22);
+  --accent-border:  rgba(123,147,255,0.40);
   /* Text/icons drawn ON the accent; branding_css_vars recomputes it per brand color. */
-  --on-accent:      #04130d;
-  --border:         #1e3a5f;
-  --border-muted:   rgba(30,58,95,0.5);
-  --border-bright:  #2a4d7a;
+  --on-accent:      #0b0f15;
+  /* Neutral grey borders (white at ~8 / 15 % over the panel), not saturated navy. */
+  --border:         #252d39;
+  --border-muted:   rgba(255,255,255,0.05);
+  --border-bright:  #333d4b;
 
-  --text:           #e2e8f0;
-  --text-2:         #94a3b8;
-  --text-3:         #8494ab; /* 4.5:1+ on every dark surface (was #475569, 2.2:1) */
-  --text-link:      #34d399;
+  --text:           #e6ebf2;
+  --text-2:         #a9b3c2;
+  --text-3:         #8a96a8; /* 4.5:1+ on every dark surface, incl. --bg-overlay */
+  --text-link:      #9aabff;
 
-  --ok:       #10b981;  --ok-bg:   rgba(16,185,129,0.12);
-  --warn:     #f59e0b;  --warn-bg: rgba(245,158,11,0.12);
-  --err:      #ef4444;  --err-bg:  rgba(239,68,68,0.12);
-  --info:     #60a5fa;  --info-bg: rgba(96,165,250,0.12);
-  --purple:   #a78bfa;  --purple-bg: rgba(139,92,246,0.12);
+  --ok:       #3fcf8e;  --ok-bg:   rgba(63,207,142,0.12);
+  --warn:     #e9b23f;  --warn-bg: rgba(233,178,63,0.13);
+  --err:      #f0656b;  --err-bg:  rgba(240,101,107,0.13);
+  --info:     #5ec8e5;  --info-bg: rgba(94,200,229,0.12);
+  --purple:   #c792ea;  --purple-bg: rgba(199,146,234,0.13);
+  /* Labels on a solid state fill (badges counters, "on" toggles). */
+  --on-state: #0b0f15;
 
-  --font:     system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --mono:     ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+  /* IBM Plex, self-hosted (bastion-fonts.css, CSP font-src 'self'). */
+  --font:     "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono:     "IBM Plex Mono", ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
 
   --sp-1:.25rem; --sp-2:.5rem; --sp-3:.75rem; --sp-4:1rem;
   --sp-5:1.25rem; --sp-6:1.5rem; --sp-8:2rem; --sp-12:3rem;
 
   --r-sm:4px; --r-md:8px; --r-lg:12px; --r-xl:16px; --r-full:9999px;
 
-  --fs-xs:.75rem; --fs-sm:.875rem; --fs-base:1rem;
-  --fs-lg:1.125rem; --fs-xl:1.25rem; --fs-2xl:1.5rem; --fs-3xl:1.875rem;
+  /* One type scale for admin, portal and login (11 px floor). Admin body copy
+     uses --fs-sm, portal and login body copy --fs-base. Titles are weight 600. */
+  --fs-2xs:.6875rem;  /* 11 */
+  --fs-xs:.75rem;     /* 12 */
+  --fs-sm:.8125rem;   /* 13 */
+  --fs-base:.875rem;  /* 14 */
+  --fs-md:1rem;       /* 16 */
+  --fs-lg:1.125rem;   /* 18 */
+  --fs-xl:1.375rem;   /* 22 */
+  --fs-2xl:1.75rem;   /* 28 */
+  --fs-3xl:2.25rem;   /* 36 */
 
-  --sh-sm:  0 1px 4px rgba(0,0,0,0.5);
-  --sh-md:  0 4px 16px rgba(0,0,0,0.55);
-  --sh-lg:  0 8px 32px rgba(0,0,0,0.65);
-  --sh-card:0 2px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04);
+  --sh-sm:  0 1px 3px rgba(0,0,0,0.45);
+  --sh-md:  0 6px 18px rgba(0,0,0,0.45);
+  --sh-lg:  0 12px 36px rgba(0,0,0,0.55);
+  --sh-card:0 1px 2px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03);
 
   /* Surfaces theme-aware (admin topbar, hovers, overlays) */
-  --topbar-bg: rgba(10, 30, 48, 0.88);
+  --topbar-bg: rgba(14, 19, 26, 0.88);
   --hover-bg: rgba(255, 255, 255, 0.04);
   --hover-bg-strong: rgba(255, 255, 255, 0.08);
   --row-hover: rgba(255, 255, 255, 0.025);
-  --overlay-scrim: rgba(2, 13, 24, 0.72);
-  --portal-hero-glow: rgba(16, 185, 129, 0.07);
+  --overlay-scrim: rgba(5, 7, 10, 0.72);
+  --portal-hero-glow: rgba(123, 147, 255, 0.06);
 
-  --t-fast:100ms ease; --t-base:200ms ease; --t-slow:350ms ease;
+  /* Motion: three durations, two curves. Enter fast then settle; exit shorter.
+     Name the animated properties — never "transition: all". */
+  --dur-1: 120ms;   /* state: hover, press */
+  --dur-2: 200ms;   /* appear: menu, tooltip, popover */
+  --dur-3: 280ms;   /* travel: drawer, modal */
+  --ease-out: cubic-bezier(.32,.72,0,1);
+  --ease-in:  cubic-bezier(.4,0,1,1);
+  --t-fast: var(--dur-1) var(--ease-out);
+  --t-base: var(--dur-2) var(--ease-out);
+  --t-slow: var(--dur-3) var(--ease-out);
 
   /* v1 aliases */
   --accent-primary: var(--accent);
@@ -84,29 +118,31 @@
   --status-ok: var(--ok); --status-ok-bg: var(--ok-bg);
   --status-warn: var(--warn); --status-warn-bg: var(--warn-bg);
   --status-error: var(--err); --status-error-bg: var(--err-bg);
-  --status-unknown: var(--text-3); --status-unknown-bg: rgba(71,85,105,0.2);
-  --proto-ssh: #60a5fa; --proto-ssh-bg: rgba(59,130,246,0.12);
+  --status-unknown: var(--text-3); --status-unknown-bg: rgba(138,150,168,0.16);
+  --proto-ssh: var(--info); --proto-ssh-bg: var(--info-bg);
   --proto-rdp: var(--purple); --proto-rdp-bg: var(--purple-bg);
   --proto-web: var(--ok); --proto-web-bg: var(--ok-bg);
-  --mode-direct: var(--ok); --mode-sso: var(--info);
+  --mode-direct: var(--text-2); --mode-sso: var(--info);
   --mode-robotic: var(--purple); --mode-subdomain: var(--warn);
 }
 
 [data-theme="light"] {
-  /* Neutral slate surfaces (Stitch refresh 2026-11): flat page, white cards, soft borders.
-     --text-3 #5b6b80 so muted labels pass WCAG AA (4.6:1+) on every light surface. */
-  --bg-base:#f5f6f8; --bg-primary:#f8fafc; --bg-secondary:#ffffff;
-  --bg-tertiary:#f1f5f9; --bg-overlay:#e9edf2; --bg-card:#ffffff;
-  --accent:#10b981; --accent-h:#059669; --accent-dim:#047857;
-  --accent-muted:rgba(16,185,129,0.08); --accent-glow:0 0 20px rgba(16,185,129,0.15);
-  --accent-border:rgba(16,185,129,0.28); --on-accent:#04130d;
-  --border:#e2e8f0; --border-muted:#edf1f5; --border-bright:#cbd5e1;
-  --text:#0f172a; --text-2:#475569; --text-3:#5b6b80; --text-link:#059669;
-  --ok:#059669; --ok-bg:rgba(5,150,105,0.08);
-  --warn:#d97706; --warn-bg:rgba(217,119,6,0.08);
-  --err:#dc2626; --err-bg:rgba(220,38,38,0.08);
-  --info:#2563eb; --info-bg:rgba(37,99,235,0.08);
-  --purple:#7c3aed; --purple-bg:rgba(124,58,237,0.08);
+  color-scheme: light;
+  /* Neutral surfaces: flat page, white cards, soft grey borders.
+     Every text token passes WCAG AA (4.5:1+) on every light surface. */
+  --bg-base:#f4f5f7; --bg-primary:#f8f9fb; --bg-secondary:#ffffff;
+  --bg-tertiary:#eef0f4; --bg-overlay:#e6e9ef; --bg-card:#ffffff;
+  --accent:#3d5bdb; --accent-h:#2f49c0; --accent-dim:#2a3fa8;
+  --accent-muted:rgba(61,91,219,0.09); --accent-glow:0 0 20px rgba(61,91,219,0.14);
+  --accent-border:rgba(61,91,219,0.32); --on-accent:#ffffff;
+  --border:#e1e5eb; --border-muted:#edf0f4; --border-bright:#c9d0da;
+  --text:#0f1722; --text-2:#3e4a5b; --text-3:#5b6778; --text-link:#3d5bdb;
+  --ok:#0e7044; --ok-bg:rgba(14,112,68,0.09);
+  --warn:#8c5900; --warn-bg:rgba(140,89,0,0.09);
+  --err:#bb2f35; --err-bg:rgba(187,47,53,0.08);
+  --info:#0a6a82; --info-bg:rgba(10,106,130,0.09);
+  --purple:#8a3fc0; --purple-bg:rgba(138,63,192,0.08);
+  --on-state:#ffffff;
   --sh-sm:0 1px 2px rgba(15,23,42,0.05);
   --sh-md:0 4px 12px rgba(15,23,42,0.07);
   --sh-lg:0 12px 32px rgba(15,23,42,0.10);
@@ -116,6 +152,6 @@
   --hover-bg-strong:rgba(15, 23, 42, 0.07);
   --row-hover:rgba(15, 23, 42, 0.035);
   --overlay-scrim:rgba(15, 23, 42, 0.45);
-  --portal-hero-glow:rgba(16, 185, 129, 0.1);
-  --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --portal-hero-glow:rgba(61, 91, 219, 0.07);
+  --status-unknown-bg:rgba(91,103,120,0.12);
 }

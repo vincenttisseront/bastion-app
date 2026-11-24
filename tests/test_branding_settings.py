@@ -40,19 +40,18 @@ def test_branding_defaults_seeded_on_read(db_session: Session):
     data = branding_mod.get_branding_settings(db_session)
     assert data["company_name"] == "Portail sécurisé"
     assert data["page_title"] == "Connexion"
-    assert data["accent_color"] == "#10b981"
-    assert data["secondary_color"] == "#059669"
-    assert data["highlight_color"] == "#34d399"
-    assert "--accent:#10b981" in data["css_vars"]
-    assert "--accent-dim:#059669" in data["css_vars"]
-    assert "--accent-h:#34d399" in data["css_vars"]
+    assert data["accent_color"] == "#3d5bdb"
+    assert data["secondary_color"] == "#2a3fa8"
+    assert data["highlight_color"] == "#7b93ff"
+    # Product palette is never inlined: the tokens give each theme its own accent.
+    assert data["css_vars"] == ""
     assert data["default_theme"] == "dark"
     assert data["show_product_branding"] is False
     assert data["favicon_url"] == "/static/img/generic-shield.svg"
     row = db_session.query(BrandingSettings).filter_by(id=1).one()
     assert row.company_name == "Portail sécurisé"
-    assert row.secondary_color == "#059669"
-    assert row.highlight_color == "#34d399"
+    assert row.secondary_color == "#2a3fa8"
+    assert row.highlight_color == "#7b93ff"
 
 
 def test_admin_branding_page_requires_admin(client: TestClient):
@@ -198,3 +197,13 @@ def test_clear_logo(client: TestClient, db_session: Session, branding_dirs):
     assert r.status_code == 302
     data = branding_mod.get_branding_settings(db_session)
     assert data["logo_path"] is None
+
+
+def test_product_palettes_are_not_inlined():
+    # v3 default and the v2 emerald default (stored by every pre-v3 save).
+    assert branding_mod.branding_css_vars("#3d5bdb", "#2a3fa8", "#7b93ff") == ""
+    assert branding_mod.branding_css_vars("#10B981", "#059669", "#34D399") == ""
+    # A company palette, even one sharing the old primary, still overrides the accent.
+    css = branding_mod.branding_css_vars("#10b981", "#047857", "#34d399")
+    assert "--accent:#10b981" in css
+    assert "--on-accent:#04130d" in css

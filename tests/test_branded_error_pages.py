@@ -102,7 +102,8 @@ def test_static_html_page_is_self_contained_and_bilingual(key: str):
     assert page.en_title in html
     assert f'<p class="code">{page.status}</p>' in html
     # Portal palette (bastion-tokens.css), inline only — bastion-app may be down.
-    assert "#10b981" in html
+    assert "#7b93ff" in html
+    assert "#10b981" not in html
     assert "<style>" in html
     assert not re.search(r"""(?:src|href)=["'](?:https?:)?//""", html)
     assert "/static/" not in html
@@ -132,6 +133,7 @@ def test_unknown_host_page_stays_neutral():
     html = _read(ERRORS / "unknown-host.html")
     assert html == render_unknown_host_page()
     assert "#10b981" not in html
+    assert "#7b93ff" not in html
     assert "Accès" not in html
 
 

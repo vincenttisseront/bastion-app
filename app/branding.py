@@ -29,9 +29,9 @@ _HEX_COLOR = re_safe.compile(r"^#[0-9A-Fa-f]{6}$")
 DEFAULTS: dict[str, Any] = {
     "company_name": "Portail sécurisé",
     "page_title": "Connexion",
-    "accent_color": "#10b981",  # primary — buttons, nav active
-    "secondary_color": "#059669",  # gradients / dim surfaces
-    "highlight_color": "#34d399",  # hover, focus, emphasis
+    "accent_color": "#3d5bdb",  # primary — buttons, focus, selection
+    "secondary_color": "#2a3fa8",  # pressed / dim surfaces
+    "highlight_color": "#7b93ff",  # hover, emphasis
     "default_theme": "dark",
     "welcome_text": None,
     "footer_text": None,
@@ -88,6 +88,20 @@ def on_accent_color(accent: str) -> str:
     return ON_ACCENT_DARK
 
 
+# Palettes that mean "no company colors": the v3 product palette and the v2
+# emerald one (the old column default, stored by every branding save before v3).
+PRODUCT_PALETTES: frozenset[tuple[str, str, str]] = frozenset(
+    {
+        (DEFAULTS["accent_color"], DEFAULTS["secondary_color"], DEFAULTS["highlight_color"]),
+        ("#10b981", "#059669", "#34d399"),
+    }
+)
+
+
+def is_product_palette(primary: str, secondary: str, highlight: str) -> bool:
+    return (primary.lower(), secondary.lower(), highlight.lower()) in PRODUCT_PALETTES
+
+
 def branding_css_vars(
     primary: str,
     secondary: str,
@@ -96,9 +110,14 @@ def branding_css_vars(
     theme: str = "dark",
 ) -> str:
     """
-    Inline CSS custom properties so company colors replace the hard-coded green
-    token set (``--accent``, ``--accent-h``, ``--accent-dim``, muted/glow/border).
+    Inline CSS custom properties so company colors replace the token accent set
+    (``--accent``, ``--accent-h``, ``--accent-dim``, muted/glow/border).
+
+    The product palette emits nothing: bastion-tokens.css then supplies a
+    per-theme accent (#7b93ff dark, #3d5bdb light) that one inline value cannot.
     """
+    if is_product_palette(primary, secondary, highlight):
+        return ""
     muted_a = 0.08 if theme == "light" else 0.12
     glow_a = 0.15 if theme == "light" else 0.30
     border_a = 0.28 if theme == "light" else 0.35

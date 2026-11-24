@@ -42,7 +42,7 @@
   margin:0;padding:.875rem 1.125rem;border-radius:var(--r-lg);
 }
 #waf-page .waf-alert-main{min-width:0;flex:1 1 24rem}
-#waf-page .waf-alert-title{margin:0;font-size:.875rem;font-weight:650;line-height:1.4;color:inherit}
+#waf-page .waf-alert-title{margin:0;font-size:.875rem;font-weight:600;line-height:1.4;color:inherit}
 #waf-page .waf-alert-msg{margin:.15rem 0 0;font-size:.8125rem;line-height:1.5;color:var(--text-2)}
 #waf-page .waf-alert-details{margin-top:.5rem;font-size:.8125rem;color:var(--text-2)}
 #waf-page .waf-alert-details > summary{
@@ -81,7 +81,7 @@
 #waf-page .sentinel-health-breakdown summary{cursor:pointer;font-weight:600;color:var(--text-2)}
 #waf-page .sentinel-health-list{margin:.35rem 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:.2rem}
 #waf-page .sentinel-health-item{display:flex;justify-content:space-between;gap:.5rem;line-height:1.35}
-#waf-page .sentinel-health-pts{font-variant-numeric:tabular-nums;font-weight:700;color:var(--text)}
+#waf-page .sentinel-health-pts{font-variant-numeric:tabular-nums;font-weight:600;color:var(--text)}
 #waf-page .sentinel-health-pts--neg{color:var(--sentinel-warn)}
 #waf-page .sentinel-health-item--total{border-top:1px solid var(--border-muted);padding-top:.25rem;margin-top:.15rem}
 #waf-page .sentinel-coverage-note,
@@ -122,7 +122,7 @@
 #waf-page .sentinel-owasp-count{font-family:var(--sentinel-mono);font-weight:600;font-size:.75rem;min-width:2.5rem;text-align:right;color:var(--text)}
 #waf-page .waf-list-caption{
   margin:0;padding:.55rem var(--bp-pad-x);border-bottom:1px solid var(--border-muted);
-  font-size:.6875rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);
+  font-size:.6875rem;font-weight:600;color:var(--text-3);
   background:var(--bp-thead-bg);
 }
 #waf-page .waf-list-empty{margin:0;padding:1rem var(--bp-pad-x);font-size:.8125rem;color:var(--text-3)}
@@ -145,7 +145,7 @@
 #waf-page .sentinel-dot-primary{fill:var(--text-2)}
 #waf-page .sentinel-dot-secondary{fill:var(--err)}
 #waf-page .sentinel-gauge-track{stroke:var(--border-muted)}
-#waf-page .sentinel-gauge-value{fill:var(--sentinel-text);font-size:24px;font-weight:700}
+#waf-page .sentinel-gauge-value{fill:var(--sentinel-text);font-size:24px;font-weight:600}
 #waf-page .sentinel-gauge-label{fill:var(--sentinel-muted);font-size:11px}
 #waf-page .sentinel-heatmap-row{fill:var(--sentinel-muted);font-size:9px;font-family:var(--sentinel-mono)}
 #waf-page .sentinel-chart-slot .waf-chart-hbar{fill:var(--err)}
@@ -162,8 +162,7 @@
 #waf-page .sentinel-feed-wrap{overflow:auto;max-height:28rem}
 #waf-page .sentinel-feed-table{width:100%;border-collapse:collapse;font-size:.8125rem;table-layout:fixed}
 #waf-page .sentinel-feed-table th{
-  text-align:left;padding:.55rem .65rem;font-size:.6875rem;font-weight:600;text-transform:uppercase;
-  letter-spacing:.05em;color:var(--text-3);border-bottom:1px solid var(--border-muted);
+  text-align:left;padding:.55rem .65rem;font-size:.6875rem;font-weight:600;color:var(--text-3);border-bottom:1px solid var(--border-muted);
   background:var(--bp-thead-bg);position:sticky;top:0;z-index:1;white-space:nowrap;
 }
 #waf-page .sentinel-feed-table td{
@@ -199,12 +198,11 @@
 }
 #waf-page .sentinel-ip-link:hover{color:var(--accent);text-decoration-color:currentColor}
 #waf-page .sentinel-ip-logs{
-  margin-left:.35rem;font-size:.65rem;font-weight:600;text-transform:uppercase;
-  letter-spacing:.03em;color:var(--accent);text-decoration:none;
+  margin-left:.35rem;font-size:.65rem;font-weight:600;color:var(--accent);text-decoration:none;
 }
 #waf-page .sentinel-ip-logs:hover{text-decoration:underline}
 #waf-page .sentinel-sev{
-  display:inline-block;padding:.1rem .4rem;border-radius:var(--r-sm);font-size:.6rem;font-weight:700;text-transform:uppercase;
+  display:inline-block;padding:.1rem .4rem;border-radius:var(--r-sm);font-size:var(--fs-2xs);font-weight:600;text-transform:uppercase;
   flex-shrink:0;line-height:1.2;
 }
 #waf-page .sentinel-sev--critical{background:var(--err-bg);color:var(--err)}
@@ -214,14 +212,14 @@
 #waf-page .sentinel-feed-source-cell{white-space:nowrap}
 #waf-page .sentinel-feed-source{
   display:inline-flex;align-items:center;gap:.25rem;padding:.12rem .4rem;border-radius:var(--r-sm);
-  font-size:.62rem;font-weight:700;letter-spacing:.02em;vertical-align:middle;
+  font-size:.62rem;font-weight:600;letter-spacing:.02em;vertical-align:middle;
 }
 #waf-page .sentinel-feed-source--modsecurity{background:var(--warn-bg);color:var(--warn)}
 #waf-page .sentinel-feed-source--host{background:var(--info-bg);color:var(--info)}
 #waf-page .sentinel-feed-source-icon{display:block;flex-shrink:0}
 #waf-page .sentinel-feed-family{display:inline;margin-left:.35rem;font-size:.62rem;font-weight:600;color:var(--sentinel-muted)}
 #waf-page .sentinel-feed-rule{display:inline-flex;align-items:center;gap:.35rem;max-width:100%;min-width:0}
-#waf-page .sentinel-feed-rule-id{font-family:var(--sentinel-mono);font-weight:700;color:var(--sentinel-text);flex-shrink:0}
+#waf-page .sentinel-feed-rule-id{font-family:var(--sentinel-mono);font-weight:600;color:var(--sentinel-text);flex-shrink:0}
 #waf-page .sentinel-feed-rule-label{
   font-family:var(--sentinel-mono);color:var(--text-2);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
@@ -274,7 +272,7 @@
 #waf-page .waf-form-body{display:flex;flex-direction:column;gap:1rem}
 #waf-page .waf-form-sep{
   margin:.25rem 0 0;padding-top:1rem;border-top:1px solid var(--border-muted);
-  font-size:.75rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);
+  font-size:.75rem;font-weight:600;color:var(--text-3);
 }
 #waf-page .waf-form .form-group{margin:0}
 #waf-page .waf-form .alert{margin:0}
@@ -301,7 +299,7 @@
 /* ───────────────────────── ModSecurity: health badge, packs, sandbox ───────────────────────── */
 #waf-page .waf-ms-health-dot{
   display:inline-flex;align-items:center;
-  font-size:.65rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  font-size:.65rem;font-weight:600;
   padding:.15rem .5rem;border-radius:999px;border:0;
 }
 #waf-page .waf-ms-suggest{
@@ -319,7 +317,7 @@
 }
 #waf-page .waf-pack-card-head-main{min-width:0;flex:1 1 20rem}
 #waf-page .waf-pack-card-title-row{display:flex;align-items:center;gap:.4rem .5rem;flex-wrap:wrap}
-#waf-page .waf-pack-card-title{margin:0 .15rem 0 0;font-size:.9375rem;font-weight:650;color:var(--text)}
+#waf-page .waf-pack-card-title{margin:0 .15rem 0 0;font-size:.9375rem;font-weight:600;color:var(--text)}
 #waf-page .waf-pack-badges{display:contents}
 #waf-page .waf-pack-badges .badge{font-size:.6875rem}
 #waf-page .waf-pack-card-meta{margin-top:.25rem;font-size:.75rem;color:var(--text-3)}
@@ -365,7 +363,7 @@
 #waf-page .waf-pack-mode-btn:focus-visible{outline:2px solid var(--accent-border);outline-offset:1px}
 #waf-page .waf-pack-mode-btn.is-active{background:var(--bg-card);color:var(--text);box-shadow:var(--sh-sm)}
 #waf-page .waf-pack-mode-btn[data-mode="detection"].is-active{background:var(--bg-card);color:var(--warn)}
-#waf-page .waf-pack-mode-btn[data-mode="on"].is-active{background:var(--ok);color:#fff}
+#waf-page .waf-pack-mode-btn[data-mode="on"].is-active{background:var(--ok);color:var(--on-state)}
 
 #waf-page .waf-sandbox-grid{display:grid;grid-template-columns:8rem minmax(0,16rem) minmax(0,1fr);gap:.75rem;align-items:end}
 @media(max-width:800px){#waf-page .waf-sandbox-grid{grid-template-columns:1fr}}
@@ -380,7 +378,7 @@
 @media(max-width:900px){#waf-page .waf-status-columns{grid-template-columns:1fr}}
 #waf-page .waf-status-col{padding:1rem var(--bp-pad-x);background:var(--bg-card);min-width:0}
 #waf-page .waf-status-col-title{
-  margin:0 0 .6rem;font-size:.6875rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);
+  margin:0 0 .6rem;font-size:.6875rem;font-weight:600;color:var(--text-3);
 }
 #waf-page .waf-status-col .form-help{margin:.5rem 0 0;overflow-wrap:anywhere}
 #waf-page .waf-status-col .alert{margin:0}
@@ -435,7 +433,7 @@
 #waf-page .waf-reactivation-steps li::before{
   content:counter(waf-step);position:absolute;left:var(--bp-pad-x);top:.7rem;
   width:1.35rem;height:1.35rem;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  font-size:.6875rem;font-weight:700;background:var(--bg-tertiary);color:var(--text-2);
+  font-size:.6875rem;font-weight:600;background:var(--bg-tertiary);color:var(--text-2);
 }
 #waf-page .waf-reactivation-steps p{margin:.15rem 0 0}
 

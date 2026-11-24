@@ -203,7 +203,7 @@
 }
 .brand-preview-btn{
   padding:.55rem 1rem;border-radius:8px;font-size:.85rem;font-weight:600;
-  background:var(--accent);color:#fff;border:1px solid var(--accent);
+  background:var(--accent);color:var(--on-accent);border:1px solid var(--accent);
 }
 .brand-preview-chip{
   padding:.4rem .75rem;border-radius:8px;font-size:.8rem;font-weight:600;
@@ -242,12 +242,36 @@
     var val = (el && el.value || '').trim();
     return /^#[0-9A-Fa-f]{6}$/.test(val) ? val.toLowerCase() : null;
   }
+  // Same rule as app.branding.is_product_palette: the product palette is not
+  // inlined, so the preview shows each theme's own accent from the tokens.
+  var PRODUCT_PALETTES = ['#3d5bdb|#2a3fa8|#7b93ff', '#10b981|#059669|#34d399'];
+  var VARS = ['--brand-primary', '--brand-secondary', '--brand-highlight', '--accent', '--on-accent',
+    '--accent-h', '--accent-dim', '--accent-muted', '--accent-glow', '--accent-border', '--text-link',
+    '--portal-hero-glow', '--accent-primary', '--accent-hover', '--border-accent'];
+  function luminance(hex) {
+    return hexToRgb(hex).reduce(function (acc, v, i) {
+      var c = v / 255;
+      c = c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      return acc + c * [0.2126, 0.7152, 0.0722][i];
+    }, 0);
+  }
+  function onAccent(hex) {
+    var l = luminance(hex);
+    var white = 1.05 / (l + 0.05);
+    var ink = (l + 0.05) / (luminance('#04130d') + 0.05);
+    return white >= ink ? '#ffffff' : '#04130d';
+  }
   function applyVars() {
     if (!page) return;
     var primary = readColor('accent_color');
     var secondary = readColor('secondary_color');
     var highlight = readColor('highlight_color');
     if (!primary || !secondary || !highlight) return;
+    if (PRODUCT_PALETTES.indexOf([primary, secondary, highlight].join('|')) !== -1) {
+      VARS.forEach(function (name) { page.style.removeProperty(name); });
+      return;
+    }
+    page.style.setProperty('--on-accent', onAccent(primary));
     var theme = themeEl ? themeEl.value : 'dark';
     var mutedA = theme === 'light' ? 0.08 : 0.12;
     var glowA = theme === 'light' ? 0.15 : 0.30;
