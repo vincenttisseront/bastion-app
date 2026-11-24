@@ -53,7 +53,9 @@ def test_monogram_skips_articles_and_keeps_acronyms():
 
 
 def test_monogram_tone_is_stable_and_bounded():
-    assert monogram_tone("wiki") == monogram_tone("wiki")
+    # Pinned values: a change of hash would silently recolour every user's launcher.
+    assert monogram_tone("wiki") == 6
+    assert monogram_tone("gitlab") == 0
     assert all(0 <= monogram_tone(s) < MONOGRAM_TONES for s in ("a", "wiki", "gitlab", ""))
 
 
