@@ -330,6 +330,9 @@
 .data-table-compact{width:100%;max-width:36rem}
 .error-icon--warn{background:var(--warn-bg);border-color:color-mix(in srgb,var(--warn) 25%,transparent);color:var(--warn)}
 .error-code--warn{color:var(--warn)}
+.error-icon.error-icon--neutral{background:var(--bg-tertiary);border-color:var(--border);color:var(--text-3)}
+.error-code.error-code--neutral{color:var(--text-3);margin:0}
+.error-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--sp-2)}
 .metrics-block{margin-bottom:var(--sp-5)}
 .integrity-block{margin-bottom:var(--sp-4)}
 .form-input.is-mono,.form-textarea.is-mono{font-family:var(--font-mono,ui-monospace,monospace);font-size:var(--fs-sm)}
@@ -478,10 +481,13 @@
 /* Author display:flex beats the UA [hidden] rule ? keep alerts dismissible via hidden. */
 .alert[hidden]{display:none!important}
 .alert-body{flex:1;min-width:0}
-.alert-ok,.alert-success{background:var(--ok-bg);border-color:color-mix(in srgb,var(--ok) 25%,transparent);color:var(--ok)}
-.alert-warn,.alert-warning{background:var(--warn-bg);border-color:color-mix(in srgb,var(--warn) 25%,transparent);color:var(--warn)}
-.alert-err,.alert-error{background:var(--err-bg);border-color:color-mix(in srgb,var(--err) 25%,transparent);color:var(--err)}
-.alert-info{background:var(--info-bg);border-color:color-mix(in srgb,var(--info) 25%,transparent);color:var(--info)}
+/* The state colour marks the edge; the message itself stays in body text so it
+   reads at full contrast (state-coloured text on a state tint did not). */
+.alert-ok,.alert-success,.alert-warn,.alert-warning,.alert-err,.alert-error,.alert-info{color:var(--text);border-left-width:3px}
+.alert-ok,.alert-success{background:var(--ok-bg);border-color:color-mix(in srgb,var(--ok) 25%,transparent);border-left-color:var(--ok)}
+.alert-warn,.alert-warning{background:var(--warn-bg);border-color:color-mix(in srgb,var(--warn) 25%,transparent);border-left-color:var(--warn)}
+.alert-err,.alert-error{background:var(--err-bg);border-color:color-mix(in srgb,var(--err) 25%,transparent);border-left-color:var(--err)}
+.alert-info{background:var(--info-bg);border-color:color-mix(in srgb,var(--info) 25%,transparent);border-left-color:var(--info)}
 .alert-close{margin-left:auto;background:none;border:none;cursor:pointer;color:currentColor;opacity:.5;padding:0;line-height:1}
 .alert-close:hover{opacity:1}
 

@@ -4,7 +4,7 @@
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20261123-v3">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20261124-lot3">
 {% endblock %}
 
 {% block content %}
@@ -66,6 +66,20 @@
     </div>
   </div>
 {%- endmacro %}
+{% macro tile_body(app, state=none) -%}
+  {% set problem = (app.status_badges or []) | selectattr('key', 'in', ['down', 'degraded']) | first %}
+  {{ app_tile_icon(app) }}
+  <span class="app-tile-text">
+    <span class="app-tile-name">{{ app.label }}{% if app.is_favorite %}<span class="app-tile-pin" title="{{ _('Accès rapide') }}"><span class="visually-hidden">{{ _('Accès rapide') }}</span><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z"/></svg></span>{% endif %}</span>
+    {% if state %}
+    <span class="app-tile-state">{{ state }}</span>
+    {% elif problem %}
+    <span class="app-tile-state app-tile-state--{{ problem.key }}">{{ _(problem.label) }}</span>
+    {% elif app.description %}
+    <span class="app-tile-desc">{{ app.description }}</span>
+    {% endif %}
+  </span>
+{%- endmacro %}
 {% macro app_tile(app, id_prefix='') -%}
   {% set tile_id = (id_prefix ~ app.slug) if id_prefix else ('app-' ~ app.slug) %}
   {% set fuzzy = app.label ~ ' ' ~ (app.description or '') ~ ' ' ~ app.slug %}
@@ -80,15 +94,13 @@
   >
     <div
       id="{{ tile_id }}"
-      class="admin-card app-tile app-tile--okta app-tile--disabled"
+      class="app-tile app-tile--okta app-tile--disabled"
       data-app-id="{{ app.id }}"
       data-app-slug="{{ app.slug }}"
       title="{{ _('Cette application nécessite une configuration par votre administrateur avant le premier accès.') }}"
       aria-disabled="true"
     >
-      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="{{ _('Accès rapide') }}">★</span>{% endif %}
-      {{ app_tile_icon(app) }}
-      <span class="app-tile-name truncate" title="{{ app.label }}">{{ app.label }}</span>
+      {{ tile_body(app, state=_('Configuration requise')) }}
     </div>
     {{ tile_menu(app, locked_label='Configuration requise') }}
   </div>
@@ -103,7 +115,7 @@
     <button
       type="button"
       id="{{ tile_id }}"
-      class="admin-card app-tile app-tile--okta"
+      class="app-tile app-tile--okta"
       data-app-id="{{ app.id }}"
       data-app-slug="{{ app.slug }}"
       data-credential-mode="identite_utilisateur"
@@ -114,9 +126,7 @@
       {% if app.identity_cache_enabled %}data-identity-cache="1"{% endif %}
       {% if app.identity_cached %}data-identity-cached="1"{% endif %}
     >
-      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="{{ _('Accès rapide') }}">★</span>{% endif %}
-      {{ app_tile_icon(app) }}
-      <span class="app-tile-name truncate" title="{{ app.label }}">{{ app.label }}</span>
+      {{ tile_body(app, state=none) }}
     </button>
     {{ tile_menu(app, show_password=true, can_open=true) }}
   </div>
@@ -131,16 +141,14 @@
     <a
       id="{{ tile_id }}"
       href="{{ app.launch_url }}"
-      class="admin-card app-tile app-tile--okta"
+      class="app-tile app-tile--okta"
       data-app-id="{{ app.id }}"
       data-app-slug="{{ app.slug }}"
       data-credential-mode="{{ app.credential_mode | default('shared') }}"
       data-app-label="{{ app.label }}"
       {% if app.access_mode != 'legacy_path_proxy' %}target="_blank" rel="noopener noreferrer"{% endif %}
     >
-      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="{{ _('Accès rapide') }}">★</span>{% endif %}
-      {{ app_tile_icon(app) }}
-      <span class="app-tile-name truncate" title="{{ app.label }}">{{ app.label }}</span>
+      {{ tile_body(app, state=none) }}
     </a>
     {{ tile_menu(app, can_open=true) }}
   </div>
@@ -154,15 +162,13 @@
   >
     <div
       id="{{ tile_id }}"
-      class="admin-card app-tile app-tile--okta app-tile--disabled"
+      class="app-tile app-tile--okta app-tile--disabled"
       data-app-id="{{ app.id }}"
       data-app-slug="{{ app.slug }}"
       title="{{ _('Accès lecture seule — ouverture non autorisée') }}"
       aria-disabled="true"
     >
-      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="{{ _('Accès rapide') }}">★</span>{% endif %}
-      {{ app_tile_icon(app) }}
-      <span class="app-tile-name truncate" title="{{ app.label }}">{{ app.label }}</span>
+      {{ tile_body(app, state=_('Lecture seule')) }}
     </div>
     {{ tile_menu(app, locked_label='Lecture seule') }}
   </div>
@@ -176,60 +182,34 @@
 {% endif %}
 
 <main class="portal-main portal-main--apps" id="portal-content">
-  {% if activesync_pending_count|default(0) %}
-  <div class="card" style="margin-bottom:var(--sp-4); border-color:var(--color-warn, #d97706);">
-    <div class="card-body" style="display:flex; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; align-items:center;">
-      <div>
-        <strong>{{ _('Nouvel appareil mobile') }}</strong>
-        <p class="text-2" style="margin:var(--sp-1) 0 0;">
-          {{ activesync_pending_count }} appareil{{ 's' if activesync_pending_count > 1 else '' }}
-{{ _('en attente de validation.') }}
+  <header class="portal-launcher-head">
+    <h1 class="page-title">{{ _('Bonjour {name}').format(name=greeting_name) }}</h1>
+    {% if apps %}
+    <p class="page-sub">
+      {% if apps | length == 1 %}{{ _('1 application') }}{% else %}{{ _('{n} applications').format(n=apps | length) }}{% endif %}
+    </p>
+    {% endif %}
+  </header>
 
-        </p>
-      </div>
-      <a class="btn btn-primary btn-sm" href="/profile#section-devices">{{ _('Vérifier') }}</a>
+  {% if activesync_pending_count|default(0) %}
+  <div class="alert alert-warn portal-notice" role="status">
+    <div class="alert-body">
+      <strong>{{ _('Nouvel appareil mobile') }}</strong>
+      {% if activesync_pending_count == 1 %}{{ _('1 appareil en attente de validation.') }}{% else %}{{ _('{n} appareils en attente de validation.').format(n=activesync_pending_count) }}{% endif %}
     </div>
+    <a class="btn btn-secondary btn-sm" href="/profile#section-devices">{{ _('Vérifier') }}</a>
   </div>
   {% endif %}
-  <section class="portal-hero">
-    <div class="portal-hero-copy">
-      <p class="portal-eyebrow">{{ _('Espace utilisateur') }}</p>
-      <h1 class="page-title">{{ _('Bonjour {name}').format(name=greeting_name) }}</h1>
-      <p class="page-sub">
-        {% if apps %}
-          {% if apps | length == 1 %}
-            {{ _('1 application accessible via Bastion Pro') }}
-          {% else %}
-            {{ _('{n} applications accessibles via Bastion Pro').format(n=apps | length) }}
-          {% endif %}
-        {% else %}
-{{ _('Aucune application disponible pour le moment') }}
-
-        {% endif %}
-      </p>
-    </div>
-    {% if apps %}
-    <label class="topbar-search portal-hero-search" for="app-search">
-      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      <input type="search" id="app-search" placeholder="{{ _('Rechercher une application…') }}" autocomplete="off" aria-label="{{ _('Recherche applications') }}">
-    </label>
-    {% endif %}
-  </section>
 
   {% if apps %}
-  <div class="portal-apps-toolbar">
-    <p class="portal-apps-summary" aria-label="{{ _('Résumé') }}">
-      {% set n_apps = apps | length %}
-      {% set n_open = apps | selectattr('can_launch') | list | length %}
-      {% if n_apps == 1 %}{{ _('1 application') }}{% else %}{{ _('{n} applications').format(n=n_apps) }}{% endif %}
-      <span class="portal-apps-summary-sep" aria-hidden="true">·</span>
-      {% if n_open == 1 %}{{ _('1 ouvrable') }}{% else %}{{ _('{n} ouvrables').format(n=n_open) }}{% endif %}
-      {% set managed = apps | selectattr('access_level', 'equalto', 'manage') | list | length %}
-      {% if managed %}
-      <span class="portal-apps-summary-sep" aria-hidden="true">·</span>
-      {% if managed == 1 %}{{ _('1 étendue') }}{% else %}{{ _('{n} étendues').format(n=managed) }}{% endif %}
-      {% endif %}
-    </p>
+  <div class="portal-launcher-bar">
+    <label class="portal-launcher-search" for="app-search">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <span class="visually-hidden">{{ _('Recherche applications') }}</span>
+      <input type="search" id="app-search" placeholder="{{ _('Ouvrir une application') }}" autocomplete="off" enterkeyhint="go" aria-describedby="app-search-help" aria-keyshortcuts="Control+K Meta+K /">
+      <kbd class="portal-launcher-kbd" aria-hidden="true" data-shortcut-label>Ctrl K</kbd>
+    </label>
+    <p class="visually-hidden" id="app-search-help">{{ _('Tapez pour filtrer, Entrée ouvre la première application trouvée.') }}</p>
     <fieldset class="portal-view-toggle" aria-label="{{ _('Mode d’affichage') }}">
       <button type="button" class="portal-view-btn is-active" data-apps-view="grid" aria-pressed="true" title="{{ _('Vue grille') }}">
         <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
@@ -248,50 +228,29 @@
     </fieldset>
   </div>
 
-  <div class="portal-apps-workspace">
-    <nav class="portal-apps-nav" aria-label="{{ _('Sections applications') }}">
-      <p class="portal-apps-nav-label">{{ _('Mes apps') }}</p>
-      <ul class="portal-apps-nav-list">
-        {% for section in apps_sections %}
-        <li>
-          <a
-            class="portal-apps-nav-link"
-            href="#section-{{ section.id }}"
-            data-section-nav="{{ section.id }}"
-          >{{ section.label }}</a>
-        </li>
-        {% endfor %}
-      </ul>
-    </nav>
-
-    <div class="portal-apps-primary">
-      {% for section in apps_sections %}
-      <section
-        class="portal-apps-section"
-        id="section-{{ section.id }}"
-        data-apps-section="{{ section.id }}"
-      >
-        <header class="portal-apps-section-head">
-          <h2 class="portal-apps-section-title">{{ section.label }}</h2>
-          <span class="portal-apps-section-count">{{ section.apps | length }}</span>
-        </header>
-        {% if section.is_favorites and not section.apps %}
-        <p class="portal-apps-empty-fav">
-{{ _('Aucun accès rapide pour le moment. Ouvrez le menu') }} <strong>…</strong> {{ _('d’une application et choisissez') }} <em>{{ _('Ajouter aux Accès rapides') }}</em>.
-        </p>
-        {% else %}
-        <div class="admin-grid portal-app-grid" data-apps-view="grid">
-          {% for app in section.apps %}
-            {{ app_tile(app, id_prefix=('app-fav-' if section.is_favorites else 'app-')) }}
-          {% endfor %}
-        </div>
-        {% endif %}
-      </section>
+  {# Favourites first. A section heading only appears when there is more than one
+     section; while searching, the favourites section hides so each app shows once. #}
+  {% set show_heads = apps_sections | length > 1 %}
+  {% for section in apps_sections %}
+  <section
+    class="portal-apps-section"
+    id="section-{{ section.id }}"
+    data-apps-section="{{ section.id }}"
+    {% if section.is_favorites %}data-apps-favorites{% endif %}
+    {% if show_heads %}aria-labelledby="section-{{ section.id }}-title"{% else %}aria-label="{{ section.label }}"{% endif %}
+  >
+    {% if show_heads %}
+    <h2 class="portal-apps-section-title" id="section-{{ section.id }}-title">{{ section.label }}</h2>
+    {% endif %}
+    <div class="portal-app-grid" data-apps-view="grid">
+      {% for app in section.apps %}
+        {{ app_tile(app, id_prefix=('app-fav-' if section.is_favorites else 'app-')) }}
       {% endfor %}
-      <p class="portal-apps-hint" id="portal-filter-empty" hidden>{{ _('Aucune application ne correspond à votre recherche.') }}</p>
-      <p class="portal-apps-hint">{{ _("Besoin d'un accès supplémentaire ? Contactez votre administrateur.") }}</p>
     </div>
-  </div>
+  </section>
+  {% endfor %}
+  <p class="portal-apps-hint" id="portal-filter-empty" role="status" hidden>{{ _('Aucune application ne correspond à votre recherche.') }}</p>
+  <p class="portal-apps-hint">{{ _("Besoin d'un accès supplémentaire ? Contactez votre administrateur.") }}</p>
   {% else %}
   <div class="empty-state portal-empty">
     <div class="empty-icon">
@@ -603,35 +562,94 @@
     if (saved === 'list' || saved === 'grid') setAppsView(saved);
   } catch (_) { /* ignore */ }
 
+  var searchInput = document.getElementById('app-search');
+
+  function searchQuery() {
+    return String((searchInput && searchInput.value) || '').trim();
+  }
+
   function syncSectionVisibility() {
+    var searching = searchQuery().length > 0;
     var anyVisible = false;
     document.querySelectorAll('[data-apps-section]').forEach(function (sec) {
+      // Favourites repeat apps listed below: hide them while searching so each
+      // result appears once.
+      if (searching && sec.hasAttribute('data-apps-favorites')) {
+        sec.hidden = true;
+        return;
+      }
       var tiles = sec.querySelectorAll('[data-searchable]');
       var visible = Array.prototype.some.call(tiles, function (t) {
         return !t.hidden && t.style.display !== 'none';
       });
       sec.hidden = !visible;
-      var nav = document.querySelector('[data-section-nav="' + sec.dataset.appsSection + '"]');
-      if (nav) {
-        nav.hidden = !visible;
-        var li = nav.closest('li');
-        if (li) li.hidden = !visible;
-      }
       if (visible) anyVisible = true;
     });
     if (emptyHint) {
-      var q = (document.getElementById('app-search') || {}).value || '';
-      emptyHint.hidden = anyVisible || !String(q).trim();
+      emptyHint.hidden = anyVisible || !searching;
     }
   }
 
-  var searchInput = document.getElementById('app-search');
+  function firstVisibleTile() {
+    var wraps = document.querySelectorAll('[data-apps-section]:not([hidden]) [data-searchable]');
+    for (var i = 0; i < wraps.length; i++) {
+      var w = wraps[i];
+      if (w.hidden || w.style.display === 'none') continue;
+      var tile = w.querySelector('.app-tile:not(.app-tile--disabled)');
+      if (tile) return tile;
+    }
+    return null;
+  }
+
   if (searchInput) {
     searchInput.addEventListener('input', function () {
       window.setTimeout(syncSectionVisibility, 160);
     });
     searchInput.addEventListener('search', function () {
       window.setTimeout(syncSectionVisibility, 160);
+    });
+    searchInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        // Fuse filtering is debounced: wait for it before picking the first hit.
+        e.preventDefault();
+        window.setTimeout(function () {
+          syncSectionVisibility();
+          var tile = firstVisibleTile();
+          if (!tile) return;
+          if (tile.tagName === 'A') {
+            tile.click();
+          } else {
+            launchTile(tile);
+          }
+        }, 180);
+      } else if (e.key === 'Escape' && searchInput.value) {
+        e.preventDefault();
+        searchInput.value = '';
+        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+      } else if (e.key === 'ArrowDown') {
+        var first = firstVisibleTile();
+        if (first) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    });
+
+    // Ctrl K / Cmd K anywhere, or « / » outside a field, jumps to the search.
+    var isMac = /Mac|iPhone|iPad/.test(navigator.platform || '');
+    var kbd = document.querySelector('[data-shortcut-label]');
+    if (kbd && isMac) kbd.textContent = '⌘ K';
+    document.addEventListener('keydown', function (e) {
+      var k = (e.key || '').toLowerCase();
+      var combo = k === 'k' && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
+      var t = e.target;
+      var inField = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+      var slash = k === '/' && !inField && !e.ctrlKey && !e.metaKey && !e.altKey;
+      if (!combo && !slash) return;
+      if (document.querySelector('.bastion-modal:not([hidden]), dialog[open]')) return;
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
     });
   }
   syncSectionVisibility();

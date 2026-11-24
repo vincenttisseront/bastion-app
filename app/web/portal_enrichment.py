@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import zlib
 from typing import Any
 
 from app.access_modes import normalize_access_mode
@@ -49,6 +51,31 @@ def protocol_filter_key(app: App) -> str:
     return "web"
 
 
+# Muted tones (see .app-monogram--N in bastion-portal.css); none reads as a state colour.
+MONOGRAM_TONES = 8
+_MONOGRAM_SKIP = frozenset(
+    {"de", "des", "du", "la", "le", "les", "l", "d", "et", "en", "the", "of", "and", "for"}
+)
+
+
+def monogram(label: str) -> str:
+    """One or two letters that tell apps without a logo apart (« Transfert de fichiers » → TF)."""
+    words = [w for w in re.split(r"[^\w]+", label or "") if w]
+    significant = [w for w in words if w.lower() not in _MONOGRAM_SKIP] or words
+    if not significant:
+        return "?"
+    if len(significant) == 1:
+        word = significant[0]
+        # Acronyms stay upper case (CRM → CR); words read as a name (Wiki → Wi).
+        return word[:2].upper() if word.isupper() else word[:2].capitalize()
+    return (significant[0][:1] + significant[1][:1]).upper()
+
+
+def monogram_tone(slug: str) -> int:
+    """Stable tone index: the same app keeps its colour across sessions and users."""
+    return zlib.crc32((slug or "").encode("utf-8")) % MONOGRAM_TONES
+
+
 def enrich_tile(app: App, tile: dict[str, Any]) -> dict[str, Any]:
     badges: list[dict[str, str]] = []
     prot = _protection_badge(app)
@@ -62,6 +89,8 @@ def enrich_tile(app: App, tile: dict[str, Any]) -> dict[str, Any]:
     tile["protocol_filter"] = key
     tile["protocol_label"] = SECTION_LABELS.get(key, "Application")
     tile["auth_mode"] = normalize_auth_mode(getattr(app, "auth_mode", None))
+    tile["monogram"] = monogram(tile.get("label") or app.label or "")
+    tile["monogram_tone"] = monogram_tone(tile.get("slug") or app.slug or "")
     return tile
 
 

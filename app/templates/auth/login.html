@@ -210,8 +210,6 @@
         <a href="/auth/forgot-password{% if native_realm_slug %}?realm={{ native_realm_slug }}{% endif %}">{{ _('Mot de passe oublié ?') }}</a>
       </p>
       {% endif %}
-      {% elif not oauth2_url and not show_breakglass %}
-      <p class="login-sub">{{ _("Aucun mode de connexion n'est disponible depuis cette adresse.") }}</p>
       {% endif %}
 
       {% if show_breakglass and not mfa_step and has_sso %}
@@ -274,7 +272,11 @@
       </form>
     </div>
     {% elif not has_sso and not mfa_step %}
-    <p class="login-sub">{{ _("Aucun mode de connexion n'est disponible depuis cette adresse.") }}</p>
+    {# One message, said once, with what to do next. #}
+    <div class="login-unavailable" role="status">
+      <p class="login-unavailable-title">{{ _("Aucun mode de connexion n'est disponible depuis cette adresse.") }}</p>
+      <p class="login-unavailable-hint">{{ _("Connectez-vous depuis le réseau de l'entreprise ou par son VPN. Si vous y êtes déjà, contactez votre administrateur.") }}</p>
+    </div>
     {% endif %}
 
     {% if show_access_request | default(false) and not mfa_step %}

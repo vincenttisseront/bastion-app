@@ -3354,5 +3354,17 @@
   "Fenêtre de contexte non prise en charge.": "Unsupported context window.",
   "Aller au contenu": "Skip to content",
   "Ouvrir le menu": "Open menu",
-  "Fermer le menu": "Close menu"
+  "Fermer le menu": "Close menu",
+  "Ouvrir une application": "Open an application",
+  "Tapez pour filtrer, Entrée ouvre la première application trouvée.": "Type to filter; Enter opens the first match.",
+  "1 appareil en attente de validation.": "1 device awaiting approval.",
+  "{n} appareils en attente de validation.": "{n} devices awaiting approval.",
+  "Connectez-vous depuis le réseau de l'entreprise ou par son VPN. Si vous y êtes déjà, contactez votre administrateur.": "Sign in from the company network or its VPN. If you already are, contact your administrator.",
+  "Cette adresse ne correspond à aucune page. Le lien est peut-être ancien ou incomplet.": "This address does not match any page. The link may be old or incomplete.",
+  "— cette adresse ne correspond à aucune page. Le lien est peut-être ancien ou incomplet.": "— this address does not match any page. The link may be old or incomplete.",
+  "Retour à mes applications": "Back to my applications",
+  "Documents et logiciels mis à votre disposition.": "Documents and software made available to you.",
+  "Envoyer des fichiers": "Upload files",
+  "Aucun fichier pour l’instant": "No files yet",
+  "Les fichiers que l’on partage avec vous apparaîtront ici.": "Files shared with you will appear here."
 }
