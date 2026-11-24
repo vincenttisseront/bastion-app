@@ -195,36 +195,21 @@ document.addEventListener('DOMContentLoaded', function () {
     form.addEventListener('submit', function (e) {
       if (form.dataset.confirmed === '1') return;
       e.preventDefault();
+      closeRowMenus(null);
       var label = form.dataset.appLabel || BastionI18n.t('cette application');
       var slug = form.dataset.appSlug || '';
-      var run = function (ok) {
+      if (!window.bastionConfirmTyped) return;
+      window.bastionConfirmTyped({
+        title: BastionI18n.t('Supprimer « {name} » ?').replace('{name}', label),
+        label: BastionI18n.t('Identifiant de l’application'),
+        message: BastionI18n.t('Les droits, les secrets du coffre et les appareils ActiveSync de cette application seront supprimés, puis la configuration nginx régénérée. Cette action est irréversible.'),
+        expected: slug,
+        confirmLabel: BastionI18n.t('Supprimer l’application'),
+      }).then(function (ok) {
         if (!ok) return;
         form.dataset.confirmed = '1';
         form.requestSubmit();
-      };
-      if (!window.bastionPrompt) return;
-      // Typing the slug makes a stray click impossible.
-      var ask = function (error) {
-        closeRowMenus(null);
-        window.bastionPrompt({
-          label: BastionI18n.t('Identifiant de l’application'),
-          title: BastionI18n.t('Supprimer « {name} » ?').replace('{name}', label),
-          message:
-            BastionI18n.t('Les droits, les secrets du coffre et les appareils ActiveSync de cette application seront supprimés, puis la configuration nginx régénérée. Cette action est irréversible.') +
-            '\n\n' + BastionI18n.t('Saisissez {slug} pour confirmer.').replace('{slug}', slug) +
-            (error ? '\n\n' + error : ''),
-          placeholder: slug,
-          confirmLabel: BastionI18n.t('Supprimer l’application'),
-        }).then(function (value) {
-          if (value == null) return;
-          if (String(value).trim() !== slug) {
-            ask(BastionI18n.t('Le texte saisi ne correspond pas.'));
-            return;
-          }
-          run(true);
-        });
-      };
-      ask('');
+      });
     });
   });
 

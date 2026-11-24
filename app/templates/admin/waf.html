@@ -3,7 +3,7 @@
 {% block title %}WAF{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20261124-lot4">
+<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20261124-lot5">
 {% endblock %}
 
 {% block breadcrumb %}Admin / {{ _('Sécurité') }} / WAF{% endblock %}
@@ -1539,7 +1539,7 @@
                 <td class="mono">{% if e.created_at %}{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
                 <td class="bp-row-actions">
                   <form method="post" action="/admin/security/waf/allowlist/{{ e.id }}/remove" class="inline-form"
-                        onsubmit="return confirm('Retirer cette entrée allowlist ?');">
+                        data-confirm="{{ _('Retirer cette entrée allowlist ?') }}">
                     <button type="submit" class="btn btn-ghost btn-sm">{{ _('Retirer') }}</button>
                   </form>
                 </td>

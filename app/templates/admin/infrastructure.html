@@ -71,16 +71,16 @@
       {% if host_apply.log_text %}
       <details style="margin-top:var(--sp-3);">
         <summary class="form-help" style="cursor:pointer;">{{ _('Journal apply hôte') }}</summary>
-        <pre class="mono" style="margin:var(--sp-2) 0 0;white-space:pre-wrap;max-height:16rem;overflow:auto;padding:var(--sp-3);background:var(--bg-elevated, rgba(0,0,0,.25));border-radius:6px;">{{ host_apply.log_text }}</pre>
+        <pre class="mono" style="margin:var(--sp-2) 0 0;white-space:pre-wrap;max-height:16rem;overflow:auto;padding:var(--sp-3);background:var(--bg-tertiary);border-radius:6px;">{{ host_apply.log_text }}</pre>
       </details>
       {% endif %}
     </div>
   </div>
 
   {% if manifest.error %}
-  <div class="card" style="margin-bottom:var(--sp-4);border-color:var(--danger, #b91c1c);">
+  <div class="card" style="margin-bottom:var(--sp-4);border-color:var(--err);">
     <div class="card-body">
-      <strong style="color:var(--danger, #b91c1c);">{{ _("Dernière erreur d'export") }}</strong>
+      <strong style="color:var(--err);">{{ _("Dernière erreur d'export") }}</strong>
       <p class="mono" style="margin:var(--sp-2) 0 0;white-space:pre-wrap;">{{ manifest.error }}</p>
     </div>
   </div>

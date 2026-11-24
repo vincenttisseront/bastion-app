@@ -116,7 +116,7 @@
         event.preventDefault();
         var email = btn.dataset.userEmail || '';
         var realm = btn.dataset.realm || '';
-        if (email) window.disconnectUser(email, realm);
+        if (email) window.disconnectUser(email, realm, btn.dataset.sessionCount);
       }
     });
   }
@@ -209,6 +209,11 @@
       out = out.split('{' + k + '}').join(String(vars[k]));
     });
     return out;
+  }
+
+  // « 1 session » / « 3 sessions »: never « session(s) ».
+  function sessionsLabel(n) {
+    return Number(n) === 1 ? BastionI18n.t('1 session') : tf('{n} sessions', { n: n });
   }
 
   function pad2(n) {
@@ -820,10 +825,8 @@
         var selected = g.user_email === selectedEmail;
         var initial = (g.user && g.user[0] ? g.user[0] : '?').toUpperCase();
         var subParts = [];
-        if (g.realm) subParts.push(escapeHtml(g.realm));
-        subParts.push(
-          escapeHtml(String(g.session_count)) + ' ' + escapeHtml(BastionI18n.t('session(s)'))
-        );
+        if (g.realm) subParts.push('<span class="mono">' + escapeHtml(g.realm) + '</span>');
+        subParts.push(escapeHtml(sessionsLabel(g.session_count)));
         var logoutHint = g.sso_logout
           ? '<div class="sessions-user-logout mono" title="' +
             escapeHtml(g.sso_logout.residual_note || '') +
@@ -849,7 +852,7 @@
           '<div class="sessions-user-name">' +
           escapeHtml(g.user) +
           '</div>' +
-          '<div class="sessions-user-sub mono">' +
+          '<div class="sessions-user-sub">' +
           subParts.join(' · ') +
           '</div>' +
           '<div class="sessions-user-families">' +
@@ -940,13 +943,13 @@
     var disconnectBtn = '';
     if (isAdmin && g.show_disconnect !== false && (g.has_oidc || g.has_app)) {
       disconnectBtn =
-        '<button type="button" class="btn btn-danger btn-sm" ' +
+        '<button type="button" class="btn btn-secondary btn-sm" ' +
         'title="' +
         BastionI18n.t(
           'Révoque sessions robotic/vault + session native portail + logout Keycloak. Hors break-glass. Cookie oauth2-proxy résiduel ~1h possible.'
         ) +
         '" ' +
-        'data-session-action="disconnect-user" data-user-email="' +
+        'data-session-action="disconnect-user" data-session-count="' + escapeHtml(String(g.session_count || 0)) + '" data-user-email="' +
         escapeHtml(g.user_email) +
         '" data-realm="' +
         escapeHtml(g.realm) +
@@ -978,7 +981,7 @@
     title.className = 'sessions-detail-title';
     title.textContent = g.user || '';
     var sub = document.createElement('p');
-    sub.className = 'sessions-detail-sub mono';
+    sub.className = 'sessions-detail-sub';
     sub.textContent =
       (g.user_email || '') +
       (g.realm ? ' · ' + g.realm : g.has_breakglass ? ' · ' + BastionI18n.t('hors realm (break-glass)') : '');
@@ -994,9 +997,7 @@
     var countBadge = document.createElement('span');
     countBadge.className = 'badge badge-' + stateClass(g.live_status);
     countBadge.textContent =
-      String(g.session_count) +
-      ' ' +
-      BastionI18n.t('session(s)') +
+      sessionsLabel(g.session_count) +
       (g.online_count ? ' · ' + tf('{n} en ligne', { n: g.online_count }) : '');
     actions.appendChild(countBadge);
     if (disconnectBtn) {
@@ -1034,11 +1035,16 @@
     bindSessionActionClicks(detail);
   }
 
-  window.disconnectUser = async function (userEmail, realmSlug) {
+  window.disconnectUser = async function (userEmail, realmSlug, sessionCount) {
+    var closing = sessionCount
+      ? (Number(sessionCount) === 1
+          ? BastionI18n.t('1 session sera fermée.')
+          : tf('{n} sessions seront fermées.', { n: sessionCount })) + '\n\n'
+      : '';
     var ok = window.bastionConfirm
       ? await window.bastionConfirm({
           title: BastionI18n.t('Déconnecter cet utilisateur ?'),
-          message: BastionI18n.t(
+          message: closing + BastionI18n.t(
             'Révoque les sessions robotic/vault, la session native portail '
             + '(bastion_session) et demande le logout Keycloak. Le break-glass '
             + 'n’est pas concerné. Un éventuel cookie oauth2-proxy peut rester '
@@ -1249,7 +1255,7 @@
 
   var PILL_LABELS = {
     connecting: 'Connexion…',
-    live: 'Live',
+    live: 'En direct',
     stale: 'Reconnexion…',
     polling: 'Différé',
   };
@@ -1260,7 +1266,7 @@
     pill.dataset.mode = mode;
     pill.classList.toggle('is-stale', mode !== 'live');
     var label = document.getElementById('sessions-live-label');
-    if (label) label.textContent = BastionI18n.t(PILL_LABELS[mode] || 'Live');
+    if (label) label.textContent = BastionI18n.t(PILL_LABELS[mode] || 'En direct');
     refreshPillTitle();
   }
 

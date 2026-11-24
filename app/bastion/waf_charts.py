@@ -209,7 +209,9 @@ def render_donut_chart(
     empty_message: str = "Aucune famille détectée",
 ) -> str:
     total = sum(int(it.get(value_key) or 0) for it in items)
-    colors = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#64748b"]
+    # Series tones come from the theme (waf-sentinel.css .waf-series-N), so the
+    # chart follows light / dark and the palette lives in one place.
+    n_tones = 6
     cx, cy, r, ri = 88, height // 2 + 8, 52, 32
     parts = [
         f'<svg class="waf-chart waf-chart-donut" viewBox="0 0 {width} {height}" '
@@ -221,7 +223,7 @@ def render_donut_chart(
         # Empty ring at 0 — keeps the same visual language as an active donut.
         parts.append(
             f'<circle cx="{cx}" cy="{cy}" r="{(r + ri) / 2:.1f}" fill="none" '
-            f'stroke="#e2e8f0" stroke-width="{r - ri}"/>'
+            f'class="waf-donut-empty" stroke-width="{r - ri}"/>'
         )
         parts.append(
             f'<text class="waf-chart-donut-center" x="{cx}" y="{cy - 2}" text-anchor="middle">0</text>'
@@ -252,9 +254,9 @@ def render_donut_chart(
         xi2 = cx + ri * math.cos(start)
         yi2 = cy + ri * math.sin(start)
         large = 1 if angle > math.pi else 0
-        color = colors[i % len(colors)]
+        tone = f"waf-series-{i % n_tones}"
         parts.append(
-            f'<path fill="{color}" d="M{x1:.1f},{y1:.1f} A{r},{r} 0 {large},1 {x2:.1f},{y2:.1f} '
+            f'<path class="{tone}" d="M{x1:.1f},{y1:.1f} A{r},{r} 0 {large},1 {x2:.1f},{y2:.1f} '
             f'L{xi1:.1f},{yi1:.1f} A{ri},{ri} 0 {large},0 {xi2:.1f},{yi2:.1f} Z">'
             f'<title>{_esc(it.get(label_key, ""))}: {val}</title></path>'
         )
@@ -266,10 +268,10 @@ def render_donut_chart(
     )
     ly = 36
     for i, it in enumerate(items):
-        color = colors[i % len(colors)]
+        tone = f"waf-series-{i % n_tones}"
         val = int(it.get(value_key) or 0)
         lx = 180
-        parts.append(f'<rect x="{lx}" y="{ly - 10}" width="10" height="10" rx="2" fill="{color}"/>')
+        parts.append(f'<rect x="{lx}" y="{ly - 10}" width="10" height="10" rx="2" class="{tone}"/>')
         parts.append(
             f'<text class="waf-chart-legend" x="{lx + 16}" y="{ly - 1}">'
             f'{_esc(it.get(label_key, ""))} ({val})</text>'
@@ -382,8 +384,8 @@ def render_dual_area_chart(
         f'<rect class="sentinel-chart-bg" width="{width}" height="{height}" rx="10"/>',
         f'<text class="sentinel-chart-title" x="{pad_l}" y="20">{_esc(title)}</text>',
         f'<text class="sentinel-chart-legend" x="{width - pad_r}" y="20" text-anchor="end">'
-        f'<tspan fill="#64748b">●</tspan> {_esc(primary_label)}  '
-        f'<tspan fill="#ef4444">●</tspan> {_esc(secondary_label)}</text>',
+        f'<tspan class="waf-key-primary">●</tspan> {_esc(primary_label)}  '
+        f'<tspan class="waf-key-secondary">●</tspan> {_esc(secondary_label)}</text>',
     ]
     if all_zero and zero_caption:
         parts.append(
@@ -475,17 +477,17 @@ def render_health_gauge(
     circ = 2 * math.pi * r
     offset = circ * (1 - score / 100)
     if score >= 75:
-        color = "#10b981"
+        tone = "ok"
     elif score >= 50:
-        color = "#f59e0b"
+        tone = "warn"
     else:
-        color = "#ef4444"
+        tone = "err"
     parts = [
         f'<svg class="waf-chart waf-chart-gauge sentinel-chart" viewBox="0 0 {width} {height}" '
         f'width="100%" height="{height}" role="img" aria-label="{_esc(title)}: {score}%">',
         f'<circle class="sentinel-gauge-track" cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke-width="10"/>',
-        f'<circle class="sentinel-gauge-fill" cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke-width="10" '
-        f'stroke="{color}" stroke-dasharray="{circ:.1f}" stroke-dashoffset="{offset:.1f}" '
+        f'<circle class="sentinel-gauge-fill sentinel-gauge-fill--{tone}" cx="{cx}" cy="{cy}" r="{r}" '
+        f'fill="none" stroke-width="10" stroke-dasharray="{circ:.1f}" stroke-dashoffset="{offset:.1f}" '
         f'transform="rotate(-90 {cx} {cy})"/>',
         f'<text class="sentinel-gauge-value" x="{cx}" y="{cy + 2}" text-anchor="middle">{score}</text>',
         f'<text class="sentinel-gauge-label" x="{cx}" y="{cy + 18}" text-anchor="middle">/100</text>',
@@ -534,10 +536,10 @@ def render_attack_heatmap(
         for ci, val in enumerate(row[:cols]):
             x = label_w + ci * cell_w
             intensity = val / max_v
-            fill = f"rgba(239,68,68,{0.12 + intensity * 0.88:.2f})"
+            opacity = f"{0.12 + intensity * 0.88:.2f}"
             parts.append(
-                f'<rect x="{x:.1f}" y="{y + 2}" width="{cell_w - 2}" height="{row_height - 4}" '
-                f'rx="2" fill="{fill}">'
+                f'<rect class="sentinel-heatmap-cell" x="{x:.1f}" y="{y + 2}" width="{cell_w - 2}" '
+                f'height="{row_height - 4}" rx="2" fill-opacity="{opacity}">'
                 f'<title>{_esc(row_labels[ri])} · {_esc(col_labels[ci] if ci < len(col_labels) else "")}: {val}</title>'
                 f"</rect>"
             )

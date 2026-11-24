@@ -36,7 +36,7 @@
         Statut : <code class="mono">{{ host_apply.status_path }}</code>
       </p>
       {% if host_apply.log_text %}
-      <pre class="mono" style="margin:var(--sp-3) 0 0;white-space:pre-wrap;max-height:14rem;overflow:auto;padding:var(--sp-3);background:var(--bg-elevated, rgba(0,0,0,.25));border-radius:6px;">{{ host_apply.log_text }}</pre>
+      <pre class="mono" style="margin:var(--sp-3) 0 0;white-space:pre-wrap;max-height:14rem;overflow:auto;padding:var(--sp-3);background:var(--bg-tertiary);border-radius:6px;">{{ host_apply.log_text }}</pre>
       {% endif %}
       <div style="margin-top:var(--sp-4);display:flex;gap:var(--sp-2);flex-wrap:wrap;">
         <a class="btn btn-secondary btn-sm" href="{{ refresh_url }}">{{ _('Actualiser') }}</a>

@@ -28,23 +28,24 @@
       </div>
       <div class="gate-stats">
         <div class="gate-stat">
-          <span class="gate-stat-num tabular" data-dash="gate-allowed">{{ '—' if passage.allowed_total is none else passage.allowed_total }}</span>
+          <span class="gate-stat-num tabular" data-dash="gate-allowed" data-flash>{{ '—' if passage.allowed_total is none else passage.allowed_total }}</span>
           <span class="gate-stat-lbl">{{ _('autorisés') }}</span>
         </div>
         <a class="gate-stat gate-stat--refused" href="/admin/security/waf#bans-unified" data-dash-card="blocked">
-          <span class="gate-stat-num tabular" data-dash="blocked-value">{{ "—" if metrics.blocked_attempts is none else metrics.blocked_attempts }}</span>
+          <span class="gate-stat-num tabular" data-dash="blocked-value" data-flash>{{ "—" if metrics.blocked_attempts is none else metrics.blocked_attempts }}</span>
           <span class="gate-stat-lbl">{{ _('refusés') }}</span>
         </a>
         <a class="gate-stat" href="/sessions" data-dash-card="sessions">
-          <span class="gate-stat-num tabular" data-dash="sessions-total">{{ metrics.active_sessions | default(0) }}</span>
+          <span class="gate-stat-num tabular" data-dash="sessions-total" data-flash>{{ metrics.active_sessions | default(0) }}</span>
           <span class="gate-stat-lbl">{{ _('sessions ouvertes') }}</span>
           <span class="gate-stat-sub" aria-label="{{ _('Sessions utilisateurs et applicatives') }}">
-            <span class="tabular" data-dash="sessions-user">{{ metrics.active_sessions_user | default(0) }}</span> <span>{{ _('utilisateurs') }}</span>,
-            <span class="tabular" data-dash="sessions-app">{{ metrics.active_sessions_app | default(0) }}</span> <span>{{ _('applicatives') }}</span>
+            {# Label before the number: no singular/plural agreement to get wrong. #}
+            <span>{{ _('utilisateurs') }}</span> <span class="tabular" data-dash="sessions-user">{{ metrics.active_sessions_user | default(0) }}</span>,
+            <span>{{ _('applicatives') }}</span> <span class="tabular" data-dash="sessions-app">{{ metrics.active_sessions_app | default(0) }}</span>
           </span>
         </a>
         <a class="gate-stat" href="/admin/apps" data-dash-card="apps">
-          <span class="gate-stat-num tabular" data-dash="apps-value">{{ metrics.enabled_apps | default(0) }}/{{ metrics.total_apps | default(0) }}</span>
+          <span class="gate-stat-num tabular" data-dash="apps-value" data-flash>{{ metrics.enabled_apps | default(0) }}/{{ metrics.total_apps | default(0) }}</span>
           <span class="gate-stat-lbl">{{ _('applications actives') }}</span>
         </a>
       </div>
@@ -92,7 +93,7 @@
     <div class="card" id="pending-actions">
       <div class="card-header">
         <h2 class="card-title">{{ _('Éléments en attente') }}</h2>
-        <span class="badge badge-muted" data-dash="pending-badge">{% if pending_total %}{{ pending_total }}{% else %}{{ _('À jour') }}{% endif %}</span>
+        <span class="badge badge-muted" data-dash="pending-badge" data-flash>{% if pending_total %}{{ pending_total }}{% else %}{{ _('À jour') }}{% endif %}</span>
       </div>
       <div class="pending-queue" data-dash="pending-list">
         {% for item in pending_entries %}
@@ -174,10 +175,37 @@
   var inFlight = false;
 
   function $(sel) { return root.querySelector(sel); }
+  var primed = false;  // the first refresh only fills in, it never flashes
+
+  function flash(el) {
+    if (!el) return;
+    el.classList.remove('is-changed');
+    void el.offsetWidth;  // restart the animation when values change twice in a row
+    el.classList.add('is-changed');
+    window.setTimeout(function () { el.classList.remove('is-changed'); }, 1300);
+  }
+
   function text(sel, value) {
     var el = $(sel);
-    if (el) el.textContent = value == null ? '' : String(value);
+    if (!el) return;
+    var next = value == null ? '' : String(value);
+    if (el.textContent.trim() === next) return;
+    el.textContent = next;
+    if (primed && el.hasAttribute('data-flash')) flash(el);
   }
+
+  // The passage line draws itself once per browser session.
+  (function drawGateOnce() {
+    var gate = $('[data-dash="gate"]');
+    if (!gate || !gate.querySelector('.gate-svg')) return;
+    var KEY = 'bp-gate-drawn';
+    try {
+      if (window.sessionStorage.getItem(KEY)) return;
+      window.sessionStorage.setItem(KEY, '1');
+    } catch (_) { return; }
+    gate.classList.add('is-drawing');
+    window.setTimeout(function () { gate.classList.remove('is-drawing'); }, 1000);
+  })();
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;')
@@ -219,8 +247,12 @@
     }).join('');
   }
 
+  var seenAudit = null;  // ids rendered last time; new ones flash once
+
   function renderAudit(list, entries) {
     if (!list) return;
+    var previous = seenAudit;
+    seenAudit = (entries || []).map(function (e) { return String(e.id); });
     if (entries === null) {
       list.innerHTML =
         '<div class="empty-state">' +
@@ -242,7 +274,7 @@
         .filter(Boolean).join(' · ');
       var when = (e.count > 1 && e.time_first ? esc(e.time_first) + '–' : '') + esc(e.time);
       return (
-        '<a class="audit-entry audit-entry-link" data-searchable ' +
+        '<a class="audit-entry audit-entry-link' + (primed && previous && previous.indexOf(String(e.id)) === -1 ? ' is-new' : '') + '" data-searchable ' +
         'href="/admin/logs?id=' + encodeURIComponent(e.id) + '#audit" ' +
         'title="' + esc(e.action) + (e.event_code ? ' · ' + esc(e.event_code) : '') + '">' +
         '<span class="audit-dot ' + esc(e.severity || '') + '" aria-hidden="true"></span>' +
@@ -327,7 +359,13 @@
 
     text('[data-dash="live-label"]', BastionI18n.t('En direct'));
     var pill = $('[data-dash="live-pill"]');
-    if (pill) pill.classList.remove('is-stale');
+    if (pill) {
+      pill.classList.remove('is-stale');
+      pill.classList.remove('is-tick');
+      void pill.offsetWidth;
+      pill.classList.add('is-tick');
+    }
+    primed = true;
   }
 
   function markError() {

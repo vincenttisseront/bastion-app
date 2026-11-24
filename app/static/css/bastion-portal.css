@@ -1168,7 +1168,7 @@ button.app-tile {
 
 .portal-links-fqdn {
   font-size: var(--fs-xs, 0.75rem);
-  color: var(--text-2, #6b7280);
+  color: var(--text-2);
 }
 
 .portal-security-actions {
@@ -1208,8 +1208,8 @@ button.app-tile {
 }
 
 .password-policy-item.is-met .password-policy-icon {
-  border-color: var(--color-ok, #16a34a);
-  background: var(--color-ok, #16a34a);
+  border-color: var(--ok);
+  background: var(--ok);
 }
 
 .password-policy-item.is-met .password-policy-icon::after {
@@ -1219,7 +1219,7 @@ button.app-tile {
   top: 0.15rem;
   width: 0.28rem;
   height: 0.55rem;
-  border: solid #fff;
+  border: solid var(--on-state);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }

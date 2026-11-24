@@ -4,7 +4,7 @@
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20261124-lot4">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20261124-lot5">
 {% endblock %}
 
 {% block content %}
@@ -18,7 +18,7 @@
 
 <main class="portal-main portal-main--profile" id="portal-content">
   {% if activesync_pending_count %}
-  <div class="card" style="margin-bottom:var(--sp-4); border-color:var(--color-warn, #d97706);">
+  <div class="card" style="margin-bottom:var(--sp-4); border-color:var(--warn);">
     <div class="card-body" style="display:flex; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; align-items:center;">
       <div>
         <strong>{{ _('Nouvel appareil mobile') }}</strong>
@@ -262,7 +262,7 @@
                     {% endif %}
                     {% elif d.status == 'approved' %}
                     <form method="post" action="/profile/activesync/devices/{{ d.id }}/revoke" style="display:inline;"
-                          onsubmit="return confirm({{ _('Révoquer cet appareil ? La sync sera refusée.')|tojson }});">
+                          data-confirm="{{ _('Révoquer cet appareil ? La sync sera refusée.') }}">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                       <button type="submit" class="btn btn-ghost btn-sm">{{ _('Révoquer') }}</button>
                     </form>
@@ -367,7 +367,7 @@
                       <td>
                         {% if not s.is_current %}
                         <form method="post" action="/profile/sessions/revoke" style="display:inline;"
-                              onsubmit="return confirm({{ _('Couper cette connexion ?')|tojson }});">
+                              data-confirm="{{ _('Couper cette connexion ?') }}">
                           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                           <input type="hidden" name="session_kind" value="{{ s.kind }}">
                           <input type="hidden" name="session_id" value="{{ s.id }}">
@@ -384,7 +384,7 @@
               </div>
               {% if session_summary.others_count > 0 %}
               <form method="post" action="/profile/sessions/revoke-others" style="margin-top:var(--sp-3);"
-                    onsubmit="return confirm({{ _('Couper toutes les autres connexions ?')|tojson }});">
+                    data-confirm="{{ _('Couper toutes les autres connexions ?') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button type="submit" class="btn btn-ghost btn-sm">{{ _('Couper toutes les autres connexions') }}</button>
               </form>

@@ -162,11 +162,11 @@
       <div class="stats-row mb-4" style="display:flex;gap:1.5rem;flex-wrap:wrap">
         <div>
           <div class="form-hint">{{ _('Clients actifs') }}</div>
-          <div class="mono" style="font-size:1.25rem;color:var(--ok,#3d9)">{{ mtls.counts.active | default(0) }}</div>
+          <div class="mono" style="font-size:1.25rem;color:var(--ok)">{{ mtls.counts.active | default(0) }}</div>
         </div>
         <div>
           <div class="form-hint">{{ _('Révoqués') }}</div>
-          <div class="mono" style="font-size:1.25rem;color:var(--err,#e55)">{{ mtls.counts.revoked | default(0) }}</div>
+          <div class="mono" style="font-size:1.25rem;color:var(--err)">{{ mtls.counts.revoked | default(0) }}</div>
         </div>
         <div>
           <div class="form-hint">{{ _('Total') }}</div>
@@ -252,7 +252,7 @@
                   <td>
                     {% if c.status == 'active' %}
                     <form method="post" action="/admin/security/mtls/revoke/{{ c.app_name }}" style="display:inline"
-                          onsubmit="return confirm('Révoquer l\'accès mTLS pour {{ c.app_name }} ?');">
+                          data-confirm="{{ _('Révoquer l’accès mTLS pour {name} ?').format(name=c.app_name) }}">
                       <button type="submit" class="btn btn-danger btn-sm">{{ _('Révoquer l\'accès') }}</button>
                     </form>
                     {% else %}

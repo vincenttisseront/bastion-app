@@ -62,9 +62,9 @@
     <div class="card-body">
       <div class="stats-row" style="display:flex;gap:1.5rem;flex-wrap:wrap">
         <div><div class="form-hint">{{ _('Domaines') }}</div><div class="mono" style="font-size:1.25rem" id="acme-count-total">{{ counts.total }}</div></div>
-        <div><div class="form-hint">OK</div><div class="mono" style="font-size:1.25rem;color:var(--ok,#3d9)" id="acme-count-ok">{{ counts.ok }}</div></div>
-        <div><div class="form-hint">{{ _('Renew ≤30j') }}</div><div class="mono" style="font-size:1.25rem;color:var(--warn,#c90)" id="acme-count-renew">{{ counts.renew_soon }}</div></div>
-        <div><div class="form-hint">Manquants / placeholder</div><div class="mono" style="font-size:1.25rem;color:var(--err,#e55)" id="acme-count-missing">{{ counts.missing }}</div></div>
+        <div><div class="form-hint">OK</div><div class="mono" style="font-size:1.25rem;color:var(--ok)" id="acme-count-ok">{{ counts.ok }}</div></div>
+        <div><div class="form-hint">{{ _('Renew ≤30j') }}</div><div class="mono" style="font-size:1.25rem;color:var(--warn)" id="acme-count-renew">{{ counts.renew_soon }}</div></div>
+        <div><div class="form-hint">Manquants / placeholder</div><div class="mono" style="font-size:1.25rem;color:var(--err)" id="acme-count-missing">{{ counts.missing }}</div></div>
       </div>
       <p class="form-help mt-3 mb-0" id="acme-reconcile-summary">
         {{ _('Dernière réconciliation :') }}
@@ -99,7 +99,7 @@
       </div>
     </div>
     <div class="card-body" style="padding:0">
-      <pre id="acme-log-view" class="mono" style="margin:0;padding:1rem;max-height:22rem;overflow:auto;font-size:0.75rem;line-height:1.45;background:var(--surface-2,rgba(0,0,0,.25));border:0;white-space:pre-wrap;word-break:break-word">{{ _('Chargement des logs sidecar…') }}</pre>
+      <pre id="acme-log-view" class="mono" style="margin:0;padding:1rem;max-height:22rem;overflow:auto;font-size:0.75rem;line-height:1.45;background:var(--bg-tertiary);border:0;white-space:pre-wrap;word-break:break-word">{{ _('Chargement des logs sidecar…') }}</pre>
     </div>
   </div>
 

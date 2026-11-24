@@ -362,7 +362,7 @@ body.app-layout{display:flex;min-height:100vh}
 /* ---------- Off-canvas sidebar below 1024px ----------
    The sidebar keeps its markup; under 1024px it slides over the content from the
    left. visibility:hidden while closed keeps its links out of the tab order.
-   Enter 240ms decelerating, exit 180ms accelerating (bastion.js toggles the class). */
+   Enter --dur-3 decelerating, exit 25 % shorter accelerating (bastion.js toggles the class). */
 .sidebar-toggle{display:none}
 .sidebar-scrim{display:none}
 @media (max-width:1023.98px){
@@ -372,15 +372,15 @@ body.app-layout{display:flex;min-height:100vh}
     width:min(280px,85vw);height:100%;
     box-shadow:var(--sh-lg);
     transform:translateX(-100%);visibility:hidden;
-    transition:transform 180ms cubic-bezier(.4,0,1,1),visibility 0s linear 180ms;
+    transition:transform calc(var(--dur-3) * .75) var(--ease-in),visibility 0s linear calc(var(--dur-3) * .75);
   }
   body.app-layout.sidebar-open .sidebar{
     transform:none;visibility:visible;
-    transition:transform 240ms cubic-bezier(.32,.72,0,1),visibility 0s;
+    transition:transform var(--dur-3) var(--ease-out),visibility 0s;
   }
   .sidebar-scrim{
     display:block;position:fixed;inset:0;z-index:55;background:var(--overlay-scrim);
-    opacity:0;pointer-events:none;transition:opacity 200ms ease-out;
+    opacity:0;pointer-events:none;transition:opacity var(--dur-2) var(--ease-out);
   }
   body.sidebar-open .sidebar-scrim{opacity:1;pointer-events:auto}
   body.sidebar-open{overflow:hidden}

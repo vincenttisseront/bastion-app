@@ -110,13 +110,13 @@
 
 .sessions-family-oidc {
   background: color-mix(in srgb,var(--info) 12%,transparent);
-  color: #3b82f6;
+  color: var(--info);
   border-color: transparent;
 }
 
 .sessions-family-breakglass {
   background: color-mix(in srgb,var(--warn) 14%,transparent);
-  color: #b45309;
+  color: var(--warn);
   border-color: transparent;
 }
 
@@ -129,12 +129,12 @@
 .sessions-user-logout {
   margin-top: 0.3rem;
   font-size: var(--fs-2xs);
-  color: #b45309;
+  color: var(--warn);
   line-height: 1.3;
 }
 
 .sessions-user-item.has-sso-logout {
-  border-left-color: #f59e0b;
+  border-left-color: var(--warn);
 }
 
 .session-sso-logout-banner {
@@ -143,7 +143,7 @@
   border-radius: var(--r-md);
   background: color-mix(in srgb,var(--warn) 12%,transparent);
   border: 1px solid color-mix(in srgb,var(--warn) 35%,transparent);
-  color: #92400e;
+  color: var(--warn);
   font-size: var(--fs-sm);
   font-weight: 600;
 }
@@ -158,12 +158,12 @@
 
 .proto-tag.oidc {
   background: color-mix(in srgb,var(--info) 12%,transparent);
-  color: #3b82f6;
+  color: var(--info);
 }
 
 .proto-tag.breakglass {
   background: color-mix(in srgb,var(--warn) 14%,transparent);
-  color: #b45309;
+  color: var(--warn);
 }
 
 .sessions-user-list {
@@ -360,12 +360,12 @@
 }
 
 .session-row-icon--oidc {
-  color: #3b82f6;
+  color: var(--info);
   background: color-mix(in srgb,var(--info) 12%,transparent);
 }
 
 .session-row-icon--breakglass {
-  color: #b45309;
+  color: var(--warn);
   background: color-mix(in srgb,var(--warn) 14%,transparent);
 }
 
@@ -430,11 +430,11 @@ body.session-detail-open {
 .session-detail-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--overlay-scrim);
   z-index: 9000;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--dur-2) var(--ease-out);
 }
 
 .session-detail-backdrop.is-open {
@@ -450,9 +450,9 @@ body.session-detail-open {
   height: 100%;
   background: var(--bg-card);
   border-left: 1px solid var(--border);
-  box-shadow: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.18));
+  box-shadow: var(--sh-lg);
   transform: translateX(100%);
-  transition: transform 0.2s ease;
+  transition: transform calc(var(--dur-3) * .75) var(--ease-in);
   z-index: 9001;
   display: flex;
   flex-direction: column;
@@ -460,6 +460,7 @@ body.session-detail-open {
 
 .session-detail-drawer.is-open {
   transform: translateX(0);
+  transition: transform var(--dur-3) var(--ease-out);
 }
 
 .session-detail-drawer[hidden],
@@ -532,12 +533,12 @@ body.session-detail-open {
 
 .proto-tag.oidc {
   background: color-mix(in srgb,var(--info) 12%,transparent);
-  color: #3b82f6;
+  color: var(--info);
 }
 
 .proto-tag.breakglass {
   background: color-mix(in srgb,var(--warn) 14%,transparent);
-  color: #b45309;
+  color: var(--warn);
 }
 
 .session-verified-meta {
@@ -598,7 +599,7 @@ body.session-detail-open {
   border-radius: var(--r-md);
   background: color-mix(in srgb,var(--warn) 12%,transparent);
   border: 1px solid color-mix(in srgb,var(--warn) 35%,transparent);
-  color: #92400e;
+  color: var(--warn);
   font-size: var(--fs-sm);
   font-weight: 600;
 }
