@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "admin/apps/_delete_confirm.html" import delete_confirm_attrs %}
 {% block title %}{{ _('Applications') }}{% endblock %}
 {% block breadcrumb %}Admin / Applications{% endblock %}
 
@@ -109,8 +110,7 @@
                             data-vfs-base="{{ app.crushftp_vfs_base_path }}"
                             data-realm-slug="{{ app.realm_slug or '' }}">{{ _('Importer sociétés') }}</button>
                     {% endif %}
-                    <form method="post" action="/admin/apps/{{ app.slug }}/delete" class="inline-form" data-app-delete
-                          data-app-label="{{ app.label }}" data-app-slug="{{ app.slug }}">
+                    <form method="post" action="/admin/apps/{{ app.slug }}/delete" class="inline-form" {{ delete_confirm_attrs(app) }}>
                       <button type="submit" role="menuitem" class="row-menu-item row-menu-item--danger">{{ _('Supprimer…') }}</button>
                     </form>
                   </div>
@@ -191,26 +191,9 @@ document.addEventListener('DOMContentLoaded', function () {
   var chips = document.querySelectorAll('#admin-apps-mode-filter .filter-chip');
   var rows = document.querySelectorAll('#apps-table tbody tr[data-searchable]');
 
-  document.querySelectorAll('form[data-app-delete]').forEach(function (form) {
-    form.addEventListener('submit', function (e) {
-      if (form.dataset.confirmed === '1') return;
-      e.preventDefault();
-      closeRowMenus(null);
-      var label = form.dataset.appLabel || BastionI18n.t('cette application');
-      var slug = form.dataset.appSlug || '';
-      if (!window.bastionConfirmTyped) return;
-      window.bastionConfirmTyped({
-        title: BastionI18n.t('Supprimer « {name} » ?').replace('{name}', label),
-        label: BastionI18n.t('Identifiant de l’application'),
-        message: BastionI18n.t('Les droits, les secrets du coffre et les appareils ActiveSync de cette application seront supprimés, puis la configuration nginx régénérée. Cette action est irréversible.'),
-        expected: slug,
-        confirmLabel: BastionI18n.t('Supprimer l’application'),
-      }).then(function (ok) {
-        if (!ok) return;
-        form.dataset.confirmed = '1';
-        form.requestSubmit();
-      });
-    });
+  // Deletion asks for the slug (data-confirm-typed, bastion.js); close the menu behind the modal.
+  document.querySelectorAll('form[data-app-delete] button').forEach(function (btn) {
+    btn.addEventListener('click', function () { closeRowMenus(null); });
   });
 
   // Row menu (⋯): one open at a time, Escape and outside click close it.

@@ -59,20 +59,33 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!msg) return;
       e.preventDefault();
       e.stopPropagation();
-      if (!window.bastionConfirm) return;
-      window
-        .bastionConfirm({
-          title: form.dataset.confirmTitle || BastionI18n.t('Confirmation'),
-          message: msg,
-          confirmLabel: form.dataset.confirmLabel || BastionI18n.t('Confirmer'),
-          danger: form.dataset.confirmDanger !== '0',
-        })
-        .then(function (ok) {
-          if (!ok) return;
-          form.dataset.bastionConfirmOk = '1';
-          if (typeof form.requestSubmit === 'function') form.requestSubmit();
-          else form.submit();
-        });
+      // data-confirm-typed="<text>": the user must type <text> (e.g. an app slug) to confirm.
+      var typed = form.dataset.confirmTyped;
+      var ask = typed
+        ? window.bastionConfirmTyped && function () {
+            return window.bastionConfirmTyped({
+              title: form.dataset.confirmTitle || BastionI18n.t('Confirmation'),
+              label: form.dataset.confirmTypedLabel || '',
+              message: msg,
+              expected: typed,
+              confirmLabel: form.dataset.confirmLabel || BastionI18n.t('Confirmer'),
+            });
+          }
+        : window.bastionConfirm && function () {
+            return window.bastionConfirm({
+              title: form.dataset.confirmTitle || BastionI18n.t('Confirmation'),
+              message: msg,
+              confirmLabel: form.dataset.confirmLabel || BastionI18n.t('Confirmer'),
+              danger: form.dataset.confirmDanger !== '0',
+            });
+          };
+      if (!ask) return;
+      ask().then(function (ok) {
+        if (!ok) return;
+        form.dataset.bastionConfirmOk = '1';
+        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+        else form.submit();
+      });
     },
     true
   );
