@@ -122,6 +122,37 @@ def get_dashboard_metrics(db: Session, settings: Settings | None = None) -> dict
     }
 
 
+def humanize_audit_entries(
+    entries: list[dict[str, Any]] | None, *, locale: str | None = None
+) -> list[dict[str, Any]] | None:
+    """Readable titles from the event catalogue; consecutive repeats folded into one row.
+
+    The raw action stays available as ``action`` (shown as secondary detail).
+    """
+    if entries is None:
+        return None
+    from app.audit.event_catalog import resolve_event
+
+    out: list[dict[str, Any]] = []
+    for entry in entries:
+        event = resolve_event(action=entry.get("action"), code=entry.get("event_code") or None)
+        title = event.title(locale)
+        if event.label == "UNCATALOGUED_EVENT":
+            title = entry.get("action") or title
+        prev = out[-1] if out else None
+        if (
+            prev is not None
+            and prev["action"] == entry.get("action")
+            and prev["target"] == entry.get("target")
+            and prev["user"] == entry.get("user")
+        ):
+            prev["count"] += 1
+            prev["time_first"] = entry.get("time") or prev["time_first"]
+            continue
+        out.append({**entry, "title": title, "count": 1, "time_first": entry.get("time")})
+    return out
+
+
 def get_dashboard_snapshot(
     db: Session,
     settings: Settings,
@@ -138,11 +169,14 @@ def get_dashboard_snapshot(
         db=db,
     )
     recent_audit = audit_page[0] if audit_page else None
+    from app.web.passage_series import build_passage_series
+
     return {
         "now": utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
         "metrics": metrics,
         "pending_queue": pending_queue,
-        "recent_audit": recent_audit,
+        "recent_audit": humanize_audit_entries(recent_audit, locale=locale),
+        "passage": build_passage_series(db, settings),
     }
 
 

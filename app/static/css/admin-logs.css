@@ -203,3 +203,32 @@
   .logs-filters-check-label{float:none;display:block;width:auto;padding:0 0 .35rem}
   .logs-toolbar .form-select{min-width:0;flex:1 1 12rem}
 }
+
+/* ---------- Lot 4: results above the fold ----------
+   One bar (search, period, more filters, actions); the rest folds away and
+   active filters show as removable chips above the table. */
+.logs-summary-line{
+  display:flex;flex-wrap:wrap;align-items:center;gap:.25rem 1.5rem;
+  margin:0 0 var(--sp-4);font-size:var(--fs-sm);color:var(--text-2);
+}
+.logs-summary-line strong{color:var(--text);font-weight:600}
+.logs-summary-item.is-err{color:var(--err)}
+.logs-summary-line .logs-hash{margin-left:.35rem;color:var(--text-3)}
+.logs-filters-bar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.75rem 1rem}
+.logs-filters-bar > .logs-filter-field{flex:0 0 9.5rem}
+.logs-filters-bar > .logs-filter-grow{flex:1 1 18rem;grid-column:auto}
+.logs-filters-bar-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin-left:auto}
+.logs-more-btn .badge{margin-left:.25rem}
+.logs-more{display:flex;flex-direction:column;gap:1rem;padding-top:1rem;border-top:1px solid var(--border-muted)}
+.logs-more[hidden]{display:none}
+.logs-filters-check-label{width:7.5rem}
+/* Targets: 32 px on desktop, 44 px on touch widths. */
+.logs-filters .btn,.logs-views .btn,.logs-filter-field .form-input,.logs-filter-field .form-select{min-height:32px}
+.logs-result-checks label{min-height:28px}
+@media (max-width:768px){
+  .logs-filters .btn,.logs-views .btn,.logs-filter-field .form-input,.logs-filter-field .form-select,.logs-result-checks label{min-height:44px}
+  .logs-filters-bar > .logs-filter-field{flex:1 1 45%}
+  .logs-filters-bar-actions{margin-left:0}
+  .logs-filters-check-label{float:none;width:auto;padding:0 0 .35rem}
+}
+.logs-summary-item{white-space:nowrap}

@@ -12,17 +12,18 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">{{ _('Sécurité') }}</h1>
-      <p class="page-sub">{{ _('TLS, SSO, break-glass, chiffrement, anti-abus') }}</p>
+      <p class="page-sub">{{ _('L’état de chaque protection, puis son réglage.') }}</p>
     </div>
   </div>
 
   <div class="tabs" role="tablist" aria-label="{{ _('Sections sécurité') }}" id="security-tabs">
-    <a href="#api" class="tab active" role="tab" data-tab="api" id="tab-api" aria-selected="true">{{ _('Clés API') }}</a>
+    <a href="#overview" class="tab active" role="tab" data-tab="overview" id="tab-overview" aria-selected="true">{{ _('Vue d’ensemble') }}</a>
+    <a href="#api" class="tab" role="tab" data-tab="api" id="tab-api">{{ _('Jeton interne') }}</a>
     <a href="#tls" class="tab" role="tab" data-tab="tls" id="tab-tls">TLS</a>
     <a href="#mtls" class="tab" role="tab" data-tab="mtls" id="tab-mtls">{{ _('Confiance mTLS') }}</a>
     <a href="#subdomain-sso" class="tab" role="tab" data-tab="subdomain-sso" id="tab-subdomain-sso">{{ _('SSO sous-domaine') }}</a>
     <a href="#breakglass-jwt" class="tab" role="tab" data-tab="breakglass-jwt" id="tab-breakglass-jwt">
-      Break-glass JWT
+      {{ _('Accès d’urgence') }}
       {% if breakglass_secret and not breakglass_secret.conforming %}
       <span class="badge badge-err tab-badge">!</span>
       {% elif breakglass_secret and breakglass_secret.conforming %}
@@ -30,34 +31,107 @@
       {% endif %}
     </a>
     <a href="#vault" class="tab" role="tab" data-tab="vault" id="tab-vault">
-      Coffre Fernet
+      {{ _('Coffre-fort') }}
       {% if vault_key and vault_key.status_badge == 'recommended' %}
       <span class="badge badge-warn tab-badge">!</span>
       {% endif %}
     </a>
     <a href="#db-encryption" class="tab" role="tab" data-tab="db-encryption" id="tab-db-encryption">
-      Chiffrement DB
+      {{ _('Chiffrement de la base') }}
       {% if db_encryption and db_encryption.status_badge in ('warn', 'error') %}
       <span class="badge badge-warn tab-badge">!</span>
       {% elif db_encryption and db_encryption.status_badge == 'ok' %}
       <span class="badge badge-ok tab-badge">OK</span>
       {% endif %}
     </a>
-    <a href="#misc" class="tab" role="tab" data-tab="misc" id="tab-misc">Misc</a>
-    <a href="#banning" class="tab" role="tab" data-tab="banning" id="tab-banning">Banning</a>
-    <a href="#container-logs" class="tab" role="tab" data-tab="container-logs" id="tab-container-logs">Logs containers</a>
+    <a href="#misc" class="tab" role="tab" data-tab="misc" id="tab-misc">{{ _('Anti-abus') }}</a>
+    <a href="#banning" class="tab" role="tab" data-tab="banning" id="tab-banning">{{ _('Bannissements') }}</a>
+    <a href="#container-logs" class="tab" role="tab" data-tab="container-logs" id="tab-container-logs">{{ _('Journaux des conteneurs') }}</a>
   </div>
 
-  <div class="form-section security-panel" id="api" role="tabpanel" aria-labelledby="tab-api">
+  {# Overview: every protection as one line with its state and a way in. #}
+  {% set bans_n = (security_bans | default([])) | length %}
+  {% macro sec_row(title, state, text, tab, detail='') -%}
+  <li class="sec-row">
+    <span class="state-dot state-dot--{{ state }}" aria-hidden="true"></span>
+    <div class="sec-row-main">
+      <span class="sec-row-title">{{ title }}</span>
+      <span class="sec-row-text">{{ text }}</span>
+      {% if detail %}<span class="sec-row-detail">{{ detail }}</span>{% endif %}
+    </div>
+    <a class="sec-row-link" href="#{{ tab }}" data-tab="{{ tab }}">{{ _('Ouvrir') }}<span class="visually-hidden"> {{ title }}</span></a>
+  </li>
+  {%- endmacro %}
+  <div class="security-panel sec-overview" id="overview" role="tabpanel" aria-labelledby="tab-overview">
+    <section class="sec-group" aria-labelledby="sec-g-crypto">
+      <h2 class="sec-group-title" id="sec-g-crypto">{{ _('Chiffrement') }}</h2>
+      <ul class="sec-list">
+        {% if vault_key %}
+          {% if vault_key.status_badge == 'ok' %}{{ sec_row(_('Coffre-fort des secrets'), 'ok', _('Clé de chiffrement à jour.'), 'vault') }}
+          {% elif vault_key.status_badge == 'rotating' %}{{ sec_row(_('Coffre-fort des secrets'), 'warn', _('Rotation de clé en cours.'), 'vault') }}
+          {% else %}{{ sec_row(_('Coffre-fort des secrets'), 'warn', _('À revoir : rotation de la clé recommandée.'), 'vault') }}{% endif %}
+        {% else %}{{ sec_row(_('Coffre-fort des secrets'), 'off', _('État indisponible.'), 'vault') }}{% endif %}
+        {% set dbs = db_encryption.status_badge if db_encryption else 'off' %}
+        {% if dbs == 'ok' %}{{ sec_row(_('Chiffrement de la base'), 'ok', _('Activé.'), 'db-encryption') }}
+        {% elif dbs == 'error' %}{{ sec_row(_('Chiffrement de la base'), 'err', _('En erreur : vérifier la clé.'), 'db-encryption') }}
+        {% elif dbs == 'warn' %}{{ sec_row(_('Chiffrement de la base'), 'warn', _('À revoir.'), 'db-encryption') }}
+        {% else %}{{ sec_row(_('Chiffrement de la base'), 'off', _('Désactivé.'), 'db-encryption') }}{% endif %}
+        {{ sec_row(_('Certificats TLS'), 'off', _('Certificats publics et renouvellement ACME.'), 'tls') }}
+      </ul>
+    </section>
+
+    <section class="sec-group" aria-labelledby="sec-g-emergency">
+      <h2 class="sec-group-title" id="sec-g-emergency">{{ _('Accès d’urgence') }}</h2>
+      <ul class="sec-list">
+        {% if breakglass_secret and breakglass_secret.conforming %}{{ sec_row(_('Signature des sessions d’urgence'), 'ok', _('Secret conforme.'), 'breakglass-jwt') }}
+        {% elif breakglass_secret %}{{ sec_row(_('Signature des sessions d’urgence'), 'err', _('À revoir : secret non conforme.'), 'breakglass-jwt') }}
+        {% else %}{{ sec_row(_('Signature des sessions d’urgence'), 'off', _('État indisponible.'), 'breakglass-jwt') }}{% endif %}
+        {% if breakglass_ip_allowed %}{{ sec_row(_('Accès d’urgence depuis votre adresse'), 'ok', _('Autorisé depuis cette adresse IP.'), 'misc') }}
+        {% else %}{{ sec_row(_('Accès d’urgence depuis votre adresse'), 'off', _('Refusé depuis cette adresse IP (hors réseau local ou liste d’autorisation).'), 'misc') }}{% endif %}
+      </ul>
+    </section>
+
+    <section class="sec-group" aria-labelledby="sec-g-network">
+      <h2 class="sec-group-title" id="sec-g-network">{{ _('Réseau') }}</h2>
+      <ul class="sec-list">
+        {% if internal_token_set | default(true) %}{{ sec_row(_('Jeton interne'), 'ok', _('Configuré : seuls les services du bastion transmettent une identité.'), 'api') }}
+        {% else %}{{ sec_row(_('Jeton interne'), 'err', _('Absent : les appels internes sont refusés.'), 'api') }}{% endif %}
+        {% if mtls and mtls.ca %}{{ sec_row(_('Confiance mTLS'), 'ok', _('{n} certificat(s) client actif(s).').format(n=mtls.counts.active | default(0)), 'mtls') }}
+        {% else %}{{ sec_row(_('Confiance mTLS'), 'off', _('Aucune autorité de certification configurée.'), 'mtls') }}{% endif %}
+        {% if subdomain_sso_enabled %}{{ sec_row(_('SSO par sous-domaine'), 'ok', _('Activé pour {n} application(s).').format(n=subdomain_apps | length), 'subdomain-sso') }}
+        {% else %}{{ sec_row(_('SSO par sous-domaine'), 'off', _('Désactivé.'), 'subdomain-sso') }}{% endif %}
+      </ul>
+    </section>
+
+    <section class="sec-group" aria-labelledby="sec-g-abuse">
+      <h2 class="sec-group-title" id="sec-g-abuse">{{ _('Anti-abus') }}</h2>
+      <ul class="sec-list">
+        {% if not security_policy or security_policy.enabled %}{{ sec_row(_('Moteur anti-abus'), 'ok', _('Activé : échecs de connexion et martèlement sont bannis automatiquement.'), 'misc') }}
+        {% else %}{{ sec_row(_('Moteur anti-abus'), 'warn', _('Désactivé : les règles de bannissement sont inopérantes.'), 'misc') }}{% endif %}
+        {{ sec_row(_('Bannissements actifs'), 'off', (_('Aucun.') if not bans_n else _('{n} adresse(s) ou compte(s) bannis.').format(n=bans_n)), 'banning') }}
+        {% if container_logs_settings and container_logs_settings.enabled %}{{ sec_row(_('Journaux des conteneurs'), 'ok', _('Consultables depuis les journaux.'), 'container-logs') }}
+        {% else %}{{ sec_row(_('Journaux des conteneurs'), 'off', _('Désactivés.'), 'container-logs') }}{% endif %}
+      </ul>
+    </section>
+  </div>
+
+  <div class="form-section security-panel" id="api" role="tabpanel" aria-labelledby="tab-api" hidden>
     <div class="form-section-header">
-      <div class="form-section-title">{{ _('Clés API internes') }}</div>
-      <div class="form-section-sub">Routes machine-to-machine <span class="mono">/api/admin/*</span></div>
+      <div class="form-section-title">{{ _('Jeton interne') }}</div>
+      <div class="form-section-sub">{{ _('Appels entre services du bastion') }}</div>
     </div>
     <div class="form-body">
       <p class="form-prose">
-{{ _('Token interne configuré via') }} <code class="mono">vault_portal_internal_token</code>.
-        {{ _("Utilisé pour l'authentification des appels automatisés entre services.") }}
+        {{ _('nginx et les tâches planifiées prouvent au portail qu’ils font partie du bastion avec un jeton partagé. Sans lui, le portail refuse les en-têtes d’identité : personne ne peut se faire passer pour un utilisateur en appelant le portail directement.') }}
       </p>
+      <p class="form-prose">
+        <span class="state-dot state-dot--{{ 'ok' if internal_token_set | default(true) else 'err' }}" aria-hidden="true"></span>
+        {% if internal_token_set | default(true) %}{{ _('Jeton configuré.') }}{% else %}{{ _('Aucun jeton configuré : les appels internes sont refusés.') }}{% endif %}
+      </p>
+      <details class="tech-detail">
+        <summary>{{ _('Détail technique') }}</summary>
+        <p>{{ _('Variable') }} <code class="mono">vault_portal_internal_token</code>, {{ _('routes') }} <code class="mono">/api/admin/*</code>.</p>
+      </details>
     </div>
   </div>
 
@@ -643,7 +717,7 @@
     {% set allow_raw = (security_policy.breakglass_allow_cidrs if security_policy else '') or '' %}
     {% set deny_raw = (security_policy.breakglass_deny_cidrs if security_policy else '') or '' %}
     <div class="form-section-header">
-      <div class="form-section-title">{{ _('Misc — paramètres anti-abus') }}</div>
+      <div class="form-section-title">{{ _('Anti-abus') }}</div>
       <div class="form-section-sub">{{ _("Activation globale et contrôle d'accès IP break-glass") }}</div>
     </div>
     {% set ip_probe = client_ip_probe | default({}) %}
@@ -728,12 +802,12 @@
       {% set allow_count = security_allowlist | length if security_allowlist else 0 %}
 
       <div class="alert {% if policy_enabled %}alert-ok{% else %}alert-warn{% endif %} banning-global-status" role="status">
-        <strong>Moteur anti-abus global</strong> (onglet Misc) :
+        <strong>{{ _('Moteur anti-abus global') }}</strong> ({{ _('onglet Anti-abus') }}) :
         {% if policy_enabled %}
         <span class="badge badge-ok">{{ _('activé') }}</span>
         {% else %}
         <span class="badge badge-warn">{{ _('désactivé') }}</span>
-{{ _('— les règles cochées ci-dessous sont') }} <strong>{{ _('inopérantes') }}</strong> {{ _("tant que le toggle Misc n'est pas réactivé.") }}
+{{ _('— les règles cochées ci-dessous sont') }} <strong>{{ _('inopérantes') }}</strong> {{ _("tant que le moteur anti-abus n'est pas réactivé.") }}
 
         {% endif %}
       </div>
@@ -1388,8 +1462,8 @@
 {% block scripts %}
 <script>
 (function () {
-  var VALID = ['api', 'tls', 'subdomain-sso', 'breakglass-jwt', 'vault', 'db-encryption', 'misc', 'banning', 'container-logs'];
-  var DEFAULT = 'api';
+  var VALID = ['overview', 'api', 'tls', 'mtls', 'subdomain-sso', 'breakglass-jwt', 'vault', 'db-encryption', 'misc', 'banning', 'container-logs'];
+  var DEFAULT = 'overview';
 
   function currentTab() {
     var h = (location.hash || '').replace(/^#/, '');

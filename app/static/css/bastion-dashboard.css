@@ -215,3 +215,63 @@ details.login-details .form-body{padding:var(--sp-4) 0 0}
   .audit-user,.audit-time{grid-column:2}
   .form-row{grid-template-columns:1fr}
 }
+
+/* ---------- Ligne de passage (lot 4) ----------
+   Who went through the bastion, hour by hour. Allowed in neutral grey, refused
+   in the error colour, the current hour marked with the accent. */
+.tabular{font-variant-numeric:tabular-nums}
+.gate{padding:var(--sp-5) var(--sp-6);margin-bottom:var(--sp-5)}
+.gate-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:var(--sp-4) var(--sp-8);margin-bottom:var(--sp-5)}
+.gate-title{margin:0;font-size:var(--fs-md);font-weight:600;color:var(--text)}
+.gate-note{margin:var(--sp-1) 0 0;font-size:var(--fs-sm);color:var(--text-3);max-width:46ch}
+.gate-stats{display:flex;flex-wrap:wrap;gap:var(--sp-2) var(--sp-6)}
+.gate-stat{display:flex;flex-direction:column;gap:2px;min-width:0;color:inherit;text-decoration:none;border-radius:var(--r-md)}
+a.gate-stat:hover{text-decoration:none;color:inherit}
+a.gate-stat:hover .gate-stat-lbl{color:var(--text)}
+a.gate-stat:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+.gate-stat-num{font-size:var(--fs-xl);font-weight:600;line-height:1.1;color:var(--text);letter-spacing:-.01em}
+.gate-stat--refused .gate-stat-num{color:var(--err)}
+.gate-stat-lbl{font-size:var(--fs-sm);color:var(--text-2);transition:color var(--t-fast)}
+.gate-stat-sub{font-size:var(--fs-xs);color:var(--text-3)}
+.gate-strip{position:relative}
+.gate-svg{display:block;width:100%;height:120px}
+.gate-bar-bg{fill:var(--hover-bg)}
+.gate-bar-ok{fill:var(--text-3);opacity:.55}
+.gate-bar-err{fill:var(--err)}
+.gate-now{fill:var(--accent)}
+.gate-svg g:hover .gate-bar-ok{opacity:.85}
+.gate-empty{margin:0;padding:var(--sp-6) 0;text-align:center;font-size:var(--fs-sm);color:var(--text-3)}
+.gate-axis{display:flex;justify-content:space-between;margin-top:var(--sp-1);font-size:var(--fs-xs);color:var(--text-3)}
+.gate-legend{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-5);margin:var(--sp-3) 0 0;padding:0;list-style:none;font-size:var(--fs-xs);color:var(--text-2)}
+.gate-legend li{display:inline-flex;align-items:center;gap:var(--sp-2)}
+.gate-legend-detail{margin-left:auto;color:var(--text-3)}
+.gate-key{width:10px;height:10px;border-radius:2px;display:inline-block}
+.gate-key--ok{background:var(--text-3);opacity:.55}
+.gate-key--err{background:var(--err)}
+@media (max-width:640px){
+  .gate{padding:var(--sp-4)}
+  .gate-svg{height:96px}
+  .gate-legend-detail{margin-left:0}
+}
+
+/* Live pill: neutral chip, the dot alone carries the state. */
+.live-pill{color:var(--text-2);background:var(--bg-tertiary);border-color:var(--border)}
+.live-pill.is-stale{color:var(--text-2);background:var(--bg-tertiary);border-color:var(--border)}
+
+/* Pending queue: a number and an action, colour only for a real failure. */
+.pending-queue-item{grid-template-columns:1fr auto auto}
+.pending-queue-count{min-width:1.75rem;padding:1px 8px;border-radius:var(--r-full);background:var(--bg-tertiary);color:var(--text);font-size:var(--fs-xs);font-weight:600;text-align:center}
+.pending-queue-count.is-error{background:var(--err-bg);color:var(--err)}
+.pending-queue-go{font-size:var(--fs-sm);color:var(--text-link)}
+.pending-queue-item:hover .pending-queue-go{color:var(--accent-h);transform:none;text-decoration:underline}
+
+/* Recent activity: readable title first, who/what second, code on hover. */
+#dashboard-live .audit-entry{grid-template-columns:8px minmax(0,1fr) auto}
+.audit-main{min-width:0}
+#dashboard-live .audit-action{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dashboard-live .audit-target{font-family:var(--font);font-size:var(--fs-xs);color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.audit-target-id{font-family:var(--mono)}
+.audit-count{margin-left:var(--sp-1);padding:0 6px;border-radius:var(--r-full);background:var(--bg-tertiary);color:var(--text-2);font-size:var(--fs-2xs);font-weight:600}
+#dashboard-live .audit-time{font-family:var(--font);font-variant-numeric:tabular-nums}
+.pending-queue-item--warn,.pending-queue-item--info{border-left:0}
+.dash-grid--ops{align-items:start}

@@ -7,7 +7,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">{{ _('Applications') }}</h1>
-      <p class="page-sub">{{ apps | length }} {{ _('application(s) enregistrée(s)') }}</p>
+      <p class="page-sub">{% if apps | length == 1 %}{{ _('1 application enregistrée') }}{% else %}{{ _('{n} applications enregistrées').format(n=apps | length) }}{% endif %}</p>
     </div>
   </div>
 
@@ -20,7 +20,7 @@
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input type="search" id="apps-search" placeholder="{{ _('Filtrer…') }}" data-search-target="apps-table">
         </label>
-        <a href="/admin/apps/create" class="btn btn-primary btn-sm">{{ _('+ Ajouter') }}</a>
+        <a href="/admin/apps/create" class="btn btn-primary btn-sm">{{ _('Ajouter une application') }}</a>
       </div>
     </div>
     <div class="card-body" style="padding-bottom:0;">
@@ -36,7 +36,7 @@
       <div class="table-wrap">
         <table class="data-table" id="apps-table">
           <thead>
-            <tr><th>Nom</th><th>Slug</th><th>{{ _('Upstream') }}</th><th>Mode</th><th>{{ _('Statut') }}</th><th>{{ _('Actions') }}</th></tr>
+            <tr><th>{{ _('Application') }}</th><th>{{ _('Upstream') }}</th><th>{{ _('Mode') }}</th><th>{{ _('État') }}</th><th><span class="visually-hidden">{{ _('Actions') }}</span></th></tr>
           </thead>
           <tbody>
             {% for app in apps %}
@@ -47,10 +47,23 @@
               and app.crushftp_admin_base_url
               and app.crushftp_admin_username
               and app.crushftp_admin_password_encrypted %}
-            <tr data-searchable data-mode="{{ app.access_mode }}" data-fuzzy-key="{{ app.label }} {{ app.slug }} {{ app.upstream_url }} {{ app.public_fqdn or '' }}{% if driver_badge %} {{ driver_badge | lower }}{% endif %}">
+            {% set icon = app_icons.get(app.slug, {}) if app_icons is defined else {} %}
+            {% set probe = (app.last_probe_status or '') | lower %}
+            {% set probe_down = probe in ('error', 'down', 'fail', 'failed', 'critical') %}
+            {% set probe_warn = probe in ('warn', 'warning', 'degraded') %}
+            {# The whole row opens the edit form; destructive actions live in a menu. #}
+            <tr class="apps-row{% if not app.enabled %} is-disabled{% endif %}" data-searchable data-mode="{{ app.access_mode }}" data-row-href="/admin/apps/{{ app.slug }}/edit" data-fuzzy-key="{{ app.label }} {{ app.slug }} {{ app.upstream_url }} {{ app.public_fqdn or '' }}{% if driver_badge %} {{ driver_badge | lower }}{% endif %}">
               <td>
-                <span class="app-name-cell">
-                  {{ app.label }}
+                <div class="apps-identity">
+                  {% if icon.logo_url %}
+                  <span class="apps-icon apps-icon--logo"><img src="{{ icon.logo_url }}" alt="" width="32" height="32"></span>
+                  {% else %}
+                  <span class="apps-icon app-monogram app-monogram--{{ icon.monogram_tone | default(0) }}" aria-hidden="true">{{ icon.monogram | default(app.label[:1] | upper) }}</span>
+                  {% endif %}
+                  <span class="apps-identity-text">
+                    <a class="apps-name" href="/admin/apps/{{ app.slug }}/edit">{{ app.label }}</a>
+                    <span class="apps-slug">{{ app.slug }}</span>
+                  </span>
                   {% set waf = waf_by_slug.get(app.slug) if waf_by_slug is defined else none %}
                   {% if waf and waf.protected %}
                   <span class="app-waf-shield" title="{{ waf.title }}" aria-label="{{ waf.title }}">
@@ -63,36 +76,50 @@
                   </span>
                   {% endif %}
                   {% if driver_badge %}<span class="badge badge-muted">{{ driver_badge }}</span>{% endif %}
-                </span>
+                </div>
               </td>
-              <td class="mono">{{ app.slug }}</td>
-              <td class="mono truncate truncate-cell">{{ app.upstream_url }}</td>
-              <td><span class="mode-badge {{ app.access_mode }}">{{ access_mode_labels.get(app.access_mode, app.access_mode) }}</span></td>
-              <td><span class="badge badge-{{ 'ok' if app.enabled else 'muted' }}">{{ 'Actif' if app.enabled else 'Désactivé' }}</span></td>
-              <td>
-                <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2);">
-                  <a href="/admin/apps/{{ app.slug }}/edit" class="btn btn-ghost btn-sm">{{ _('Modifier') }}</a>
-                  <form method="post" action="/admin/apps/{{ app.slug }}/delete" class="inline-form" data-app-delete
-                        data-app-label="{{ app.label }}">
-                    <button type="submit" class="btn btn-danger btn-sm">{{ _('Supprimer') }}</button>
-                  </form>
-                  {% if crush_ready and realms %}
-                  <button type="button"
-                          class="btn btn-ghost btn-sm"
-                          data-crushftp-import
-                          data-app-slug="{{ app.slug }}"
-                          data-app-label="{{ app.label }}"
-                          data-vfs-base="{{ app.crushftp_vfs_base_path }}"
-                          data-realm-slug="{{ app.realm_slug or '' }}">
-                    {{ _('Importer sociétés') }}
+              <td class="mono truncate truncate-cell apps-upstream">{{ app.upstream_url }}</td>
+              <td class="apps-mode">{{ access_mode_labels.get(app.access_mode, app.access_mode) }}</td>
+              <td class="apps-state">
+                {% if not app.enabled %}
+                <span class="state-dot state-dot--off" aria-hidden="true"></span>{{ _('Désactivée') }}
+                {% elif probe_down %}
+                <span class="state-dot state-dot--err" aria-hidden="true"></span>{{ _('Injoignable') }}
+                {% elif probe_warn %}
+                <span class="state-dot state-dot--warn" aria-hidden="true"></span>{{ _('Dégradée') }}
+                {% elif probe %}
+                <span class="state-dot state-dot--ok" aria-hidden="true"></span><span class="apps-state-quiet">{{ _('Joignable') }}</span>
+                {% else %}
+                <span class="state-dot state-dot--off" aria-hidden="true"></span><span class="apps-state-quiet">{{ _('Non sondée') }}</span>
+                {% endif %}
+              </td>
+              <td class="apps-actions">
+                <div class="row-menu" data-row-menu>
+                  <button type="button" class="btn btn-ghost btn-sm row-menu-btn" aria-haspopup="menu" aria-expanded="false"
+                          aria-label="{{ _('Actions pour {name}').format(name=app.label) }}" data-row-menu-btn>
+                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
                   </button>
-                  {% endif %}
+                  <div class="row-menu-list" role="menu" hidden>
+                    <a role="menuitem" class="row-menu-item" href="/admin/apps/{{ app.slug }}/edit">{{ _('Modifier') }}</a>
+                    {% if crush_ready and realms %}
+                    <button type="button" role="menuitem" class="row-menu-item"
+                            data-crushftp-import
+                            data-app-slug="{{ app.slug }}"
+                            data-app-label="{{ app.label }}"
+                            data-vfs-base="{{ app.crushftp_vfs_base_path }}"
+                            data-realm-slug="{{ app.realm_slug or '' }}">{{ _('Importer sociétés') }}</button>
+                    {% endif %}
+                    <form method="post" action="/admin/apps/{{ app.slug }}/delete" class="inline-form" data-app-delete
+                          data-app-label="{{ app.label }}" data-app-slug="{{ app.slug }}">
+                      <button type="submit" role="menuitem" class="row-menu-item row-menu-item--danger">{{ _('Supprimer…') }}</button>
+                    </form>
+                  </div>
                 </div>
               </td>
             </tr>
             {% else %}
             <tr>
-              <td colspan="6">
+              <td colspan="5">
                 <div class="empty-state">
                   <div class="empty-icon">
                     <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/></svg>
@@ -168,25 +195,74 @@ document.addEventListener('DOMContentLoaded', function () {
     form.addEventListener('submit', function (e) {
       if (form.dataset.confirmed === '1') return;
       e.preventDefault();
-      var label = form.dataset.appLabel || 'cette application';
+      var label = form.dataset.appLabel || BastionI18n.t('cette application');
+      var slug = form.dataset.appSlug || '';
       var run = function (ok) {
         if (!ok) return;
         form.dataset.confirmed = '1';
         form.requestSubmit();
       };
-      if (window.bastionConfirm) {
-        window.bastionConfirm({
-          title: 'Supprimer l’application ?',
+      if (!window.bastionPrompt) return;
+      // Typing the slug makes a stray click impossible.
+      var ask = function (error) {
+        closeRowMenus(null);
+        window.bastionPrompt({
+          label: BastionI18n.t('Identifiant de l’application'),
+          title: BastionI18n.t('Supprimer « {name} » ?').replace('{name}', label),
           message:
-            'Supprime définitivement « ' + label + ' » (droits RBAC, credentials vault, ' +
-            'appareils ActiveSync) et régénère la config nginx. Irréversible.',
-          confirmLabel: 'Supprimer',
-          danger: true,
-        }).then(run);
-      } else if (window.confirm('Supprimer « ' + label + ' » ?')) {
-        run(true);
-      }
+            BastionI18n.t('Les droits, les secrets du coffre et les appareils ActiveSync de cette application seront supprimés, puis la configuration nginx régénérée. Cette action est irréversible.') +
+            '\n\n' + BastionI18n.t('Saisissez {slug} pour confirmer.').replace('{slug}', slug) +
+            (error ? '\n\n' + error : ''),
+          placeholder: slug,
+          confirmLabel: BastionI18n.t('Supprimer l’application'),
+        }).then(function (value) {
+          if (value == null) return;
+          if (String(value).trim() !== slug) {
+            ask(BastionI18n.t('Le texte saisi ne correspond pas.'));
+            return;
+          }
+          run(true);
+        });
+      };
+      ask('');
     });
+  });
+
+  // Row menu (⋯): one open at a time, Escape and outside click close it.
+  function closeRowMenus(except) {
+    document.querySelectorAll('[data-row-menu]').forEach(function (m) {
+      if (m === except) return;
+      var list = m.querySelector('[role="menu"]');
+      var btn = m.querySelector('[data-row-menu-btn]');
+      if (list) list.hidden = true;
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-row-menu-btn]');
+    if (btn) {
+      e.stopPropagation();
+      var menu = btn.closest('[data-row-menu]');
+      var list = menu.querySelector('[role="menu"]');
+      var open = list.hidden;
+      closeRowMenus(menu);
+      list.hidden = !open;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) {
+        var first = list.querySelector('[role="menuitem"]');
+        if (first) first.focus();
+      }
+      return;
+    }
+    if (!e.target.closest('[data-row-menu]')) closeRowMenus(null);
+    var row = e.target.closest('tr[data-row-href]');
+    if (row && !e.target.closest('a, button, input, form, [data-row-menu]')) {
+      if (window.getSelection && String(window.getSelection())) return;
+      window.location.href = row.dataset.rowHref;
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeRowMenus(null);
   });
 
   function applyFilters() {
