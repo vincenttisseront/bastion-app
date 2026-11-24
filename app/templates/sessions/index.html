@@ -2,7 +2,7 @@
 {% block title %}{{ _('Sessions Actives') }}{% endblock %}
 {% block breadcrumb %}Sessions{% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-sessions.css?v=20261124-lot4">
+<link rel="stylesheet" href="/static/css/bastion-sessions.css?v=20261124-lot5">
 {% endblock %}
 
 {% block content %}
@@ -73,7 +73,7 @@
           <div class="user-avatar sessions-user-avatar">{{ g.user[0] | upper }}</div>
           <div class="sessions-user-meta">
             <div class="sessions-user-name">{{ g.user }}</div>
-            <div class="sessions-user-sub mono">{% if g.realm %}{{ g.realm }} · {% endif %}{{ g.session_count }} {{ _('session(s)') }}</div>
+            <div class="sessions-user-sub">{% if g.realm %}<span class="mono">{{ g.realm }}</span> · {% endif %}{% if g.session_count == 1 %}{{ _('1 session') }}{% else %}{{ _('{n} sessions').format(n=g.session_count) }}{% endif %}</div>
             <div class="sessions-user-families">
               {% for f in g.auth_families | default([]) %}
               <span class="sessions-family-chip sessions-family-{{ f }}">{% if f == 'oidc' %}OIDC{% elif f == 'breakglass' %}BG{% elif f == 'app' %}APP{% else %}{{ f }}{% endif %}</span>
@@ -102,14 +102,14 @@
       <div class="sessions-detail-head">
         <div>
           <h2 class="sessions-detail-title">{{ first.user }}</h2>
-          <p class="sessions-detail-sub mono">{{ first.user_email }} · {{ first.realm }}</p>
+          <p class="sessions-detail-sub">{{ first.user_email }}{% if first.realm %} · <span class="mono">{{ first.realm }}</span>{% endif %}</p>
         </div>
         <div class="session-actions-group">
-          <span class="badge badge-{{ state_class.get(first.live_status, 'muted') }}">{{ first.session_count }} {{ _('session(s)') }}</span>
+          <span class="badge badge-{{ state_class.get(first.live_status, 'muted') }}">{% if first.session_count == 1 %}{{ _('1 session') }}{% else %}{{ _('{n} sessions').format(n=first.session_count) }}{% endif %}</span>
           {% if is_admin and first.show_disconnect %}
-          <button type="button" class="btn btn-danger btn-sm"
+          <button type="button" class="btn btn-secondary btn-sm"
                   title="{{ _('Révoque sessions robotic/vault + session native portail + logout Keycloak. Hors break-glass. Cookie oauth2-proxy résiduel ~1h possible.') }}"
-                  onclick="disconnectUser({{ first.user_email | tojson }}, {{ first.realm | tojson }})">{{ _('Déconnecter cet utilisateur') }}</button>
+                  onclick="disconnectUser({{ first.user_email | tojson }}, {{ first.realm | tojson }}, {{ first.session_count | tojson }})">{{ _('Déconnecter cet utilisateur') }}</button>
           {% elif is_admin and first.has_breakglass and not first.has_oidc and not first.has_app %}
           <span class="form-hint" title="{{ _('Break-glass n’a pas de session Keycloak') }}">{{ _('Utiliser « Révoquer » sur la session break-glass') }}</span>
           {% endif %}
@@ -207,5 +207,5 @@
   window.__SESSIONS_BOOT__ = {{ session_groups | default([]) | tojson }};
   window.__SESSIONS_SERVER_TIME__ = {{ sessions_server_time | default('') | tojson }};
 </script>
-<script src="/static/js/bastion-sessions.js?v=20261107-live"></script>
+<script src="/static/js/bastion-sessions.js?v=20261124-lot5"></script>
 {% endblock %}

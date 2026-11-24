@@ -406,13 +406,13 @@
 #waf-page .waf-drift-diff{
   margin:0;padding:.75rem .9rem;min-height:12rem;max-height:28rem;overflow:auto;
   border:1px solid var(--border-muted);border-radius:var(--r-md);
-  background:#0d1117;color:#e6edf3;font-size:.75rem;line-height:1.45;
+  background:var(--bg-base);color:var(--text);font-size:.75rem;line-height:1.45;
   white-space:pre-wrap;word-break:break-word;
 }
-#waf-page .waf-drift-diff .diff-add{color:#3fb950;background:rgba(46,160,67,.12)}
-#waf-page .waf-drift-diff .diff-del{color:#f85149;background:rgba(248,81,73,.12)}
-#waf-page .waf-drift-diff .diff-meta{color:#8b949e}
-#waf-page .waf-drift-diff .diff-hunk{color:#58a6ff}
+#waf-page .waf-drift-diff .diff-add{color:var(--ok);background:var(--ok-bg)}
+#waf-page .waf-drift-diff .diff-del{color:var(--err);background:var(--err-bg)}
+#waf-page .waf-drift-diff .diff-meta{color:var(--text-3)}
+#waf-page .waf-drift-diff .diff-hunk{color:var(--info)}
 
 /* ───────────────────────── Réactivation ───────────────────────── */
 #waf-page .waf-reactivation-actions{
@@ -499,3 +499,18 @@
   #waf-page .waf-panel{display:flex!important}
   #waf-page a[href]::after{content:none!important}
 }
+
+/* Chart colours (lot 5): classes from app/bastion/waf_charts.py, tokens only. */
+.waf-series-0{fill:var(--accent)}
+.waf-series-1{fill:var(--info)}
+.waf-series-2{fill:var(--warn)}
+.waf-series-3{fill:var(--err)}
+.waf-series-4{fill:var(--purple)}
+.waf-series-5{fill:var(--text-3)}
+.waf-donut-empty{stroke:var(--border)}
+.waf-key-primary{fill:var(--text-3)}
+.waf-key-secondary{fill:var(--err)}
+.sentinel-gauge-fill--ok{stroke:var(--ok)}
+.sentinel-gauge-fill--warn{stroke:var(--warn)}
+.sentinel-gauge-fill--err{stroke:var(--err)}
+.sentinel-heatmap-cell{fill:var(--err)}

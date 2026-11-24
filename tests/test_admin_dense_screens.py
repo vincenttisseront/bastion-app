@@ -73,7 +73,7 @@ def test_admin_apps_list_moves_delete_into_row_menu(client: TestClient, db_sessi
     html = page.text
     assert "btn-danger" not in html
     assert "row-menu-item--danger" in html
-    assert 'data-app-slug="wiki"' in html
+    assert 'data-confirm-typed="wiki"' in html  # typed-slug delete (bastion.js)
     assert 'data-row-href="/admin/apps/wiki/edit"' in html
     assert ">WI<" in html  # monogram, same as the user portal
 

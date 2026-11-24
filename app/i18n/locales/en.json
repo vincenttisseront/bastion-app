@@ -3493,5 +3493,14 @@
   "À revoir.": "To review.",
   "État indisponible.": "State unavailable.",
   "— les règles cochées ci-dessous sont": "— the rules ticked below are",
-  "Identifiant de l’application": "Application identifier"
+  "Identifiant de l’application": "Application identifier",
+  "1 session": "1 session",
+  "{n} sessions": "{n} sessions",
+  "1 session sera fermée.": "1 session will be closed.",
+  "{n} sessions seront fermées.": "{n} sessions will be closed.",
+  "Saisissez {value} pour confirmer.": "Type {value} to confirm.",
+  "Désactiver la Passkey sur ce compte ?": "Turn off the passkey on this account?",
+  "Désactiver le TOTP sur ce compte ?": "Turn off TOTP on this account?",
+  "Retirer cette entrée allowlist ?": "Remove this allow-list entry?",
+  "Révoquer l’accès mTLS pour {name} ?": "Revoke mTLS access for {name}?"
 }

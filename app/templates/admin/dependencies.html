@@ -151,7 +151,7 @@
     {{ _('Aucun paquet ne correspond à ce filtre dans cet écosystème.') }}
   </p>
   {% if summary.outdated and not python_outdated and not npm_outdated %}
-  <p class="form-help" style="color:var(--danger,#b91c1c);margin:0 0 var(--sp-3);">
+  <p class="form-help" style="color:var(--err);margin:0 0 var(--sp-3);">
 {{ _('Incohérence :') }} {{ summary.outdated }} {{ _('MAJ annoncées, aucune ligne — Actualiser.') }}
 
   </p>
@@ -204,7 +204,7 @@
               <span class="badge badge-muted" title="{{ _('Distribution introuvable via importlib.metadata') }}">{{ _('non installé') }}</span>
               {% endif %}
               {% if p.check_error %}
-              <div class="form-help" style="color:var(--danger, #b91c1c);" title="{{ p.check_error }}">{{ _('Erreur de lookup') }}</div>
+              <div class="form-help" style="color:var(--err);" title="{{ p.check_error }}">{{ _('Erreur de lookup') }}</div>
               {% endif %}
             </td>
             <td><span class="badge badge-muted">{{ p.type_label }}</span></td>
@@ -283,8 +283,8 @@
     border:0;margin:0;padding:0;min-inline-size:0;
   }
   .dep-panel[hidden]{display:none!important}
-  .dep-row-major td{background:color-mix(in srgb,var(--danger,#b91c1c) 6%,transparent)}
-  .dep-latest-major{color:var(--danger,#b91c1c);font-weight:600}
+  .dep-row-major td{background:color-mix(in srgb,var(--err) 6%,transparent)}
+  .dep-latest-major{color:var(--err);font-weight:600}
   #dep-tabs .tab{cursor:pointer;border:none;background:transparent;font:inherit;color:inherit}
   .dep-filter-btn.active{box-shadow:inset 0 0 0 1px var(--border-bright);color:var(--text)}
   .dep-metrics{margin-top:calc(-1 * var(--sp-2))}

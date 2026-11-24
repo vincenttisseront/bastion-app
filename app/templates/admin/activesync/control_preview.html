@@ -13,7 +13,7 @@
       {% if not preview.control_enabled %}
       {% set enable_confirm = _('Activer le contrôle ? Les appareils en attente listés ici seront approuvés ; tout nouvel appareil sera refusé jusqu’à validation par un administrateur.') if preview.admin_approval_only else _('Activer le contrôle ? Les appareils en attente listés ici seront approuvés ; tout nouvel appareil sera refusé jusqu’à validation dans le portail.') %}
       <form method="post" action="/admin/apps/{{ app.slug }}/activesync/devices/enable"
-            onsubmit="return confirm({{ enable_confirm|tojson }});">
+            data-confirm="{{ enable_confirm }}" data-confirm-danger="0">
         <button type="submit" class="btn btn-primary btn-sm">{{ _('Activer le contrôle') }}</button>
       </form>
       {% else %}

@@ -470,6 +470,35 @@
     });
   };
 
+  // Destructive action guarded by typing an exact value (slug, name).
+  // Resolves true only when the typed text matches; re-asks on a mismatch.
+  window.bastionConfirmTyped = function (options) {
+    options = options || {};
+    var expected = String(options.expected || '');
+    return new Promise(function (resolve) {
+      function ask(error) {
+        window.bastionPrompt({
+          title: options.title,
+          label: options.label,
+          message:
+            (options.message || '') +
+            '\n\n' + BastionI18n.t('Saisissez {value} pour confirmer.').replace('{value}', expected) +
+            (error ? '\n\n' + error : ''),
+          placeholder: expected,
+          confirmLabel: options.confirmLabel,
+        }).then(function (value) {
+          if (value == null) { resolve(false); return; }
+          if (String(value).trim() !== expected) {
+            ask(BastionI18n.t('Le texte saisi ne correspond pas.'));
+            return;
+          }
+          resolve(true);
+        });
+      }
+      ask('');
+    });
+  };
+
   window.bastionPasswordPrompt = function (options) {
     options = options || {};
     if (!ensureDom()) {

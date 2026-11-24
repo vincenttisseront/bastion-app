@@ -196,7 +196,7 @@
 .proto-tag{text-transform:uppercase}
 
 .session-protocol,.proto-tag{font-family:var(--mono);letter-spacing:.05em}
-.session-protocol.ssh,.proto-tag.ssh,.proto-ssh{background:color-mix(in srgb,var(--info) 12%,transparent);color:#60a5fa}
+.session-protocol.ssh,.proto-tag.ssh,.proto-ssh{background:color-mix(in srgb,var(--info) 12%,transparent);color:var(--info)}
 .session-protocol.rdp,.proto-tag.rdp,.proto-rdp{background:var(--purple-bg);color:var(--purple)}
 .session-protocol.web,.proto-tag.web,.proto-web{background:var(--ok-bg);color:var(--ok)}
 
@@ -275,3 +275,22 @@ a.gate-stat:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
 #dashboard-live .audit-time{font-family:var(--font);font-variant-numeric:tabular-nums}
 .pending-queue-item--warn,.pending-queue-item--info{border-left:0}
 .dash-grid--ops{align-items:start}
+
+/* ---------- Motion (lot 5) ----------
+   One unprompted movement on the page: the passage line draws itself left to
+   right the first time it is shown in a browser session. Everything else
+   answers an event: a value that changed flashes once, the live dot beats once
+   per successful refresh instead of pulsing forever. */
+.live-dot{animation:none}
+.live-pill.is-tick .live-dot{animation:pulse 700ms var(--ease-out) 1}
+.gate.is-drawing .gate-svg{animation:gate-draw 900ms var(--ease-out) both}
+@keyframes gate-draw{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+.is-changed{border-radius:var(--r-sm);animation:value-flash 1200ms var(--ease-out) 1}
+@keyframes value-flash{
+  from{background-color:var(--accent-muted);box-shadow:0 0 0 4px var(--accent-muted)}
+  to{background-color:transparent;box-shadow:0 0 0 4px transparent}
+}
+.audit-entry.is-new{animation:value-flash 1200ms var(--ease-out) 1}
+@media (prefers-reduced-motion:reduce){
+  .gate.is-drawing .gate-svg,.is-changed,.audit-entry.is-new,.live-pill.is-tick .live-dot{animation:none}
+}

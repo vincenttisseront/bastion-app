@@ -7,7 +7,7 @@
 
 {% block head_extra %}
 {% if not admin_chrome %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20261124-lot4">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20261124-lot5">
 {% endif %}
 <style>
 .fb-shell{width:100%;max-width:1280px;margin:0 auto;padding:var(--sp-8) var(--sp-6);}
@@ -43,11 +43,11 @@
 .fb-progress{display:none;height:3px;background:var(--border-muted);margin:var(--sp-2) 0 0;}
 .fb-progress > span{display:block;height:100%;width:0;background:var(--accent);transition:width .15s linear;}
 .fb-hint{text-align:center;color:var(--text-3);padding:var(--sp-6);font-size:var(--fs-sm);}
-.fb-drawer{position:fixed;top:0;right:0;width:min(420px,100%);height:100%;background:var(--bg-card);border-left:1px solid var(--border);box-shadow:var(--shadow-lg,0 8px 24px rgba(0,0,0,.18));transform:translateX(100%);transition:transform .2s ease;z-index:40;display:flex;flex-direction:column;}
-.fb-drawer.is-open{transform:translateX(0);}
+.fb-drawer{position:fixed;top:0;right:0;width:min(420px,100%);height:100%;background:var(--bg-card);border-left:1px solid var(--border);box-shadow:var(--sh-lg);transform:translateX(100%);transition:transform calc(var(--dur-3) * .75) var(--ease-in);z-index:40;display:flex;flex-direction:column;}
+.fb-drawer.is-open{transform:translateX(0);transition:transform var(--dur-3) var(--ease-out);}
 .fb-drawer-head{display:flex;justify-content:space-between;align-items:center;padding:var(--sp-4);border-bottom:1px solid var(--border-muted);}
 .fb-drawer-body{padding:var(--sp-4);overflow:auto;flex:1;}
-.fb-menu{position:absolute;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow-md,0 4px 16px rgba(0,0,0,.12));z-index:30;min-width:180px;}
+.fb-menu{position:absolute;background:var(--bg-overlay);border:1px solid var(--border-bright);border-radius:var(--r-md);box-shadow:var(--sh-md);z-index:30;min-width:180px;}
 .fb-menu button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:var(--sp-2) var(--sp-3);cursor:pointer;color:inherit;font:inherit;}
 .fb-menu button:hover{background:var(--accent-muted);}
 .fb-search{margin-left:auto;min-width:180px;}

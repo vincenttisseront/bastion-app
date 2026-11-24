@@ -1,0 +1,9 @@
+{# Typed confirmation for deleting an app: bastion.js asks for the slug before submitting. #}
+{% macro delete_confirm_attrs(app) -%}
+data-app-delete
+data-confirm="{{ _('Les droits, les secrets du coffre et les appareils ActiveSync de cette application seront supprimés, puis la configuration nginx régénérée. Cette action est irréversible.') }}"
+data-confirm-title="{{ _('Supprimer « {name} » ?').format(name=app.label) }}"
+data-confirm-typed="{{ app.slug }}"
+data-confirm-typed-label="{{ _('Identifiant de l’application') }}"
+data-confirm-label="{{ _('Supprimer l’application') }}"
+{%- endmacro %}
