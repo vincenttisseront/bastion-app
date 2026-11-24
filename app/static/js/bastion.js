@@ -970,3 +970,37 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 });
+
+/* Off-canvas admin sidebar (< 1024px). Opens from #sidebar-toggle, closes on
+   Escape, scrim click, or when the viewport grows back to desktop. Focus moves
+   into the drawer on open and back to the toggle on close. */
+document.addEventListener('DOMContentLoaded', function () {
+  var toggle = document.getElementById('sidebar-toggle');
+  var sidebar = document.getElementById('app-sidebar');
+  var scrim = document.querySelector('[data-sidebar-scrim]');
+  if (!toggle || !sidebar) return;
+  var mq = window.matchMedia('(max-width: 1023.98px)');
+
+  function isOpen() { return document.body.classList.contains('sidebar-open'); }
+
+  function setOpen(open, restoreFocus) {
+    document.body.classList.toggle('sidebar-open', open);
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.setAttribute('aria-label', open ? toggle.dataset.labelClose : toggle.dataset.labelOpen);
+    if (open) {
+      var target = sidebar.querySelector('.nav-item.active') || sidebar.querySelector('a, input, button');
+      if (target) window.setTimeout(function () { target.focus(); }, 60);
+    } else if (restoreFocus) {
+      toggle.focus();
+    }
+  }
+
+  toggle.addEventListener('click', function () { setOpen(!isOpen(), false); });
+  if (scrim) scrim.addEventListener('click', function () { setOpen(false, true); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && isOpen() && mq.matches) setOpen(false, true);
+  });
+  var onChange = function () { if (!mq.matches && isOpen()) setOpen(false, false); };
+  if (mq.addEventListener) mq.addEventListener('change', onChange);
+  else if (mq.addListener) mq.addListener(onChange);
+});

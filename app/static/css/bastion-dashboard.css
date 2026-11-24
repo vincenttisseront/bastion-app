@@ -67,7 +67,7 @@
   display:flex;align-items:center;justify-content:center;color:var(--accent);
   transition:all var(--t-base);
 }
-.admin-card:hover .admin-icon{background:var(--accent);color:#fff;box-shadow:var(--accent-glow)}
+.admin-card:hover .admin-icon{background:var(--accent);color:var(--on-accent);box-shadow:var(--accent-glow)}
 .admin-title{font-size:var(--fs-sm);font-weight:700;color:var(--text)}
 .admin-desc{font-size:var(--fs-xs);color:var(--text-2);line-height:1.5;flex:1}
 .admin-arrow{align-self:flex-end;color:var(--text-3);transition:all var(--t-fast);opacity:0}

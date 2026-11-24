@@ -13,18 +13,20 @@
   <script src="/static/js/bastion-i18n.js?v=20260916-locale-form"></script>
   <script src="/static/js/bastion-theme.js?v=20260724-system"></script>
   {# Fonts are local/system only — edge CSP style-src is 'self' (no fonts.googleapis.com). #}
-  <link rel="stylesheet" href="/static/css/bastion.css?v=20261106-logs-stitch">
+  <link rel="stylesheet" href="/static/css/bastion.css?v=20261123-a11y">
   {# Stitch section kit (page head, tab bar, section heads, cards, grids, stat strips) — admin pages opt in with .bp-stitch #}
   <link rel="stylesheet" href="/static/css/bastion-sections.css?v=20261106-stitch-kit">
   {% if current_user and companion_on %}
-  <link rel="stylesheet" href="/static/css/bastion-companion.css?v=20261118-companion">
+  <link rel="stylesheet" href="/static/css/bastion-companion.css?v=20261123-a11y">
   {% endif %}
   {% block head_extra %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% if hide_chrome %}page-login{% else %}app-layout{% endif %}{% endblock %}">
+  <a class="skip-link" href="#{{ skip_target | default('main-content') }}">{{ _('Aller au contenu') }}</a>
 
   {% if not hide_chrome %}
     {% include 'partials/_sidebar.html' %}
+    <div class="sidebar-scrim" data-sidebar-scrim aria-hidden="true"></div>
     <div class="app-body">
       {% include 'partials/_navbar.html' %}
       {% if messages %}
@@ -39,6 +41,9 @@
       </div>
       {% endif %}
       <main class="main-content" id="main-content">
+  {% elif page_owns_main %}
+    {# Portal pages render their own <main> under the portal topbar: one landmark per page. #}
+    <div class="main-content" id="main-content">
   {% else %}
     <main class="main-content" id="main-content">
   {% endif %}
@@ -48,6 +53,8 @@
   {% if not hide_chrome %}
       </main>
       {% include 'partials/_app_footer.html' %}
+    </div>
+  {% elif page_owns_main %}
     </div>
   {% else %}
     </main>
@@ -63,7 +70,7 @@
   <script src="/static/js/bastion-fuzzy-search.js?v=20260722-fuzzy"></script>
   <script src="/static/js/bastion-live-search.js?v=20260805-live"></script>
   <script src="/static/js/bastion-global-search.js?v=20261014-search-fqdn"></script>
-  <script src="/static/js/bastion.js?v=20260901-infra-wait"></script>
+  <script src="/static/js/bastion.js?v=20261123-a11y"></script>
   <script src="/static/js/bastion-wizard.js?v=20260806-wizard-pills"></script>
   <script src="/static/js/bastion-notifications.js?v=20261106-spinner"></script>
   {% if current_user and companion_on %}

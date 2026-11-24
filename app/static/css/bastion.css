@@ -1,8 +1,8 @@
-@import url('/static/css/bastion-tokens.css?v=20261105-refresh');
-@import url('/static/css/bastion-base.css');
-@import url('/static/css/bastion-layout.css');
-@import url('/static/css/bastion-components.css?v=20261106-logs-stitch');
-@import url('/static/css/bastion-dashboard.css');
-@import url('/static/css/bastion-login.css');
-@import url('/static/css/bastion-portal.css');
-@import url('/static/css/bastion-refresh.css?v=20261105-refresh');
+@import url('/static/css/bastion-tokens.css?v=20261123-a11y');
+@import url('/static/css/bastion-base.css?v=20261123-a11y');
+@import url('/static/css/bastion-layout.css?v=20261123-a11y');
+@import url('/static/css/bastion-components.css?v=20261123-a11y');
+@import url('/static/css/bastion-dashboard.css?v=20261123-a11y');
+@import url('/static/css/bastion-login.css?v=20261123-a11y');
+@import url('/static/css/bastion-portal.css?v=20261123-a11y');
+@import url('/static/css/bastion-refresh.css?v=20261123-a11y');

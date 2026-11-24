@@ -2,7 +2,7 @@
 .companion{position:fixed;right:var(--sp-5);bottom:var(--sp-5);z-index:900;font-family:var(--font)}
 .companion-fab{
   width:48px;height:48px;border-radius:var(--r-full);border:1px solid var(--accent-border);
-  background:var(--accent);color:#fff;display:inline-flex;align-items:center;justify-content:center;
+  background:var(--accent);color:var(--on-accent);display:inline-flex;align-items:center;justify-content:center;
   cursor:pointer;box-shadow:var(--sh-md);transition:background var(--t-fast),transform var(--t-fast)
 }
 .companion-fab:hover{background:var(--accent-h)}
