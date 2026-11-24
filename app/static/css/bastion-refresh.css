@@ -127,8 +127,6 @@ body.page-login .main-content,body.auth-layout .main-content{overflow:visible}
    [data-theme] prefix (one extra attribute) to keep these rules in force. */
 [data-theme="light"] .portal-shell{background-image:none}
 [data-theme] .portal-hero{border-radius:var(--r-lg);border-color:var(--border-muted)}
-[data-theme] .app-tile:hover{transform:none;border-color:var(--border-bright);box-shadow:var(--sh-md)}
-[data-theme] .app-tile:hover .admin-icon{box-shadow:none}
 
 @media (prefers-reduced-motion:reduce){
   .admin-card,.metric-card,.btn{transition:none}

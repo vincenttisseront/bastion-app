@@ -325,3 +325,14 @@ body.page-login .main-content{
   .access-details__grid{grid-template-columns:1fr}
   .access-progress__label{font-size:var(--fs-2xs)}
 }
+
+/* No sign-in method from this network: one notice that says what to do. */
+.login-unavailable{
+  padding:var(--sp-4);
+  border:1px solid var(--border);border-left:3px solid var(--warn);
+  border-radius:var(--r-md);background:var(--bg-tertiary);text-align:left
+}
+.login-unavailable-title{margin:0;font-size:var(--fs-base);font-weight:600;color:var(--text)}
+.login-unavailable-hint{margin:var(--sp-1) 0 0;font-size:var(--fs-sm);line-height:1.5;color:var(--text-2)}
+/* The SSO panel renders empty when no method is offered: drop its spacing. */
+.login-panel:not(:has(*)){display:none}

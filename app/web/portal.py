@@ -232,7 +232,10 @@ def apps_portal(
     for tile in tiles:
         tile["is_favorite"] = tile.get("id") in fav_set
     locale = get_request_locale(request)
-    sections = build_apps_sections(tiles, favorite_ids=favorite_ids, locale=locale)
+    # No empty « Accès rapides » block: favourites appear first once there are some.
+    sections = build_apps_sections(
+        tiles, favorite_ids=favorite_ids, show_empty_favorites=False, locale=locale
+    )
     as_ctx = _portal_activesync_context(db, user)
     return render(
         "portal/apps.html",

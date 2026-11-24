@@ -4,7 +4,7 @@
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20261123-v3">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20261124-lot3">
 {% endblock %}
 
 {% block content %}
@@ -38,7 +38,6 @@
 
   <section class="portal-hero portal-hero--compact">
     <div class="portal-hero-copy">
-      <p class="portal-eyebrow">{{ _('Compte') }}</p>
       <h1 class="page-title">{{ _('Mon profil') }}</h1>
       <p class="page-sub">{{ _('Identité, sécurité et préférences Bastion Pro') }}</p>
     </div>
@@ -51,8 +50,6 @@
       <a href="#section-devices" class="portal-profile-nav-link" data-profile-nav>{{ _('Appareils') }}</a>
       <a href="#section-security" class="portal-profile-nav-link" data-profile-nav>{{ _('Sécurité') }}</a>
       <a href="#section-prefs" class="portal-profile-nav-link" data-profile-nav>{{ _('Préférences') }}</a>
-      <span class="portal-profile-nav-disabled" title="{{ _('Non disponible dans cette version') }}">{{ _('Notifications') }}</span>
-      <span class="portal-profile-nav-disabled" title="{{ _('Non disponible dans cette version') }}">{{ _('Jetons API') }}</span>
     </nav>
 
     <div class="portal-profile-stack">
